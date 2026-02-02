@@ -87,3 +87,29 @@ impl Tool for ShellTool {
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ShellTool;
+    use crate::kernel::permissions::Permission;
+    use crate::tools::traits::Tool;
+    use serde_json::json;
+
+    #[test]
+    fn required_permissions_wrap_command() {
+        let tool = ShellTool::default();
+        let ctx = crate::tools::traits::ToolContext {
+            working_dir: std::path::PathBuf::from("/"),
+            capabilities: std::sync::Arc::new(crate::kernel::permissions::CapabilitySet::empty()),
+        };
+        let required = tool
+            .required_permissions(&ctx, &json!({"command": "ls"}))
+            .unwrap();
+        assert!(matches!(
+            required[0],
+            Permission::ShellExec {
+                allowed_commands: Some(_)
+            }
+        ));
+    }
+}

@@ -117,3 +117,14 @@ fn parse_host(url: &str) -> Result<String, ToolError> {
         .map(|host| host.to_string())
         .ok_or_else(|| ToolError::InvalidInput("missing host".to_string()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::parse_host;
+
+    #[test]
+    fn parse_host_extracts_domain() {
+        let host = parse_host("https://example.com/path").unwrap();
+        assert_eq!(host, "example.com");
+    }
+}

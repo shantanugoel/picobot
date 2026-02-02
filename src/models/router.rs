@@ -135,3 +135,29 @@ fn build_model(config: &ModelConfig) -> Result<OpenAICompatModel, ModelRegistryE
     };
     Ok(OpenAICompatModel::new(info, client))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ModelRegistry, ModelRegistryError};
+    use crate::config::{Config, ModelConfig, RoutingConfig};
+
+    #[test]
+    fn registry_requires_default_model() {
+        let config = Config {
+            models: vec![ModelConfig {
+                id: "default".to_string(),
+                provider: "openai".to_string(),
+                model: "gpt-4o".to_string(),
+                api_key_env: None,
+                base_url: None,
+            }],
+            routing: Some(RoutingConfig { default: None }),
+            agent: None,
+            permissions: None,
+            logging: None,
+        };
+
+        let result = ModelRegistry::from_config(&config);
+        assert!(matches!(result, Err(ModelRegistryError::MissingDefault)));
+    }
+}

@@ -152,11 +152,41 @@ fn normalize_path(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::normalize_path;
+    use super::resolve_path;
+    use super::FilesystemTool;
+    use crate::kernel::permissions::Permission;
+    use crate::tools::traits::Tool;
+    use serde_json::json;
 
     #[test]
     fn normalize_path_removes_dot_segments() {
         let input = std::path::Path::new("/tmp/a/./b/../c");
         let normalized = normalize_path(input);
         assert_eq!(normalized.to_string_lossy(), "/tmp/a/c");
+    }
+
+    #[test]
+    fn resolve_path_expands_relative() {
+        let resolved = resolve_path(std::path::Path::new("/tmp"), "nested/file.txt").unwrap();
+        assert_eq!(resolved.to_string_lossy(), "/tmp/nested/file.txt");
+    }
+
+    #[test]
+    fn required_permissions_match_operation() {
+        let tool = FilesystemTool::default();
+        let ctx = crate::tools::traits::ToolContext {
+            working_dir: std::path::PathBuf::from("/tmp"),
+            capabilities: std::sync::Arc::new(crate::kernel::permissions::CapabilitySet::empty()),
+        };
+
+        let read = tool
+            .required_permissions(&ctx, &json!({"operation": "read", "path": "file.txt"}))
+            .unwrap();
+        assert!(matches!(read[0], Permission::FileRead { .. }));
+
+        let write = tool
+            .required_permissions(&ctx, &json!({"operation": "write", "path": "file.txt"}))
+            .unwrap();
+        assert!(matches!(write[0], Permission::FileWrite { .. }));
     }
 }

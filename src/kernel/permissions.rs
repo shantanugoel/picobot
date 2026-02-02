@@ -157,3 +157,50 @@ impl Permission {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{CapabilitySet, DomainPattern, PathPattern, Permission};
+
+    #[test]
+    fn capability_set_allows_globbed_paths() {
+        let mut set = CapabilitySet::empty();
+        set.insert(Permission::FileRead {
+            path: PathPattern("/tmp/**".to_string()),
+        });
+
+        let required = Permission::FileRead {
+            path: PathPattern("/tmp/example.txt".to_string()),
+        };
+
+        assert!(set.allows(&required));
+    }
+
+    #[test]
+    fn domain_pattern_matches_host() {
+        let mut set = CapabilitySet::empty();
+        set.insert(Permission::NetAccess {
+            domain: DomainPattern("api.github.com".to_string()),
+        });
+
+        let required = Permission::NetAccess {
+            domain: DomainPattern("api.github.com".to_string()),
+        };
+
+        assert!(set.allows(&required));
+    }
+
+    #[test]
+    fn shell_exec_none_covers_all() {
+        let mut set = CapabilitySet::empty();
+        set.insert(Permission::ShellExec {
+            allowed_commands: None,
+        });
+
+        let required = Permission::ShellExec {
+            allowed_commands: Some(vec!["git".to_string()]),
+        };
+
+        assert!(set.allows(&required));
+    }
+}
