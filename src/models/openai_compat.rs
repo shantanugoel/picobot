@@ -84,18 +84,17 @@ impl Model for OpenAICompatModel {
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|err| ModelError::RequestFailed(err.to_string()))?;
             for choice in chunk.choices {
-                if let Some(delta) = choice.delta.content {
-                    if !delta.is_empty() {
+                if let Some(delta) = choice.delta.content
+                    && !delta.is_empty() {
                         events.push(ModelEvent::Token(delta));
                     }
-                }
 
                 if let Some(tool_calls) = choice.delta.tool_calls {
                     apply_tool_call_deltas(&mut tool_call_accumulator, tool_calls);
                 }
 
-                if choice.finish_reason.is_some() {
-                    if !tool_call_accumulator.is_empty() {
+                if choice.finish_reason.is_some()
+                    && !tool_call_accumulator.is_empty() {
                         let invocations = tool_call_accumulator
                             .drain(..)
                             .map(ToolCallAccumulator::into_invocation)
@@ -104,7 +103,6 @@ impl Model for OpenAICompatModel {
                             events.push(ModelEvent::ToolCall(invocation));
                         }
                     }
-                }
             }
         }
 

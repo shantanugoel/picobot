@@ -95,11 +95,10 @@ fn build_model(config: &ModelConfig) -> Result<OpenAICompatModel, ModelRegistryE
         openai_config = openai_config.with_api_base(base_url);
     }
 
-    if let Some(api_key_env) = &config.api_key_env {
-        if let Ok(api_key) = std::env::var(api_key_env) {
+    if let Some(api_key_env) = &config.api_key_env
+        && let Ok(api_key) = std::env::var(api_key_env) {
             openai_config = openai_config.with_api_key(api_key);
         }
-    }
 
     let client = async_openai::Client::with_config(openai_config);
     let info = ModelInfo {
