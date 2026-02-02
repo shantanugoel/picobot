@@ -280,21 +280,21 @@ glob = "0.3"
 - [x] Simple router (single model)
 
 ### Phase 3: Tools (Days 6-8)
-- [ ] Tool registry
-- [ ] Schema validation with jsonschema
-- [ ] Shell tool (with command allowlist)
-- [ ] Filesystem tool (read/write with path validation)
-- [ ] HTTP fetch tool (with domain allowlist)
+- [x] Tool registry
+- [x] Schema validation with jsonschema
+- [x] Shell tool (with command allowlist)
+- [x] Filesystem tool (read/write with path validation)
+- [x] HTTP fetch tool (with domain allowlist)
 
 ### Phase 4: Kernel (Days 9-11)
 - [ ] Agent orchestration loop
-- [ ] Permission checking integration
-- [ ] Tool execution flow
-- [ ] Conversation state management
+- [x] Permission checking integration
+- [x] Tool execution flow
+- [x] Conversation state management
 - [ ] Error handling and recovery
 
 ### Phase 5: CLI (Days 12-14)
-- [ ] REPL with rustyline
+- [ ] TUI with Ratatui
 - [ ] Command history
 - [ ] Colored output
 - [ ] Special commands (/quit, /clear, /permissions)

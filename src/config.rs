@@ -8,6 +8,8 @@ pub struct Config {
     #[serde(default)]
     pub routing: Option<RoutingConfig>,
     pub permissions: Option<PermissionsConfig>,
+    #[serde(default)]
+    pub logging: Option<LoggingConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,4 +54,10 @@ pub struct NetworkPermissions {
 pub struct ShellPermissions {
     pub allowed_commands: Vec<String>,
     pub working_directory: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct LoggingConfig {
+    pub level: Option<String>,
+    pub audit_file: Option<String>,
 }

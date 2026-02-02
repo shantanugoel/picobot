@@ -12,18 +12,18 @@ pub struct ToolSpec {
     pub schema: serde_json::Value,
 }
 
-#[derive(Debug)]
-pub struct ToolContext {
-    pub working_dir: std::path::PathBuf,
-    pub capabilities: std::sync::Arc<crate::kernel::permissions::CapabilitySet>,
-}
+pub use crate::kernel::context::ToolContext;
 
 #[async_trait]
 pub trait Tool: Send + Sync {
     fn name(&self) -> &'static str;
     fn description(&self) -> &'static str;
     fn schema(&self) -> serde_json::Value;
-    fn required_permissions(&self) -> Vec<Permission>;
+    fn required_permissions(
+        &self,
+        ctx: &ToolContext,
+        input: &serde_json::Value,
+    ) -> Result<Vec<Permission>, ToolError>;
     async fn execute(&self, ctx: &ToolContext, input: serde_json::Value) -> Result<ToolOutput, ToolError>;
 }
 
@@ -31,6 +31,10 @@ pub trait Tool: Send + Sync {
 pub enum ToolError {
     #[error("Permission denied for tool '{tool}': requires {required:?}")]
     PermissionDenied { tool: String, required: Vec<Permission> },
+    #[error("Invalid tool input: {0}")]
+    InvalidInput(String),
+    #[error("Schema validation failed: {0}")]
+    SchemaValidation(String),
     #[error("Tool execution failed: {0}")]
     ExecutionFailed(String),
 }
