@@ -287,11 +287,11 @@ glob = "0.3"
 - [x] HTTP fetch tool (with domain allowlist)
 
 ### Phase 4: Kernel (Days 9-11)
-- [ ] Agent orchestration loop
+- [x] Agent orchestration loop
 - [x] Permission checking integration
 - [x] Tool execution flow
 - [x] Conversation state management
-- [ ] Error handling and recovery
+- [x] Error handling and recovery
 
 ### Phase 5: CLI (Days 12-14)
 - [ ] TUI with Ratatui

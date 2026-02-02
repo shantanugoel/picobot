@@ -36,6 +36,14 @@ impl Kernel {
         &self.context
     }
 
+    pub fn set_working_dir(&mut self, working_dir: std::path::PathBuf) {
+        self.context.working_dir = working_dir;
+    }
+
+    pub fn set_capabilities(&mut self, capabilities: CapabilitySet) {
+        self.context.capabilities = Arc::new(capabilities);
+    }
+
     pub async fn invoke_tool(
         &self,
         tool: &dyn Tool,

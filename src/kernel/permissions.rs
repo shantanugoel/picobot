@@ -3,6 +3,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::config::PermissionsConfig;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Permission {
     FileRead {
@@ -49,6 +51,39 @@ impl CapabilitySet {
 
     pub fn allows_all(&self, required: &[Permission]) -> bool {
         required.iter().all(|permission| self.allows(permission))
+    }
+
+    pub fn from_config(config: &PermissionsConfig) -> Self {
+        let mut set = CapabilitySet::empty();
+
+        if let Some(filesystem) = &config.filesystem {
+            for path in &filesystem.read_paths {
+                set.insert(Permission::FileRead {
+                    path: PathPattern(path.clone()),
+                });
+            }
+            for path in &filesystem.write_paths {
+                set.insert(Permission::FileWrite {
+                    path: PathPattern(path.clone()),
+                });
+            }
+        }
+
+        if let Some(network) = &config.network {
+            for domain in &network.allowed_domains {
+                set.insert(Permission::NetAccess {
+                    domain: DomainPattern(domain.clone()),
+                });
+            }
+        }
+
+        if let Some(shell) = &config.shell && !shell.allowed_commands.is_empty() {
+            set.insert(Permission::ShellExec {
+                allowed_commands: Some(shell.allowed_commands.clone()),
+            });
+        }
+
+        set
     }
 }
 
