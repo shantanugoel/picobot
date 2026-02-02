@@ -1,3 +1,6 @@
+use picobot::config::Config;
+
 fn main() {
-    println!("Hello, world!");
+    let _config = Config::default();
+    println!("PicoBot initializing...");
 }

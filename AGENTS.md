@@ -8,6 +8,7 @@ PicoBot is a secure AI agent in Rust. Read `PLAN.md` for full architecture.
 - All tool invocations MUST go through the kernel's permission guard
 - Never bypass `CapabilitySet.allows()` checks
 - Tools declare permissions; kernel enforces them
+- Always use the latest versions of any crates or dependencies
 
 ## Code Organization
 
