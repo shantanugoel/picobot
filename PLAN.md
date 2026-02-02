@@ -31,7 +31,13 @@
 - Multi-model routing by task hint
 - Tool metadata registry for discovery
 
-## Phase 6: Ecosystem & UX
+## Phase 6
+
+- Add a browser-use agent that can do extensive usage of browser
+- Allow to persist cookies etc after logging in so it retains login status
+- Think about how to get initial logins done for tricky cases (captchas that it can solve on its own, and where it can take user's help either via TUI or whatsapp, and where it needs user to login separately on their own and provide something to the bot)
+
+## Phase 7: Ecosystem & UX
 
 - Structured prompt templates for common tasks
 - Export/import for config and profiles
