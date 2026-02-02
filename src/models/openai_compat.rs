@@ -1,3 +1,4 @@
+use async_openai::Client;
 use async_openai::config::OpenAIConfig;
 use async_openai::types::chat::{
     ChatCompletionMessageToolCallChunk, ChatCompletionMessageToolCalls,
@@ -6,10 +7,9 @@ use async_openai::types::chat::{
     ChatCompletionRequestUserMessageArgs, ChatCompletionTool, ChatCompletionTools,
     CreateChatCompletionRequest, CreateChatCompletionRequestArgs, FunctionObjectArgs,
 };
-use async_openai::Client;
 use async_trait::async_trait;
 use futures::StreamExt;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::models::traits::{Model, ModelError};
 use crate::models::types::{
@@ -61,9 +61,7 @@ impl Model for OpenAICompatModel {
             return Ok(ModelResponse::ToolCalls(invocations));
         }
 
-        let content = message
-            .content
-            .unwrap_or_else(|| "".to_string());
+        let content = message.content.unwrap_or_else(|| "".to_string());
         Ok(ModelResponse::Text(content))
     }
 
@@ -85,28 +83,31 @@ impl Model for OpenAICompatModel {
             let chunk = chunk.map_err(|err| ModelError::RequestFailed(err.to_string()))?;
             for choice in chunk.choices {
                 if let Some(delta) = choice.delta.content
-                    && !delta.is_empty() {
-                        events.push(ModelEvent::Token(delta));
-                    }
+                    && !delta.is_empty()
+                {
+                    events.push(ModelEvent::Token(delta));
+                }
 
                 if let Some(tool_calls) = choice.delta.tool_calls {
                     apply_tool_call_deltas(&mut tool_call_accumulator, tool_calls);
                 }
 
-                if choice.finish_reason.is_some()
-                    && !tool_call_accumulator.is_empty() {
-                        let invocations = tool_call_accumulator
-                            .drain(..)
-                            .map(ToolCallAccumulator::into_invocation)
-                            .collect::<Result<Vec<_>, ModelError>>()?;
-                        for invocation in invocations {
-                            events.push(ModelEvent::ToolCall(invocation));
-                        }
+                if choice.finish_reason.is_some() && !tool_call_accumulator.is_empty() {
+                    let invocations = tool_call_accumulator
+                        .drain(..)
+                        .map(ToolCallAccumulator::into_invocation)
+                        .collect::<Result<Vec<_>, ModelError>>()?;
+                    for invocation in invocations {
+                        events.push(ModelEvent::ToolCall(invocation));
                     }
+                }
             }
         }
 
-        let response = if events.iter().any(|event| matches!(event, ModelEvent::ToolCall(_))) {
+        let response = if events
+            .iter()
+            .any(|event| matches!(event, ModelEvent::ToolCall(_)))
+        {
             let invocations = events
                 .iter()
                 .filter_map(|event| match event {
@@ -176,7 +177,10 @@ fn to_chat_message(message: &Message) -> Result<ChatCompletionRequestMessage, Mo
             .build()
             .map_err(|err| ModelError::InvalidResponse(err.to_string()))?
             .into()),
-        Message::Tool { tool_call_id, content } => Ok(ChatCompletionRequestToolMessageArgs::default()
+        Message::Tool {
+            tool_call_id,
+            content,
+        } => Ok(ChatCompletionRequestToolMessageArgs::default()
             .tool_call_id(tool_call_id)
             .content(content.clone())
             .build()
@@ -194,7 +198,9 @@ fn to_tools(tools: &[ToolSpec]) -> Result<Vec<ChatCompletionTools>, ModelError> 
             .parameters(tool.schema.clone())
             .build()
             .map_err(|err| ModelError::InvalidResponse(err.to_string()))?;
-        result.push(ChatCompletionTools::Function(ChatCompletionTool { function }));
+        result.push(ChatCompletionTools::Function(ChatCompletionTool {
+            function,
+        }));
     }
     Ok(result)
 }

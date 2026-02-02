@@ -56,8 +56,22 @@ impl ModelRegistry {
             .expect("default model missing")
     }
 
+    pub fn default_id(&self) -> &str {
+        &self.default_id
+    }
+
     pub fn get(&self, id: &str) -> Option<&dyn Model> {
         self.models.get(id).map(|model| model.as_ref())
+    }
+
+    pub fn model_infos(&self) -> Vec<ModelInfo> {
+        let mut infos = self
+            .models
+            .values()
+            .map(|model| model.info())
+            .collect::<Vec<_>>();
+        infos.sort_by(|a, b| a.id.cmp(&b.id));
+        infos
     }
 }
 
@@ -96,9 +110,10 @@ fn build_model(config: &ModelConfig) -> Result<OpenAICompatModel, ModelRegistryE
     }
 
     if let Some(api_key_env) = &config.api_key_env
-        && let Ok(api_key) = std::env::var(api_key_env) {
-            openai_config = openai_config.with_api_key(api_key);
-        }
+        && let Ok(api_key) = std::env::var(api_key_env)
+    {
+        openai_config = openai_config.with_api_key(api_key);
+    }
 
     let client = async_openai::Client::with_config(openai_config);
     let info = ModelInfo {

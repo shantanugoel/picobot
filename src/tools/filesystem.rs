@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::kernel::permissions::{PathPattern, Permission};
 use crate::tools::traits::{Tool, ToolContext, ToolError, ToolOutput};
@@ -65,11 +65,7 @@ impl Tool for FilesystemTool {
         let permission = match operation {
             "read" => Permission::FileRead { path: pattern },
             "write" => Permission::FileWrite { path: pattern },
-            _ => {
-                return Err(ToolError::InvalidInput(
-                    "invalid operation".to_string(),
-                ))
-            }
+            _ => return Err(ToolError::InvalidInput("invalid operation".to_string())),
         };
         Ok(vec![permission])
     }
@@ -119,7 +115,9 @@ fn resolve_path(working_dir: &Path, raw: &str) -> Result<PathBuf, ToolError> {
                 let trimmed = raw.trim_start_matches("~");
                 home.join(trimmed.trim_start_matches('/'))
             } else {
-                return Err(ToolError::ExecutionFailed("home directory not found".to_string()));
+                return Err(ToolError::ExecutionFailed(
+                    "home directory not found".to_string(),
+                ));
             }
         } else {
             PathBuf::from(raw)

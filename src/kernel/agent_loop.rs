@@ -1,15 +1,20 @@
 use crate::kernel::agent::Kernel;
+use crate::kernel::permissions::{CapabilitySet, Permission};
 use crate::models::traits::Model;
 use crate::models::types::{Message, ModelRequest, ModelResponse};
-use crate::tools::traits::{ToolError, ToolSpec};
+use crate::tools::traits::{ToolError, ToolOutput, ToolSpec};
 
 pub struct ConversationState {
     messages: Vec<Message>,
+    session_grants: CapabilitySet,
 }
 
 impl ConversationState {
     pub fn new() -> Self {
-        Self { messages: Vec::new() }
+        Self {
+            messages: Vec::new(),
+            session_grants: CapabilitySet::empty(),
+        }
     }
 
     pub fn push(&mut self, message: Message) {
@@ -21,10 +26,23 @@ impl ConversationState {
     }
 
     pub fn last_user_message(&self) -> Option<&str> {
-        self.messages.iter().rev().find_map(|message| match message {
-            Message::User { content } => Some(content.as_str()),
-            _ => None,
-        })
+        self.messages
+            .iter()
+            .rev()
+            .find_map(|message| match message {
+                Message::User { content } => Some(content.as_str()),
+                _ => None,
+            })
+    }
+
+    pub fn grant_session_permissions(&mut self, permissions: &[Permission]) {
+        for permission in permissions {
+            self.session_grants.insert(permission.clone());
+        }
+    }
+
+    pub fn session_grants(&self) -> &CapabilitySet {
+        &self.session_grants
     }
 }
 
@@ -66,6 +84,139 @@ pub async fn handle_model_response(
             Ok(None)
         }
     }
+}
+
+pub async fn handle_model_response_with_permissions(
+    kernel: &Kernel,
+    response: ModelResponse,
+    state: &mut ConversationState,
+    request_permission: &mut dyn FnMut(&str, &[Permission]) -> PermissionDecision,
+    on_debug: &mut dyn FnMut(&str),
+) -> Result<Option<String>, ToolError> {
+    match response {
+        ModelResponse::Text(text) => {
+            state.push(Message::assistant(text.clone()));
+            Ok(Some(text))
+        }
+        ModelResponse::ToolCalls(calls) => {
+            for call in calls {
+                let content = if let Some(tool) = kernel.tool_registry().get(&call.name) {
+                    let input = call.arguments.clone();
+                    on_debug(&format!(
+                        "tool_call: {} {}",
+                        tool.name(),
+                        summarize_json(&input)
+                    ));
+                    let required = kernel.tool_registry().required_permissions(
+                        tool,
+                        kernel.context(),
+                        &input,
+                    )?;
+                    if !required.is_empty() {
+                        on_debug(&format!(
+                            "tool_permissions: {} {}",
+                            tool.name(),
+                            format_permissions(&required)
+                        ));
+                    }
+                    let output = invoke_tool_with_permissions(
+                        kernel,
+                        state,
+                        tool,
+                        input,
+                        &required,
+                        request_permission,
+                        on_debug,
+                    )
+                    .await?;
+                    on_debug(&format!(
+                        "tool_result: {} {}",
+                        tool.name(),
+                        summarize_json(&output)
+                    ));
+                    serde_json::to_string(&output)
+                        .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?
+                } else {
+                    serde_json::to_string(&serde_json::json!({
+                        "error": format!("unknown tool '{}'", call.name)
+                    }))
+                    .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?
+                };
+                state.push(Message::tool(call.id, content));
+            }
+            Ok(None)
+        }
+    }
+}
+
+async fn invoke_tool_with_permissions(
+    kernel: &Kernel,
+    state: &mut ConversationState,
+    tool: &dyn crate::tools::traits::Tool,
+    input: serde_json::Value,
+    required: &[Permission],
+    request_permission: &mut dyn FnMut(&str, &[Permission]) -> PermissionDecision,
+    on_debug: &mut dyn FnMut(&str),
+) -> Result<ToolOutput, ToolError> {
+    let allowed = kernel.context().capabilities.allows_all(required)
+        || state.session_grants().allows_all(required);
+    let mut grants = None;
+    if !allowed {
+        match request_permission(tool.name(), required) {
+            PermissionDecision::Once => {
+                let once = CapabilitySet::from_permissions(required);
+                grants = Some(once);
+            }
+            PermissionDecision::Session => {
+                state.grant_session_permissions(required);
+                grants = Some(state.session_grants().clone());
+            }
+            PermissionDecision::Deny => {
+                on_debug(&format!("permission_denied: {}", tool.name()));
+                return Ok(serde_json::json!({
+                    "error": format!("permission denied for tool '{}'", tool.name())
+                }));
+            }
+        }
+    }
+
+    let grant_ref = grants.as_ref().unwrap_or(state.session_grants());
+    match kernel
+        .invoke_tool_with_grants(tool, input, Some(grant_ref))
+        .await
+    {
+        Ok(result) => Ok(result),
+        Err(err) => Ok(serde_json::json!({
+            "error": err.to_string()
+        })),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionDecision {
+    Once,
+    Session,
+    Deny,
+}
+
+fn summarize_json(value: &serde_json::Value) -> String {
+    let text = value.to_string();
+    if text.len() > 160 {
+        format!("{}...", &text[..160])
+    } else {
+        text
+    }
+}
+
+fn format_permissions(permissions: &[Permission]) -> String {
+    if permissions.is_empty() {
+        return "(none)".to_string();
+    }
+    permissions
+        .iter()
+        .map(|permission| format!("{permission:?}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 pub enum AgentStep {
@@ -188,6 +339,86 @@ pub async fn run_agent_loop_streamed_with_limit(
     ))
 }
 
+pub async fn run_agent_loop_streamed_with_permissions(
+    kernel: &Kernel,
+    model: &dyn Model,
+    state: &mut ConversationState,
+    user_message: String,
+    on_token: &mut dyn FnMut(&str),
+    request_permission: &mut dyn FnMut(&str, &[Permission]) -> PermissionDecision,
+) -> Result<String, ToolError> {
+    run_agent_loop_streamed_with_permissions_limit(
+        kernel,
+        model,
+        state,
+        user_message,
+        on_token,
+        request_permission,
+        &mut |_| {},
+        8,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn run_agent_loop_streamed_with_permissions_limit(
+    kernel: &Kernel,
+    model: &dyn Model,
+    state: &mut ConversationState,
+    user_message: String,
+    on_token: &mut dyn FnMut(&str),
+    request_permission: &mut dyn FnMut(&str, &[Permission]) -> PermissionDecision,
+    on_debug: &mut dyn FnMut(&str),
+    max_tool_rounds: usize,
+) -> Result<String, ToolError> {
+    state.push(Message::user(user_message));
+    for _ in 0..max_tool_rounds {
+        let request = build_model_request(state, kernel.tool_registry().tool_specs());
+        let events = model
+            .stream(request)
+            .await
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
+
+        let mut content = String::new();
+        let mut tool_calls = Vec::new();
+
+        for event in events {
+            match event {
+                crate::models::types::ModelEvent::Token(token) => {
+                    on_token(&token);
+                    content.push_str(&token);
+                }
+                crate::models::types::ModelEvent::ToolCall(call) => {
+                    tool_calls.push(call);
+                }
+                crate::models::types::ModelEvent::Done(_) => {}
+            }
+        }
+
+        let response = if !tool_calls.is_empty() {
+            ModelResponse::ToolCalls(tool_calls)
+        } else {
+            ModelResponse::Text(content)
+        };
+
+        match handle_model_response_with_permissions(
+            kernel,
+            response,
+            state,
+            request_permission,
+            on_debug,
+        )
+        .await?
+        {
+            Some(text) => return Ok(text),
+            None => continue,
+        }
+    }
+    Err(ToolError::ExecutionFailed(
+        "tool call loop exceeded limit".to_string(),
+    ))
+}
+
 pub fn build_model_request(state: &ConversationState, tools: Vec<ToolSpec>) -> ModelRequest {
     ModelRequest {
         messages: state.messages().to_vec(),
@@ -203,7 +434,7 @@ mod tests {
     use serde_json::json;
 
     use crate::kernel::agent::Kernel;
-    use crate::kernel::agent_loop::{build_model_request, run_agent_loop, ConversationState};
+    use crate::kernel::agent_loop::{ConversationState, build_model_request, run_agent_loop};
     use crate::kernel::permissions::CapabilitySet;
     use crate::models::traits::{Model, ModelError};
     use crate::models::types::{Message, ModelEvent, ModelResponse, ToolInvocation};

@@ -77,12 +77,22 @@ impl CapabilitySet {
             }
         }
 
-        if let Some(shell) = &config.shell && !shell.allowed_commands.is_empty() {
+        if let Some(shell) = &config.shell
+            && !shell.allowed_commands.is_empty()
+        {
             set.insert(Permission::ShellExec {
                 allowed_commands: Some(shell.allowed_commands.clone()),
             });
         }
 
+        set
+    }
+
+    pub fn from_permissions(permissions: &[Permission]) -> Self {
+        let mut set = CapabilitySet::empty();
+        for permission in permissions {
+            set.insert(permission.clone());
+        }
         set
     }
 }
@@ -106,7 +116,9 @@ impl DomainPattern {
 }
 
 fn expand_tilde(value: &str) -> String {
-    if (value == "~" || value.starts_with("~/")) && let Some(home) = dirs::home_dir() {
+    if (value == "~" || value.starts_with("~/"))
+        && let Some(home) = dirs::home_dir()
+    {
         let trimmed = value.trim_start_matches('~');
         return home
             .join(trimmed.trim_start_matches('/'))

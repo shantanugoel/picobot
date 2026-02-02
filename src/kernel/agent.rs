@@ -49,12 +49,25 @@ impl Kernel {
         tool: &dyn Tool,
         input: Value,
     ) -> Result<ToolOutput, ToolError> {
+        self.invoke_tool_with_grants(tool, input, None).await
+    }
+
+    pub async fn invoke_tool_with_grants(
+        &self,
+        tool: &dyn Tool,
+        input: Value,
+        extra_grants: Option<&CapabilitySet>,
+    ) -> Result<ToolOutput, ToolError> {
         self.tool_registry.validate_input(tool, &input)?;
 
         let required = self
             .tool_registry
             .required_permissions(tool, &self.context, &input)?;
-        if !self.context.capabilities.allows_all(&required) {
+        let allowed = self.context.capabilities.allows_all(&required)
+            || extra_grants
+                .map(|grants| grants.allows_all(&required))
+                .unwrap_or(false);
+        if !allowed {
             return Err(ToolError::PermissionDenied {
                 tool: tool.name().to_string(),
                 required,
@@ -134,8 +147,8 @@ mod tests {
             path: PathPattern("/tmp/allowed.txt".to_string()),
         });
 
-        let kernel = Kernel::new(registry, std::path::PathBuf::from("/"))
-            .with_capabilities(capabilities);
+        let kernel =
+            Kernel::new(registry, std::path::PathBuf::from("/")).with_capabilities(capabilities);
         let tool = kernel.tool_registry().get("dummy").unwrap();
         let result = kernel.invoke_tool(tool, json!({})).await;
 

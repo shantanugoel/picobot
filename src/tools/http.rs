@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use reqwest::Client;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::kernel::permissions::Permission;
 use crate::tools::traits::{Tool, ToolContext, ToolError, ToolOutput};
@@ -67,10 +67,7 @@ impl Tool for HttpTool {
             .get("url")
             .and_then(Value::as_str)
             .ok_or_else(|| ToolError::InvalidInput("missing url".to_string()))?;
-        let method = input
-            .get("method")
-            .and_then(Value::as_str)
-            .unwrap_or("GET");
+        let method = input.get("method").and_then(Value::as_str).unwrap_or("GET");
         let headers = input.get("headers").and_then(Value::as_object);
         let body = input.get("body").and_then(Value::as_str);
 
@@ -113,8 +110,8 @@ impl Tool for HttpTool {
 }
 
 fn parse_host(url: &str) -> Result<String, ToolError> {
-    let parsed = reqwest::Url::parse(url)
-        .map_err(|err| ToolError::InvalidInput(err.to_string()))?;
+    let parsed =
+        reqwest::Url::parse(url).map_err(|err| ToolError::InvalidInput(err.to_string()))?;
     parsed
         .host_str()
         .map(|host| host.to_string())

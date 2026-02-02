@@ -1,7 +1,7 @@
 use std::process::Stdio;
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::kernel::permissions::Permission;
 use crate::tools::traits::{Tool, ToolContext, ToolError, ToolOutput};

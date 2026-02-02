@@ -294,11 +294,11 @@ glob = "0.3"
 - [x] Error handling and recovery
 
 ### Phase 5: CLI (Days 12-14)
-- [ ] TUI with Ratatui
-- [ ] Command history
-- [ ] Colored output
-- [ ] Special commands (/quit, /clear, /permissions)
-- [ ] Streaming output display
+- [x] TUI with Ratatui
+- [x] Command history
+- [x] Colored output
+- [x] Special commands (/quit, /clear, /permissions)
+- [x] Streaming output display
 
 ### Phase 6: Polish
 - [ ] Comprehensive tests
@@ -390,7 +390,7 @@ async fn run_agent_loop(&mut self) -> Result<()> {
 ## Future Enhancements
 
 - **HTTP API**: REST/WebSocket for remote access
-- **Communication adapters**: Telegram, Discord, Slack
+- **Communication adapters**: Telegram, Discord, Slack, WhatsApp
 - **Persistent memory**: SQLite for conversation history
 - **Multi-model routing**: Task-based model selection
 - **Dynamic tools**: Runtime tool loading (WASM plugins)

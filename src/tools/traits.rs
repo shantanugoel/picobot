@@ -24,13 +24,20 @@ pub trait Tool: Send + Sync {
         ctx: &ToolContext,
         input: &serde_json::Value,
     ) -> Result<Vec<Permission>, ToolError>;
-    async fn execute(&self, ctx: &ToolContext, input: serde_json::Value) -> Result<ToolOutput, ToolError>;
+    async fn execute(
+        &self,
+        ctx: &ToolContext,
+        input: serde_json::Value,
+    ) -> Result<ToolOutput, ToolError>;
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ToolError {
     #[error("Permission denied for tool '{tool}': requires {required:?}")]
-    PermissionDenied { tool: String, required: Vec<Permission> },
+    PermissionDenied {
+        tool: String,
+        required: Vec<Permission>,
+    },
     #[error("Invalid tool input: {0}")]
     InvalidInput(String),
     #[error("Schema validation failed: {0}")]
