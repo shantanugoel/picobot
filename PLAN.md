@@ -265,19 +265,19 @@ glob = "0.3"
 ## Implementation Phases
 
 ### Phase 1: Foundation (Days 1-3)
-- [ ] Project setup with Cargo.toml
-- [ ] Config parsing (TOML)
-- [ ] Permission types and CapabilitySet
-- [ ] Error types with thiserror
-- [ ] Model trait definition
-- [ ] Tool trait definition
+- [x] Project setup with Cargo.toml
+- [x] Config parsing (TOML)
+- [x] Permission types and CapabilitySet
+- [x] Error types with thiserror
+- [x] Model trait definition
+- [x] Tool trait definition
 
 ### Phase 2: Model Layer (Days 4-5)
-- [ ] OpenAI-compatible model implementation
-- [ ] Message types (User, Assistant, Tool, System)
-- [ ] Tool call handling (function calling)
-- [ ] Streaming support
-- [ ] Simple router (single model)
+- [x] OpenAI-compatible model implementation
+- [x] Message types (User, Assistant, Tool, System)
+- [x] Tool call handling (function calling)
+- [x] Streaming support
+- [x] Simple router (single model)
 
 ### Phase 3: Tools (Days 6-8)
 - [ ] Tool registry
@@ -303,7 +303,7 @@ glob = "0.3"
 ### Phase 6: Polish
 - [ ] Comprehensive tests
 - [ ] Documentation
-- [ ] Example configs
+- [x] Example configs
 - [ ] README with usage instructions
 
 ---

@@ -1,0 +1,45 @@
+# Example configuration for PicoBot
+
+[agent]
+name = "PicoBot"
+system_prompt = """
+You are PicoBot, a helpful AI assistant with access to tools.
+Always explain what you're about to do before using a tool.
+"""
+
+[[models]]
+id = "default"
+provider = "openai"
+model = "gpt-4o"
+api_key_env = "OPENAI_API_KEY"
+
+[[models]]
+id = "local"
+provider = "ollama"
+model = "llama3.2"
+base_url = "http://localhost:11434/v1"
+
+[[models]]
+id = "anthropic"
+provider = "openrouter"
+model = "anthropic/claude-sonnet-4"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+
+[routing]
+default = "default"
+
+[permissions.filesystem]
+read_paths = ["~/Documents/**", "~/Projects/**", "/tmp/**"]
+write_paths = ["/tmp/picobot/**"]
+
+[permissions.network]
+allowed_domains = ["api.github.com", "httpbin.org"]
+
+[permissions.shell]
+allowed_commands = ["ls", "cat", "head", "tail", "wc", "grep", "find", "git"]
+working_directory = "~/Projects"
+
+[logging]
+level = "info"
+audit_file = "~/.picobot/audit.log"
