@@ -89,8 +89,12 @@ impl Tui {
     }
 
     pub fn next_event(&mut self) -> Result<TuiEvent, io::Error> {
+        self.next_event_with_timeout(Duration::from_millis(50))
+    }
+
+    pub fn next_event_with_timeout(&mut self, timeout: Duration) -> Result<TuiEvent, io::Error> {
         self.draw()?;
-        if !event::poll(Duration::from_millis(50))? {
+        if !event::poll(timeout)? {
             return Ok(TuiEvent::None);
         }
         let Event::Key(key) = event::read()? else {
@@ -149,7 +153,7 @@ impl Tui {
                 Ok(TuiEvent::None)
             }
             KeyCode::F(3) => {
-                self.push_system("Commands: /quit /exit /clear /permissions /models");
+                self.push_system("Commands: /help /quit /exit /clear /permissions /models");
                 Ok(TuiEvent::None)
             }
             KeyCode::Char(ch) => {
@@ -249,6 +253,10 @@ impl Tui {
         self.pending_permission = None;
     }
 
+    pub fn has_pending_permission(&self) -> bool {
+        self.pending_permission.is_some()
+    }
+
     pub fn set_pending_model_picker(&mut self, models: Vec<ModelChoice>) {
         self.pending_model_picker = Some(models);
     }
@@ -256,6 +264,7 @@ impl Tui {
     pub fn clear_pending_model_picker(&mut self) {
         self.pending_model_picker = None;
     }
+
 
     pub fn refresh(&mut self) -> Result<(), io::Error> {
         self.draw()

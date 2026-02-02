@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::config::{Config, ModelConfig};
 use crate::models::openai_compat::OpenAICompatModel;
@@ -20,7 +21,7 @@ pub enum ModelRegistryError {
 }
 
 pub struct ModelRegistry {
-    models: HashMap<ModelId, Box<dyn Model>>,
+    models: HashMap<ModelId, Arc<dyn Model>>,
     default_id: ModelId,
 }
 
@@ -36,10 +37,10 @@ impl ModelRegistry {
             .and_then(|routing| routing.default.clone())
             .ok_or(ModelRegistryError::MissingDefault)?;
 
-        let mut models: HashMap<ModelId, Box<dyn Model>> = HashMap::new();
+        let mut models: HashMap<ModelId, Arc<dyn Model>> = HashMap::new();
         for model_config in &config.models {
             let model = build_model(model_config)?;
-            models.insert(model.info().id.clone(), Box::new(model));
+            models.insert(model.info().id.clone(), Arc::new(model));
         }
 
         if !models.contains_key(&default_id) {
@@ -56,12 +57,23 @@ impl ModelRegistry {
             .expect("default model missing")
     }
 
+    pub fn default_model_arc(&self) -> Arc<dyn Model> {
+        self.models
+            .get(&self.default_id)
+            .cloned()
+            .expect("default model missing")
+    }
+
     pub fn default_id(&self) -> &str {
         &self.default_id
     }
 
     pub fn get(&self, id: &str) -> Option<&dyn Model> {
         self.models.get(id).map(|model| model.as_ref())
+    }
+
+    pub fn get_arc(&self, id: &str) -> Option<Arc<dyn Model>> {
+        self.models.get(id).cloned()
     }
 
     pub fn model_infos(&self) -> Vec<ModelInfo> {

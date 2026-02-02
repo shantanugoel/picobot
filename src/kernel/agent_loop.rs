@@ -426,6 +426,65 @@ pub async fn run_agent_loop_streamed_with_permissions_limit(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
+pub async fn run_agent_loop_streamed_with_permissions_step(
+    kernel: &Kernel,
+    model: &dyn Model,
+    state: &mut ConversationState,
+    user_message: Option<String>,
+    on_token: &mut dyn FnMut(&str),
+    request_permission: &mut dyn FnMut(&str, &[Permission]) -> PermissionDecision,
+    on_debug: &mut dyn FnMut(&str),
+    max_tool_rounds: usize,
+) -> Result<Option<String>, ToolError> {
+    if let Some(message) = user_message {
+        state.push(Message::user(message));
+    }
+    for _ in 0..max_tool_rounds {
+        let request = build_model_request(state, kernel.tool_registry().tool_specs());
+        let events = model
+            .stream(request)
+            .await
+            .map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
+
+        let mut content = String::new();
+        let mut tool_calls = Vec::new();
+
+        for event in events {
+            match event {
+                crate::models::types::ModelEvent::Token(token) => {
+                    on_token(&token);
+                    content.push_str(&token);
+                }
+                crate::models::types::ModelEvent::ToolCall(call) => {
+                    tool_calls.push(call);
+                }
+                crate::models::types::ModelEvent::Done(_) => {}
+            }
+        }
+
+        let response = if !tool_calls.is_empty() {
+            ModelResponse::ToolCalls(tool_calls)
+        } else {
+            ModelResponse::Text(content)
+        };
+
+        match handle_model_response_with_permissions(
+            kernel,
+            response,
+            state,
+            request_permission,
+            on_debug,
+        )
+        .await?
+        {
+            Some(text) => return Ok(Some(text)),
+            None => continue,
+        }
+    }
+    Ok(None)
+}
+
 pub fn build_model_request(state: &ConversationState, tools: Vec<ToolSpec>) -> ModelRequest {
     ModelRequest {
         messages: state.messages().to_vec(),

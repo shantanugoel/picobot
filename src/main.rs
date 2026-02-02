@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::fs;
 use std::rc::Rc;
-use std::time::Instant;
+use std::sync::{mpsc, Arc, Mutex};
 
 use picobot::cli::format_permissions;
 use picobot::cli::tui::{ModelChoice, PermissionChoice, Tui, TuiEvent};
@@ -33,7 +33,7 @@ async fn main() -> anyhow::Result<()> {
         .as_ref()
         .map(CapabilitySet::from_config)
         .unwrap_or_else(CapabilitySet::empty);
-    let kernel = Kernel::new(tool_registry, working_dir).with_capabilities(capabilities);
+    let kernel = Arc::new(Kernel::new(tool_registry, working_dir).with_capabilities(capabilities));
 
     let mut state = ConversationState::new();
     if let Some(agent) = &config.agent
@@ -44,13 +44,14 @@ async fn main() -> anyhow::Result<()> {
         ));
     }
 
-    run_tui(&kernel, &registry, &mut state, config.permissions.as_ref()).await
+    let registry = Arc::new(registry);
+    run_tui(kernel, registry, state, config.permissions.as_ref()).await
 }
 
 async fn run_tui(
-    kernel: &Kernel,
-    registry: &ModelRegistry,
-    state: &mut ConversationState,
+    kernel: Arc<Kernel>,
+    registry: Arc<ModelRegistry>,
+    mut state: ConversationState,
     permissions: Option<&picobot::config::PermissionsConfig>,
 ) -> anyhow::Result<()> {
     let tui = Rc::new(RefCell::new(
@@ -69,7 +70,8 @@ async fn run_tui(
     loop {
         let event = {
             let mut ui = tui.borrow_mut();
-            ui.next_event().map_err(|err| anyhow::anyhow!(err))?
+            ui.next_event()
+                .map_err(|err| anyhow::anyhow!(err))?
         };
         match event {
             TuiEvent::Quit => break,
@@ -77,6 +79,12 @@ async fn run_tui(
                 if line == "/clear" {
                     let mut ui = tui.borrow_mut();
                     ui.clear_output();
+                    ui.refresh().ok();
+                    continue;
+                }
+                if line == "/help" {
+                    let mut ui = tui.borrow_mut();
+                    ui.push_output("Commands: /help /quit /exit /clear /permissions /models");
                     ui.refresh().ok();
                     continue;
                 }
@@ -112,90 +120,141 @@ async fn run_tui(
                     ui.refresh().ok();
                 }
 
-                let mut buffer = String::new();
-                let tui_token = Rc::clone(&tui);
-                let tui_permission = Rc::clone(&tui);
-                let tui_debug = Rc::clone(&tui);
-                let last_flush = Rc::new(RefCell::new(Instant::now()));
-                let last_flush_token = Rc::clone(&last_flush);
-                let last_flush_debug = Rc::clone(&last_flush);
                 let model = registry
-                    .get(&current_model_id)
-                    .unwrap_or_else(|| registry.default_model());
-                let result = run_agent_loop_streamed_with_permissions_limit(
-                    kernel,
-                    model,
-                    state,
-                    line,
-                    &mut |token| {
-                        buffer.push_str(token);
-                        if let Ok(mut ui) = tui_token.try_borrow_mut() {
-                            ui.append_output(token);
-                            if last_flush_token.borrow().elapsed().as_millis() > 30 {
-                                ui.refresh().ok();
-                                *last_flush_token.borrow_mut() = Instant::now();
-                            }
-                        }
-                    },
-                    &mut |tool, required| {
-                        let permissions = required.iter().map(|perm| format!("{perm:?}")).collect();
-                        if let Ok(mut ui) = tui_permission.try_borrow_mut() {
-                            ui.set_busy(false);
-                            ui.set_pending_permission(tool.to_string(), permissions);
-                            ui.refresh().ok();
-                        }
-                        loop {
-                            let event = if let Ok(mut ui) = tui_permission.try_borrow_mut() {
-                                ui.next_event().ok()
-                            } else {
-                                None
-                            };
-                            match event {
-                                Some(TuiEvent::Permission(choice)) => {
-                                    if let Ok(mut ui) = tui_permission.try_borrow_mut() {
-                                        ui.clear_pending_permission();
-                                        ui.set_busy(true);
-                                        ui.refresh().ok();
+                    .get_arc(&current_model_id)
+                    .unwrap_or_else(|| registry.default_model_arc());
+                let mut buffer = String::new();
+
+                let (tx, rx) = mpsc::channel::<UiMessage>();
+                let decision_slot: Arc<Mutex<Option<PermissionDecision>>> = Arc::new(Mutex::new(None));
+                let decision_worker = Arc::clone(&decision_slot);
+
+                let kernel_worker = Arc::clone(&kernel);
+                let model_worker = model.clone();
+                let mut state_value = std::mem::take(&mut state);
+                let line_value = line.clone();
+
+                std::thread::spawn(move || {
+                    let mut on_token = |token: &str| {
+                        let _ = tx.send(UiMessage::Token(token.to_string()));
+                    };
+                    let mut on_debug = |line: &str| {
+                        let _ = tx.send(UiMessage::Debug(line.to_string()));
+                    };
+                    let mut on_permission =
+                        |tool: &str, required: &[picobot::kernel::permissions::Permission]| {
+                            let permissions = required
+                                .iter()
+                                .map(|perm| format!("{perm:?}"))
+                                .collect();
+                            let _ = tx.send(UiMessage::Permission(tool.to_string(), permissions));
+                            loop {
+                                if let Ok(mut slot) = decision_worker.lock()
+                                    && let Some(decision) = slot.take() {
+                                        return decision;
                                     }
-                                    return match choice {
-                                        PermissionChoice::Once => PermissionDecision::Once,
-                                        PermissionChoice::Session => PermissionDecision::Session,
-                                        PermissionChoice::Deny => PermissionDecision::Deny,
-                                    };
+                                std::thread::sleep(std::time::Duration::from_millis(30));
+                            }
+                        };
+
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build();
+                    let result = match rt {
+                        Ok(rt) => rt.block_on(run_agent_loop_streamed_with_permissions_limit(
+                            kernel_worker.as_ref(),
+                            model_worker.as_ref(),
+                            &mut state_value,
+                            line_value,
+                            &mut on_token,
+                            &mut on_permission,
+                            &mut on_debug,
+                            8,
+                        )),
+                        Err(err) => Err(picobot::tools::traits::ToolError::ExecutionFailed(
+                            err.to_string(),
+                        )),
+                    };
+                    let _ = tx.send(UiMessage::Done(result, state_value));
+                });
+
+                loop {
+                    if let Ok(message) = rx.try_recv() {
+                        match message {
+                            UiMessage::Token(token) => {
+                                buffer.push_str(&token);
+                                if let Ok(mut ui) = tui.try_borrow_mut() {
+                                    ui.append_output(&token);
                                 }
-                                Some(TuiEvent::Quit) => {
-                                    if let Ok(mut ui) = tui_permission.try_borrow_mut() {
-                                        ui.clear_pending_permission();
-                                        ui.set_busy(false);
-                                        ui.refresh().ok();
+                            }
+                            UiMessage::Debug(line) => {
+                                if let Ok(mut ui) = tui.try_borrow_mut() {
+                                    ui.push_debug(line);
+                                }
+                            }
+                            UiMessage::Permission(tool, permissions) => {
+                                if let Ok(mut ui) = tui.try_borrow_mut() {
+                                    ui.set_pending_permission(tool, permissions);
+                                    ui.set_busy(false);
+                                    ui.refresh().ok();
+                                }
+                            }
+                            UiMessage::Done(result, updated_state) => {
+                                state = updated_state;
+                                if let Ok(mut ui) = tui.try_borrow_mut() {
+                                    ui.set_busy(false);
+                                    if let Err(err) = result {
+                                        ui.push_output(format!("Error: {err}"));
+                                    } else if !buffer.ends_with('\n') {
+                                        ui.push_assistant("".to_string());
                                     }
-                                    return PermissionDecision::Deny;
+                                    ui.refresh().ok();
                                 }
-                                Some(_) => {}
-                                None => {}
+                                break;
                             }
                         }
-                    },
-                    &mut |line| {
-                        if let Ok(mut ui) = tui_debug.try_borrow_mut() {
-                            ui.push_debug(line.to_string());
-                            if last_flush_debug.borrow().elapsed().as_millis() > 30 {
-                                ui.refresh().ok();
-                                *last_flush_debug.borrow_mut() = Instant::now();
-                            }
-                        }
-                    },
-                    8,
-                )
-                .await;
-                if let Ok(mut ui) = tui.try_borrow_mut() {
-                    ui.set_busy(false);
-                    if let Err(err) = result {
-                        ui.push_output(format!("Error: {err}"));
-                    } else if !buffer.ends_with('\n') {
-                        ui.push_assistant("".to_string());
                     }
-                    ui.refresh().ok();
+
+                    let event = {
+                        let mut ui = tui.borrow_mut();
+                        ui.next_event_with_timeout(std::time::Duration::from_millis(80))
+                            .map_err(|err| anyhow::anyhow!(err))?
+                    };
+                    match event {
+                        TuiEvent::Permission(choice) => {
+                            if let Ok(mut ui) = tui.try_borrow_mut() {
+                                ui.clear_pending_permission();
+                                ui.set_busy(true);
+                                ui.refresh().ok();
+                            }
+                            let decision = match choice {
+                                PermissionChoice::Once => PermissionDecision::Once,
+                                PermissionChoice::Session => PermissionDecision::Session,
+                                PermissionChoice::Deny => PermissionDecision::Deny,
+                            };
+                            if let Ok(mut slot) = decision_slot.lock() {
+                                *slot = Some(decision);
+                            }
+                        }
+                        TuiEvent::ModelPick(model_id) => {
+                            current_model_id = model_id.clone();
+                            if let Ok(mut ui) = tui.try_borrow_mut() {
+                                if let Some(model) = registry.get(&current_model_id) {
+                                    let info = model.info();
+                                    ui.set_current_model(format!("{} ({})", info.provider, info.model));
+                                    ui.push_output(format!("Switched to model '{}'", info.id));
+                                } else {
+                                    ui.push_output("Unknown model id".to_string());
+                                }
+                                ui.clear_pending_model_picker();
+                                ui.refresh().ok();
+                            }
+                        }
+                        TuiEvent::Quit => {
+                            break;
+                        }
+                        _ => {}
+                    }
                 }
             }
             TuiEvent::ModelPick(model_id) => {
@@ -221,4 +280,11 @@ async fn run_tui(
 fn load_config() -> Option<Config> {
     let raw = fs::read_to_string("config.toml").ok()?;
     toml::from_str(&raw).ok()
+}
+
+enum UiMessage {
+    Token(String),
+    Debug(String),
+    Permission(String, Vec<String>),
+    Done(Result<String, picobot::tools::traits::ToolError>, ConversationState),
 }

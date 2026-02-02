@@ -11,6 +11,57 @@ PicoBot is a secure AI agent in Rust. Read `PLAN.md` for full architecture.
 - Always use the latest versions of any crates or dependencies
 - After making any changes, always run `cargo check` and `cargo clippy` to make sure there are no warnings or errors
 
+## Design Principles
+
+1. **Security-first**: Capability-based permissions enforced at the kernel level
+2. **Simple core, extensible edges**: Small kernel, pluggable tools/models
+4. **No over-engineering**: 
+
+---
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      CLI REPL Interface                      │
+│                (Future: HTTP API, Telegram, etc.)            │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                         CORE KERNEL                          │
+│  ┌─────────────┐  ┌──────────────┐  ┌───────────────────┐   │
+│  │ Agent Loop  │  │  Permission  │  │   Model Router    │   │
+│  │(Orchestrator)│  │    Guard     │  │   (Task-based)    │   │
+│  └─────────────┘  └──────────────┘  └───────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+         │                   │                    │
+         ▼                   ▼                    ▼
+┌─────────────────┐  ┌──────────────┐  ┌──────────────────────┐
+│   Tool Registry │  │   Audit Log  │  │    Model Registry    │
+│   (Capabilities)│  │   (tracing)  │  │  (OpenAI-compat)     │
+└─────────────────┘  └──────────────┘  └──────────────────────┘
+         │                                       │
+         ▼                                       ▼
+┌─────────────────┐                   ┌──────────────────────┐
+│ Built-in Tools  │                   │  Providers via       │
+│ - Shell         │                   │  async-openai:       │
+│ - FileSystem    │                   │  - OpenAI            │
+│ - HTTP/Fetch    │                   │  - Ollama            │
+└─────────────────┘                   │  - OpenRouter        │
+                                      │  - Any compatible    │
+                                      └──────────────────────┘
+```
+
+## Security Model
+
+### Capability-Based Permissions
+
+1. **Every tool declares required permissions** at compile time
+2. **Sessions have a CapabilitySet** granted via config
+3. **Kernel validates before every tool call** - single enforcement point
+4. **All sensitive actions are logged** for audit
+
 ## Code Organization
 
 ```
