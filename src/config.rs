@@ -10,6 +10,10 @@ pub struct Config {
     pub permissions: Option<PermissionsConfig>,
     #[serde(default)]
     pub logging: Option<LoggingConfig>,
+    #[serde(default)]
+    pub channels: Option<ChannelsConfig>,
+    #[serde(default)]
+    pub session: Option<SessionConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -60,4 +64,29 @@ pub struct ShellPermissions {
 pub struct LoggingConfig {
     pub level: Option<String>,
     pub audit_file: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct ChannelsConfig {
+    pub whatsapp: Option<ChannelConfig>,
+    pub websocket: Option<ChannelConfig>,
+    pub api: Option<ChannelConfig>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct ChannelConfig {
+    pub enabled: Option<bool>,
+    pub store_path: Option<String>,
+    #[serde(default)]
+    pub pre_authorized: Vec<String>,
+    #[serde(default)]
+    pub max_allowed: Vec<String>,
+    pub allow_user_prompts: Option<bool>,
+    pub prompt_timeout_secs: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct SessionConfig {
+    pub snapshot_interval_secs: Option<u64>,
+    pub snapshot_path: Option<String>,
 }

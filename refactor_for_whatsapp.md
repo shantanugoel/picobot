@@ -241,11 +241,11 @@ src/
 
 ### Week 1: Core Foundation
 
-- Introduce inbound/outbound adapter traits
-- Build SessionManager + JSON snapshot persistence
-- Extend permissions with tiers
-- Adapter layer for agent_loop (preserve Kernel path)
-- Add channel permission profiles to config
+- [x] Introduce inbound/outbound adapter traits
+- [x] Build SessionManager + JSON snapshot persistence
+- [x] Extend permissions with tiers
+- [~] Adapter layer for agent_loop (preserve Kernel path) (session <-> state adapter added; server loop wiring pending)
+- [x] Add channel permission profiles to config
 
 ### Week 2: HTTP Server + REST
 

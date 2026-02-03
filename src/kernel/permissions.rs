@@ -27,7 +27,13 @@ pub struct PathPattern(pub String);
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DomainPattern(pub String);
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PermissionTier {
+    UserGrantable,
+    AdminOnly,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct CapabilitySet {
     permissions: HashSet<Permission>,
 }
@@ -95,6 +101,10 @@ impl CapabilitySet {
         }
         set
     }
+
+    pub fn permissions(&self) -> impl Iterator<Item = &Permission> {
+        self.permissions.iter()
+    }
 }
 
 impl PathPattern {
@@ -158,9 +168,51 @@ impl Permission {
     }
 }
 
+impl std::str::FromStr for Permission {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if let Some(path) = value.strip_prefix("filesystem:read:") {
+            return Ok(Permission::FileRead {
+                path: PathPattern(path.to_string()),
+            });
+        }
+        if let Some(path) = value.strip_prefix("filesystem:write:") {
+            return Ok(Permission::FileWrite {
+                path: PathPattern(path.to_string()),
+            });
+        }
+        if let Some(domain) = value.strip_prefix("net:") {
+            return Ok(Permission::NetAccess {
+                domain: DomainPattern(domain.to_string()),
+            });
+        }
+        if value == "shell:*" {
+            return Ok(Permission::ShellExec {
+                allowed_commands: None,
+            });
+        }
+        if let Some(list) = value.strip_prefix("shell:") {
+            let commands = list
+                .split(',')
+                .map(|entry| entry.trim().to_string())
+                .filter(|entry| !entry.is_empty())
+                .collect::<Vec<_>>();
+            if commands.is_empty() {
+                return Err("shell permissions require at least one command or '*'".to_string());
+            }
+            return Ok(Permission::ShellExec {
+                allowed_commands: Some(commands),
+            });
+        }
+        Err(format!("invalid permission '{value}'"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{CapabilitySet, DomainPattern, PathPattern, Permission};
+    use std::str::FromStr;
 
     #[test]
     fn capability_set_allows_globbed_paths() {
@@ -202,5 +254,29 @@ mod tests {
         };
 
         assert!(set.allows(&required));
+    }
+
+    #[test]
+    fn permission_from_str_parses_filesystem() {
+        let permission = Permission::from_str("filesystem:read:/tmp/**").unwrap();
+        assert!(matches!(permission, Permission::FileRead { .. }));
+
+        let permission = Permission::from_str("filesystem:write:/tmp/**").unwrap();
+        assert!(matches!(permission, Permission::FileWrite { .. }));
+    }
+
+    #[test]
+    fn permission_from_str_parses_network() {
+        let permission = Permission::from_str("net:api.github.com").unwrap();
+        assert!(matches!(permission, Permission::NetAccess { .. }));
+    }
+
+    #[test]
+    fn permission_from_str_parses_shell() {
+        let permission = Permission::from_str("shell:git,rg").unwrap();
+        assert!(matches!(permission, Permission::ShellExec { .. }));
+
+        let permission = Permission::from_str("shell:*").unwrap();
+        assert!(matches!(permission, Permission::ShellExec { allowed_commands: None }));
     }
 }

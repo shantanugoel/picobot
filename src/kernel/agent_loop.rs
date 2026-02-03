@@ -44,6 +44,10 @@ impl ConversationState {
     pub fn session_grants(&self) -> &CapabilitySet {
         &self.session_grants
     }
+
+    pub fn set_session_grants(&mut self, grants: CapabilitySet) {
+        self.session_grants = grants;
+    }
 }
 
 impl Default for ConversationState {
