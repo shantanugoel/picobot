@@ -4,16 +4,11 @@ use std::sync::Arc;
 use anyhow::Context;
 use async_trait::async_trait;
 use futures::Stream;
-use tokio::sync::{broadcast, mpsc, Mutex};
+use tokio::sync::{Mutex, broadcast, mpsc};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use crate::channels::adapter::{
-    ChannelType,
-    DeliveryId,
-    InboundAdapter,
-    InboundMessage,
-    OutboundMessage,
-    OutboundSender,
+    ChannelType, DeliveryId, InboundAdapter, InboundMessage, OutboundMessage, OutboundSender,
 };
 
 #[async_trait]
@@ -138,11 +133,11 @@ async fn run_whatsapp_loop(
 ) {
     use std::sync::Arc as StdArc;
 
+    use wacore::types::events::Event;
     use whatsapp_rust::bot::Bot;
     use whatsapp_rust_sqlite_storage::SqliteStore;
     use whatsapp_rust_tokio_transport::TokioWebSocketTransportFactory;
     use whatsapp_rust_ureq_http_client::UreqHttpClient;
-    use wacore::types::events::Event;
 
     let backend = match SqliteStore::new(&store_path).await {
         Ok(store) => StdArc::new(store),
@@ -176,7 +171,12 @@ async fn run_whatsapp_loop(
                         let text = message
                             .conversation
                             .clone()
-                            .or_else(|| message.extended_text_message.as_ref().and_then(|ext| ext.text.clone()))
+                            .or_else(|| {
+                                message
+                                    .extended_text_message
+                                    .as_ref()
+                                    .and_then(|ext| ext.text.clone())
+                            })
                             .unwrap_or_default();
                         if text.trim().is_empty() {
                             return;

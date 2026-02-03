@@ -4,8 +4,10 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex, mpsc};
 
 use picobot::channels::config::profile_from_config;
-use picobot::channels::whatsapp::{WhatsAppBackend, WhatsAppInboundAdapter, WhatsAppOutboundSender, WhatsappRustBackend};
 use picobot::channels::permissions::ChannelPermissionProfile;
+use picobot::channels::whatsapp::{
+    WhatsAppBackend, WhatsAppInboundAdapter, WhatsAppOutboundSender, WhatsappRustBackend,
+};
 use picobot::cli::format_permissions;
 use picobot::cli::tui::{ModelChoice, PermissionChoice, Tui, TuiEvent};
 use picobot::config::Config;
@@ -592,11 +594,15 @@ fn whatsapp_profile_from_config(
 
 fn setup_whatsapp_backend(
     config: &Config,
-) -> (Option<Arc<dyn WhatsAppBackend>>, Option<broadcast::Sender<String>>) {
+) -> (
+    Option<Arc<dyn WhatsAppBackend>>,
+    Option<broadcast::Sender<String>>,
+) {
     let Some(channel) = config
         .channels
         .as_ref()
-        .and_then(|channels| channels.whatsapp.as_ref()) else {
+        .and_then(|channels| channels.whatsapp.as_ref())
+    else {
         return (None, None);
     };
     if channel.enabled == Some(false) {
