@@ -2,230 +2,186 @@
 
 ## Overview
 
-Phase 3 introduces a job scheduling system that enables PicoBot to execute tasks on a schedule (interval or one-time), with heartbeat capabilities wired into the agent loop. This enables autonomous behaviors like periodic checks, reminders, and background monitoring tasks.
+Phase 3 completes the core job scheduling system in PicoBot and Phase 3.1 extends it with cron, self-scheduling tools, notifications, and heartbeat configuration. All scheduled execution must preserve Kernel invariants, prevent privilege escalation, and avoid duplicate execution under concurrency.
 
-This plan incorporates a full security review. Scheduled runs must preserve Kernel invariants, avoid privilege escalation, and prevent duplicate execution under concurrency.
+## Current Status
+
+Core scheduler infrastructure is implemented:
+
+- Job types with capability snapshots.
+- SQLite-backed schedule store with atomic claiming.
+- Job executor routing through Kernel.
+- Scheduler service with quotas and backoff.
+- Permission::Schedule capability.
+- Scheduler config and runtime startup.
+- Basic API routes for create/list.
+
+Remaining work is primarily API surface completion plus tests, then Phase 3.1 features.
 
 ## Key Design Decisions
 
-- Store a capability snapshot with each job to prevent privilege escalation.
-- Route all scheduled execution through the Kernel to preserve schema validation, permission checks, and output wrapping.
-- Treat scheduled prompts as user prompts by default (no system prompt privilege).
-- Use atomic job claiming to prevent duplicate runs.
-- Enforce per-user and global concurrency limits and quotas.
-- Use exponential backoff for failures.
-- Keep scheduler disabled by default (explicit opt-in).
+- Capability snapshots are stored per job and used for execution (no privilege drift).
+- Schedule creation requires explicit schedule permissions.
+- Scheduled prompts are treated as user prompts by default.
+- Atomic job claiming prevents duplicate execution.
+- Global and per-user concurrency limits are enforced.
+- Exponential backoff prevents retry storms.
+- Scheduler remains disabled by default (explicit opt-in).
 
-## Scope
+## Part A: Complete Phase 3 (Remaining Work)
 
-In scope for Phase 3:
+### A1. API Routes
 
-- Interval and one-time schedules.
-- Atomic job claiming with persistence.
-- Execution through Kernel with capability snapshots.
-- Execution caps, rate limits, and failure backoff.
-- Scheduler service and background loop.
-- Basic API integration for schedule management.
+Add the remaining schedule management endpoints:
 
-Deferred to Phase 3.1:
+- GET /api/v1/schedules/:id
+- DELETE /api/v1/schedules/:id
+- PATCH /api/v1/schedules/:id
+- GET /api/v1/schedules/:id/executions
+- POST /api/v1/schedules/:id/cancel
 
-- Cron expression support.
-- ScheduleTool (agent self-scheduling).
-- Heartbeat-specific config section (treated as interval schedules for now).
-- Notifications at least to whatsapp (if the user for which the task is added is registered with whatsapp module) and think of other that may be needed
+Implementation details:
 
-## Architecture and Modules
+- Enforce ownership on every route.
+- DELETE should cancel any running job before removing the schedule.
+- PATCH updates affect the next run only (running executions continue unchanged).
+- Add ScheduleStore method: list_executions_for_job(job_id, limit, offset).
 
-New module structure:
+### A2. Tests (Priority Ordered)
 
-```
-src/scheduler/
-├── mod.rs           # Module exports
-├── job.rs           # Job definition, state, capability snapshot
-├── executor.rs      # Background task executor (Kernel routed)
-├── store.rs         # SQLite persistence with atomic claiming
-├── error.rs         # Scheduler-specific errors
-└── service.rs       # Scheduler service and background loop
-```
+P0: Atomic claim recovery and concurrency
 
-## Database Schema
+- expired claim is reclaimed
+- no duplicate execution on restart
+- concurrent workers claim disjoint jobs
 
-Add new tables to SQLite:
+P0: Capability snapshot security
 
-```
-CREATE TABLE IF NOT EXISTS schedules (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    schedule_type TEXT NOT NULL CHECK(schedule_type IN ('interval', 'once')),
-    schedule_expr TEXT NOT NULL,
-    task_prompt TEXT NOT NULL,
-    session_id TEXT,
-    user_id TEXT NOT NULL,
-    channel_id TEXT,
-    capabilities_json TEXT NOT NULL,
-    creator_principal TEXT NOT NULL,
-    enabled INTEGER NOT NULL DEFAULT 1,
-    max_executions INTEGER,
-    execution_count INTEGER NOT NULL DEFAULT 0,
-    claimed_at TEXT,
-    claim_id TEXT,
-    claim_expires_at TEXT,
-    last_run_at TEXT,
-    next_run_at TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    consecutive_failures INTEGER NOT NULL DEFAULT 0,
-    last_error TEXT,
-    backoff_until TEXT,
-    metadata_json TEXT
-);
+- job cannot exceed snapshot capabilities
+- malicious prompt does not escalate permissions
+- schedule creation requires permission
 
-CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules(next_run_at, enabled, claimed_at);
-CREATE INDEX IF NOT EXISTS idx_schedules_user ON schedules(user_id);
-CREATE INDEX IF NOT EXISTS idx_schedules_claim ON schedules(claim_id);
+P1: Cancellation and lifecycle
 
-CREATE TABLE IF NOT EXISTS schedule_executions (
-    id TEXT PRIMARY KEY,
-    job_id TEXT NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
-    started_at TEXT NOT NULL,
-    completed_at TEXT,
-    status TEXT NOT NULL CHECK(status IN ('running', 'completed', 'failed', 'timeout', 'cancelled')),
-    result_summary TEXT,
-    error TEXT,
-    execution_time_ms INTEGER
-);
+- cancel running job
+- timeout marks job as timeout
+- delete cancels then removes schedule
 
-CREATE INDEX IF NOT EXISTS idx_schedule_executions_job ON schedule_executions(job_id, started_at);
-```
+P1: End-to-end execution
 
-## Job Definitions
+- interval job reschedules correctly
+- once job disables after execution
+- execution recorded in history
 
-- Store a capability snapshot with each job.
-- Track ownership and principal type for auditability.
-- Track failures with backoff to prevent runaway retries.
+## Part B: Phase 3.1
 
-Core types live in `src/scheduler/job.rs`:
+### B1. Cron Expression Support
 
-- `ScheduledJob`
-- `ScheduleType` (Interval, Once)
-- `Principal` (User, System, Admin)
-- `JobExecution`
-- `ExecutionStatus`
-- `CreateJobRequest`
+- Add ScheduleType::Cron.
+- Use the cron crate for parsing and next occurrence.
+- Enforce minimum interval (>= 60s) to prevent overload.
+- Support explicit timezone, default to UTC.
+- Update schedule_type validation in persistence.
 
-## Atomic Claiming and Concurrency
+### B2. ScheduleTool (Agent Self-Scheduling)
 
-Use `BEGIN IMMEDIATE` and `UPDATE ... WHERE` to atomically claim due jobs.
+Add a new tool allowing the agent to create, list, delete, and cancel schedules.
 
-- `claim_due_jobs()` selects only jobs claimed by the current worker.
-- `complete_job()` updates `next_run_at` and clears claim fields.
-- `fail_job()` increments failure count and sets exponential backoff.
+Security rules:
 
-Claiming fields:
+- New schedules must inherit a strict subset of current session capabilities.
+- Enforce policy limits (minimum interval, max execution count, quotas).
+- Permission::Schedule action gating applies for each operation.
 
-- `claimed_at`
-- `claim_id`
-- `claim_expires_at`
+### B3. Notifications (Async + Durable)
 
-## Execution Through Kernel
+Add a notification subsystem with a durable queue:
 
-Scheduled execution must preserve Kernel invariants:
+- NotificationChannel trait with per-channel delivery.
+- notifications table for delivery status, retries, and errors.
+- NotificationService worker processes pending deliveries.
+- WhatsApp notifier integrates with existing backend.
+- user_contacts table stores verified channel addresses.
 
-- Build a Kernel using the job's capability snapshot.
-- Use normal agent loop methods so tool validation and permission checks occur.
-- Treat the scheduled prompt as a user prompt unless explicitly authorized.
+Job execution should enqueue notifications without blocking job completion.
 
-Timeouts must use a CancellationToken and be propagated to model/tool execution.
+### B4. Heartbeat Configuration
 
-## Scheduler Service
+Add heartbeats config section:
 
-The `SchedulerService` is the main entry point and owns:
+```toml
+[heartbeats]
+enabled = true
+default_interval_secs = 300
 
-- Job creation and validation (with per-user quotas).
-- Background tick loop and job claiming.
-- Cancelling running jobs (token cancellation).
+[[heartbeats.prompts]]
+name = "health_check"
+prompt = "Check system health and report issues"
+interval_secs = 60
 
-Execution flow:
-
-1. Tick loop claims due jobs atomically.
-2. Executor runs each job with concurrency limits.
-3. Execution recorded in `schedule_executions`.
-4. Job is completed or failed with backoff.
-
-## Permissions and Security
-
-Add a new permission type:
-
-- `Permission::Schedule { action: String }`
-
-Rules:
-
-- Schedule creation requires explicit schedule permission.
-- Scheduled runs can only execute with the captured capability snapshot.
-- Prompts are treated as user input by default.
-
-## Configuration
-
-Add a scheduler config section:
-
-```
-[scheduler]
-enabled = false
-tick_interval_secs = 1
-max_concurrent_jobs = 4
-max_concurrent_per_user = 2
-max_jobs_per_user = 50
-max_jobs_per_window = 100
-window_duration_secs = 3600
-job_timeout_secs = 300
-max_backoff_secs = 3600
+[[heartbeats.prompts]]
+name = "daily_summary"
+prompt = "Generate daily summary"
+cron = "0 0 18 * * *"
+timezone = "America/New_York"
 ```
 
-## Testing Strategy
+On startup, auto-register heartbeat schedules as system principals.
 
-Unit tests:
+### B5. Metrics and Tracing
 
-- Atomic claiming and claim expiry.
-- Next run calculation for interval and once.
-- Capability snapshot enforcement.
-- Per-user quota enforcement.
-- Exponential backoff limits.
+- Add low-cardinality metrics for job counts and durations.
+- Add tracing spans with job_id and user_id for debugging (not as metric labels).
 
-Integration tests:
+## Priority Order and Effort
 
-- End-to-end job execution and persistence.
-- Restart recovery without duplicate execution.
-- Cancellation and timeout handling.
-- Permission regression (no privilege escalation).
+P0 (highest priority):
 
-Security tests:
+1. Claim recovery and capability security tests.
+2. Cron support with minimum interval enforcement.
+3. ScheduleTool with capability subset enforcement.
 
-- Malicious prompts do not grant extra permissions.
-- Jobs created without schedule permission are rejected.
+P1:
 
-## Implementation Order
+1. Complete API routes (CRUD + history + cancel).
+2. Cancellation and lifecycle tests.
+3. Async notifications with WhatsApp integration.
 
-1. Create `src/scheduler/` module structure and error types.
-2. Add job types with capability snapshot.
-3. Implement `ScheduleStore` with atomic claiming.
-4. Implement `JobExecutor` routing through Kernel.
-5. Implement `SchedulerService` with quotas and backoff.
-6. Add `Permission::Schedule` in `src/kernel/permissions.rs`.
-7. Add scheduler config in `src/config.rs`.
-8. Integrate scheduler startup in server runtime.
-9. Add tests (unit and integration).
-10. Add execution history recording and basic API endpoints.
+P2:
+
+1. Heartbeat config.
+2. Metrics and tracing.
+
+## Files to Create or Modify
+
+Create:
+
+- src/tools/schedule.rs
+- src/notifications/mod.rs
+- src/notifications/channel.rs
+- src/notifications/queue.rs
+- src/notifications/whatsapp.rs
+- src/notifications/service.rs
+- tests/scheduler_claiming.rs
+- tests/scheduler_security.rs
+- tests/scheduler_lifecycle.rs
+- tests/scheduler_integration.rs
+
+Modify:
+
+- src/scheduler/job.rs
+- src/scheduler/service.rs
+- src/scheduler/store.rs
+- src/scheduler/executor.rs
+- src/server/scheduler_routes.rs
+- src/tools/builtin.rs
+- src/config.rs
+- src/main.rs
+- Cargo.toml
 
 ## Dependencies
 
-- `tokio-util` with CancellationToken support.
-- `dashmap` for per-user semaphore map.
-
-## Items To Handle After Completing This Plan
-
-- Phase 3.1: cron expression support.
-- Phase 3.1: ScheduleTool for agent self-scheduling.
-- Phase 3.1: heartbeat-specific config and UX.
-- Phase 3.1: Add job chaining and workflows.
-- Phase 3.1: Add structured metrics and tracing for scheduler runs.
-- Phase 3.1: Extend operational controls (pause, rescan, cancel, delete schedules).
+- cron (latest)
+- chrono-tz
+- metrics
+- metrics-exporter-prometheus (optional)
