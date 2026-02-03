@@ -4,8 +4,8 @@ use tokio_stream::StreamExt;
 
 use crate::channels::adapter::{InboundAdapter, OutboundMessage};
 use crate::channels::permissions::ChannelPermissionProfile;
-use crate::kernel::agent::Kernel;
 use crate::delivery::queue::DeliveryQueue;
+use crate::kernel::agent::Kernel;
 use crate::kernel::agent_loop::{
     PermissionDecision, run_agent_loop_streamed_with_permissions_limit,
 };

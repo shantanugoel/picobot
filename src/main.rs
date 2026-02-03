@@ -11,14 +11,14 @@ use picobot::channels::whatsapp::{
 use picobot::cli::format_permissions;
 use picobot::cli::tui::{ModelChoice, PermissionChoice, Tui, TuiEvent};
 use picobot::config::Config;
+use picobot::delivery::queue::{DeliveryQueue, DeliveryQueueConfig};
+use picobot::delivery::tracking::DeliveryTracker;
 use picobot::kernel::agent::Kernel;
 use picobot::kernel::agent_loop::{
     ConversationState, PermissionDecision, run_agent_loop_streamed_with_permissions_limit,
 };
 use picobot::kernel::permissions::CapabilitySet;
 use picobot::models::router::ModelRegistry;
-use picobot::delivery::queue::{DeliveryQueue, DeliveryQueueConfig};
-use picobot::delivery::tracking::DeliveryTracker;
 use picobot::server::app::{bind_address, build_router, is_localhost_only};
 use picobot::server::rate_limit::RateLimiter;
 use picobot::server::snapshot::spawn_snapshot_task;
@@ -26,7 +26,7 @@ use picobot::server::state::AppState;
 use picobot::session::manager::SessionManager;
 use picobot::session::snapshot::SnapshotStore;
 use picobot::tools::builtin::register_builtin_tools;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -89,7 +89,7 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
     let whatsapp_profile = whatsapp_profile_from_config(&config)?;
     let sessions = Arc::new(SessionManager::new());
     let deliveries = DeliveryTracker::new();
-    let (whatsapp_backend, _whatsapp_qr, whatsapp_allowed_senders) =
+    let (whatsapp_backend, _whatsapp_qr, _whatsapp_qr_cache, whatsapp_allowed_senders) =
         setup_whatsapp_backend(&config);
     let snapshot_path = config
         .session
@@ -122,6 +122,7 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
         max_tool_rounds: 8,
         channel_type: picobot::channels::adapter::ChannelType::Api,
         whatsapp_qr: _whatsapp_qr,
+        whatsapp_qr_cache: _whatsapp_qr_cache,
     };
 
     if let Some(store) = snapshot_store {
@@ -608,21 +609,20 @@ fn whatsapp_profile_from_config(
 type WhatsappSetup = (
     Option<Arc<dyn WhatsAppBackend>>,
     Option<broadcast::Sender<String>>,
+    Option<watch::Receiver<Option<String>>>,
     Option<Vec<String>>,
 );
 
-fn setup_whatsapp_backend(
-    config: &Config,
-) -> WhatsappSetup {
+fn setup_whatsapp_backend(config: &Config) -> WhatsappSetup {
     let Some(channel) = config
         .channels
         .as_ref()
         .and_then(|channels| channels.whatsapp.as_ref())
     else {
-        return (None, None, None);
+        return (None, None, None, None);
     };
     if channel.enabled == Some(false) {
-        return (None, None, None);
+        return (None, None, None, None);
     }
     let allowed_senders = if channel.allowed_senders.is_empty() {
         None
@@ -634,8 +634,18 @@ fn setup_whatsapp_backend(
         .clone()
         .unwrap_or_else(|| "./data/whatsapp.db".to_string());
     let (qr_tx, _) = broadcast::channel(4);
-    let backend = Arc::new(WhatsappRustBackend::new(store_path, Some(qr_tx.clone())));
-    (Some(backend), Some(qr_tx), allowed_senders)
+    let (qr_cache_tx, qr_cache_rx) = watch::channel(None);
+    let backend = Arc::new(WhatsappRustBackend::new(
+        store_path,
+        Some(qr_tx.clone()),
+        Some(qr_cache_tx),
+    ));
+    (
+        Some(backend),
+        Some(qr_tx),
+        Some(qr_cache_rx),
+        allowed_senders,
+    )
 }
 
 enum UiMessage {

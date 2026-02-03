@@ -59,7 +59,12 @@ impl DeliveryQueue {
     }
 
     pub async fn enqueue(&self, message: OutboundMessage) -> DeliveryId {
-        let id = format!("{}:{}:{}", message.channel_id, message.user_id, uuid::Uuid::new_v4());
+        let id = format!(
+            "{}:{}:{}",
+            message.channel_id,
+            message.user_id,
+            uuid::Uuid::new_v4()
+        );
         let record = DeliveryRecord {
             id: id.clone(),
             channel_id: message.channel_id.clone(),
@@ -91,12 +96,8 @@ impl DeliveryQueue {
                 continue;
             };
 
-            self.tracker.update_status(
-                &item.id,
-                DeliveryStatus::Sending,
-                item.attempts,
-                None,
-            );
+            self.tracker
+                .update_status(&item.id, DeliveryStatus::Sending, item.attempts, None);
 
             match outbound.send(item.message.clone()).await {
                 Ok(_) => {

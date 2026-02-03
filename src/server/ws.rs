@@ -45,6 +45,12 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         Mutex<HashMap<String, std::sync::mpsc::Sender<PermissionDecision>>>,
     > = Arc::new(Mutex::new(HashMap::new()));
 
+    if let Some(qr_rx) = state.whatsapp_qr_cache.as_ref()
+        && let Some(code) = qr_rx.borrow().clone()
+    {
+        let _ = tx.send(WsServerMessage::WhatsappQr { code });
+    }
+
     if let Some(qr_tx) = state.whatsapp_qr.as_ref() {
         let mut qr_rx = qr_tx.subscribe();
         let tx_clone = tx.clone();
@@ -79,11 +85,12 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                 if let Ok(event) = serde_json::from_str::<WsClientMessage>(&text) {
                     if let Some(limiter) = state.rate_limiter.as_ref() {
                         let rate_key = match &event {
-                            WsClientMessage::Chat { user_id, .. } => format!(
-                                "ws:chat:{}",
-                                user_id.as_deref().unwrap_or("anonymous")
-                            ),
-                            WsClientMessage::PermissionDecision { .. } => "ws:permission".to_string(),
+                            WsClientMessage::Chat { user_id, .. } => {
+                                format!("ws:chat:{}", user_id.as_deref().unwrap_or("anonymous"))
+                            }
+                            WsClientMessage::PermissionDecision { .. } => {
+                                "ws:permission".to_string()
+                            }
                             WsClientMessage::Ping => "ws:ping".to_string(),
                         };
                         if !limiter.check_scoped(&rate_key).await {

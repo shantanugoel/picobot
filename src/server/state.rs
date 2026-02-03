@@ -9,6 +9,7 @@ use crate::models::router::ModelRegistry;
 use crate::server::rate_limit::RateLimiter;
 use crate::session::manager::SessionManager;
 use tokio::sync::broadcast;
+use tokio::sync::watch;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -24,4 +25,5 @@ pub struct AppState {
     pub max_tool_rounds: usize,
     pub channel_type: ChannelType,
     pub whatsapp_qr: Option<broadcast::Sender<String>>,
+    pub whatsapp_qr_cache: Option<watch::Receiver<Option<String>>>,
 }

@@ -4,7 +4,9 @@ use std::sync::{Arc, Mutex};
 use anyhow::Context;
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
-use tokio::sync::{broadcast, mpsc};
+use qrcode::QrCode;
+use qrcode::render::unicode;
+use tokio::sync::{broadcast, mpsc, watch};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use crate::channels::adapter::{
@@ -30,7 +32,11 @@ struct WhatsappOutbound {
 }
 
 impl WhatsappRustBackend {
-    pub fn new(store_path: String, qr_tx: Option<broadcast::Sender<String>>) -> Self {
+    pub fn new(
+        store_path: String,
+        qr_tx: Option<broadcast::Sender<String>>,
+        qr_cache: Option<watch::Sender<Option<String>>>,
+    ) -> Self {
         let (inbound_tx, inbound_rx) = mpsc::unbounded_channel();
         let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
         tokio::spawn(run_whatsapp_loop(
@@ -38,6 +44,7 @@ impl WhatsappRustBackend {
             inbound_tx,
             outbound_rx,
             qr_tx.clone(),
+            qr_cache,
         ));
         Self {
             inbound_rx: Mutex::new(Some(inbound_rx)),
@@ -100,20 +107,17 @@ impl InboundAdapter for WhatsAppInboundAdapter {
 
     async fn subscribe(&self) -> Pin<Box<dyn Stream<Item = InboundMessage> + Send>> {
         if let Some(allowed) = self.allowed_senders.clone() {
-            let stream = self
-                .backend
-                .inbound_stream()
-                .filter_map(move |message| {
-                    let allowed = allowed.clone();
-                    async move {
-                        let user = message.user_id.clone();
-                        if allowed.iter().any(|sender| sender == &user) {
-                            Some(message)
-                        } else {
-                            None
-                        }
+            let stream = self.backend.inbound_stream().filter_map(move |message| {
+                let allowed = allowed.clone();
+                async move {
+                    let user = message.user_id.clone();
+                    if allowed.iter().any(|sender| sender == &user) {
+                        Some(message)
+                    } else {
+                        None
                     }
-                });
+                }
+            });
             return Box::pin(stream);
         }
         self.backend.inbound_stream()
@@ -154,6 +158,7 @@ async fn run_whatsapp_loop(
     inbound_tx: mpsc::UnboundedSender<InboundMessage>,
     mut outbound_rx: mpsc::UnboundedReceiver<WhatsappOutbound>,
     qr_tx: Option<broadcast::Sender<String>>,
+    qr_cache: Option<watch::Sender<Option<String>>>,
 ) {
     use std::sync::Arc as StdArc;
 
@@ -180,15 +185,22 @@ async fn run_whatsapp_loop(
         .on_event(move |event, client| {
             let inbound_tx = inbound_tx.clone();
             let qr_tx = qr_tx.clone();
+            let qr_cache = qr_cache.clone();
             let client_tx = client_tx.clone();
             async move {
                 let _ = client_tx.send(StdArc::clone(&client));
                 match event {
                     Event::PairingQrCode { code, .. } => {
+                        if let Some(cache) = qr_cache.clone() {
+                            let _ = cache.send(Some(code.clone()));
+                        }
                         if let Some(tx) = qr_tx {
-                            let _ = tx.send(code);
+                            let delivered = tx.send(code.clone()).unwrap_or(0);
+                            if delivered == 0 {
+                                println!("WhatsApp QR Code:\n{}", render_qr_code(&code));
+                            }
                         } else {
-                            println!("WhatsApp QR Code:\n{code}");
+                            println!("WhatsApp QR Code:\n{}", render_qr_code(&code));
                         }
                     }
                     Event::Message(message, info) => {
@@ -265,4 +277,12 @@ async fn send_outbound_message(
     };
     let message_id = client.send_message(jid, message).await?;
     Ok(message_id)
+}
+
+fn render_qr_code(payload: &str) -> String {
+    let code = match QrCode::new(payload) {
+        Ok(code) => code,
+        Err(_) => return payload.to_string(),
+    };
+    code.render::<unicode::Dense1x2>().quiet_zone(true).build()
 }

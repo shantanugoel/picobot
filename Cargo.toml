@@ -28,6 +28,7 @@ tower-http = { version = "0.6", features = ["cors", "trace", "limit", "util"] }
 uuid = { version = "1", features = ["v4"] }
 tokio-stream = "0.1"
 url = "2"
+qrcode = "0.14"
 whatsapp-rust = "0.2"
 whatsapp-rust-sqlite-storage = "0.2"
 whatsapp-rust-tokio-transport = "0.2"

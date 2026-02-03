@@ -6,6 +6,8 @@ use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
+use qrcode::QrCode;
+use qrcode::render::unicode;
 use ratatui::prelude::*;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
@@ -125,7 +127,16 @@ impl Tui {
         }
 
         if self.pending_qr.is_some() {
-            return Ok(TuiEvent::None);
+            return match key.code {
+                KeyCode::Esc => {
+                    self.pending_qr = None;
+                    Ok(TuiEvent::None)
+                }
+                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    Ok(TuiEvent::Quit)
+                }
+                _ => Ok(TuiEvent::None),
+            };
         }
 
         if let Some(models) = &self.pending_model_picker {
@@ -379,12 +390,20 @@ impl Tui {
             }
 
             if let Some(code) = qr_code {
+                let max_qr_width = area.width.saturating_sub(6).min(MAX_QR_WIDTH);
+                let max_qr_height = area.height.saturating_sub(8).min(MAX_QR_HEIGHT);
+                let rendered = render_qr_code(&code, max_qr_width, max_qr_height);
                 let text = format!(
-                    "Scan this WhatsApp QR code:\n\n{code}\n\nPress Esc to dismiss",
+                    "Scan this WhatsApp QR code:\n\n{rendered}\n\nPress Esc to dismiss",
                 );
-                let popup_area = centered_rect(70, 40, area);
+                let (text_width, text_height) = text_dimensions(&text);
+                let popup_area = centered_rect_size(
+                    text_width.saturating_add(2),
+                    text_height.saturating_add(2),
+                    area,
+                );
                 let block = Block::default().title("WhatsApp").borders(Borders::ALL);
-                let widget = Paragraph::new(text).block(block).wrap(Wrap { trim: false });
+                let widget = Paragraph::new(text).block(block);
                 frame.render_widget(widget, popup_area);
             }
 
@@ -452,6 +471,63 @@ fn debug_to_text(lines: &[String]) -> Text<'_> {
 }
 
 const SPINNER_FRAMES: [&str; 4] = ["-", "\\", "|", "/"];
+const MAX_QR_WIDTH: u16 = 60;
+const MAX_QR_HEIGHT: u16 = 30;
+
+fn render_qr_code(payload: &str, max_width: u16, max_height: u16) -> String {
+    let code = match QrCode::new(payload) {
+        Ok(code) => code,
+        Err(_) => return payload.to_string(),
+    };
+    let quiet_zone_modules = if code.version().is_micro() { 4 } else { 8 };
+    let natural_modules = code.width() as u16;
+    let natural_with_qz = natural_modules + quiet_zone_modules;
+    let natural_height = natural_with_qz.div_ceil(2);
+
+    let mut renderer = code.render::<unicode::Dense1x2>();
+    let fits_with_qz = max_width >= natural_with_qz && max_height >= natural_height;
+    if fits_with_qz {
+        return renderer.quiet_zone(true).module_dimensions(1, 1).build();
+    }
+
+    let natural_height_no_qz = natural_modules.div_ceil(2);
+    let fits_without_qz = max_width >= natural_modules && max_height >= natural_height_no_qz;
+    if fits_without_qz {
+        return renderer.quiet_zone(false).module_dimensions(1, 1).build();
+    }
+
+    renderer.quiet_zone(false);
+    if max_width > 0 && max_height > 0 {
+        renderer.max_dimensions(max_width as u32, max_height as u32 * 2);
+    }
+    renderer.build()
+}
+
+fn text_dimensions(text: &str) -> (u16, u16) {
+    let mut max_width = 0usize;
+    let mut line_count = 0usize;
+    for line in text.split('\n') {
+        line_count += 1;
+        let width = line.chars().count();
+        if width > max_width {
+            max_width = width;
+        }
+    }
+    (max_width as u16, line_count as u16)
+}
+
+fn centered_rect_size(width: u16, height: u16, rect: Rect) -> Rect {
+    let width = width.min(rect.width).max(1);
+    let height = height.min(rect.height).max(1);
+    let x = rect.x + rect.width.saturating_sub(width) / 2;
+    let y = rect.y + rect.height.saturating_sub(height) / 2;
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
+}
 
 fn status_line<'a>(status: String, model_label: &'a str, busy: bool, spinner: &'a str) -> Text<'a> {
     let mut spans = Vec::new();
