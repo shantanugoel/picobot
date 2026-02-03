@@ -4,6 +4,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex, mpsc};
 
 use picobot::channels::config::profile_from_config;
+use picobot::channels::whatsapp::{WhatsAppBackend, WhatsAppInboundAdapter, WhatsAppOutboundSender, WhatsappRustBackend};
 use picobot::channels::permissions::ChannelPermissionProfile;
 use picobot::cli::format_permissions;
 use picobot::cli::tui::{ModelChoice, PermissionChoice, Tui, TuiEvent};
@@ -21,6 +22,7 @@ use picobot::server::state::AppState;
 use picobot::session::manager::SessionManager;
 use picobot::session::snapshot::SnapshotStore;
 use picobot::tools::builtin::register_builtin_tools;
+use tokio::sync::broadcast;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -80,7 +82,9 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
 
     let api_profile = api_profile_from_config(&config)?;
     let websocket_profile = websocket_profile_from_config(&config)?;
+    let whatsapp_profile = whatsapp_profile_from_config(&config)?;
     let sessions = Arc::new(SessionManager::new());
+    let (whatsapp_backend, _whatsapp_qr) = setup_whatsapp_backend(&config);
     let snapshot_path = config
         .session
         .as_ref()
@@ -110,6 +114,7 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
         snapshot_path,
         max_tool_rounds: 8,
         channel_type: picobot::channels::adapter::ChannelType::Api,
+        whatsapp_qr: _whatsapp_qr,
     };
 
     if let Some(store) = snapshot_store {
@@ -119,6 +124,36 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
             .and_then(|session| session.snapshot_interval_secs)
             .unwrap_or(300);
         spawn_snapshot_task(Arc::clone(&state.sessions), store, interval_secs);
+    }
+
+    if let Some(backend) = whatsapp_backend {
+        let whatsapp_profile = whatsapp_profile.clone();
+        let inbound = Arc::new(WhatsAppInboundAdapter::new(Arc::clone(&backend)));
+        let outbound = Arc::new(WhatsAppOutboundSender::new(Arc::clone(&backend)));
+        let sessions = Arc::clone(&state.sessions);
+        let kernel = Arc::clone(&state.kernel);
+        let models = Arc::clone(&state.models);
+        let profile = whatsapp_profile;
+        let max_tool_rounds = state.max_tool_rounds;
+        let runtime = tokio::runtime::Handle::current();
+        std::thread::spawn(move || {
+            runtime.block_on(async move {
+                if let Err(err) = backend.start().await {
+                    eprintln!("WhatsApp backend failed: {err}");
+                    return;
+                }
+                picobot::server::runtime::run_adapter_loop(
+                    inbound,
+                    outbound,
+                    sessions,
+                    kernel,
+                    models,
+                    profile,
+                    max_tool_rounds,
+                )
+                .await;
+            });
+        });
     }
 
     let app = build_router(state.clone());
@@ -158,12 +193,29 @@ async fn run_tui(
     let mut ws_session_id: Option<String> = None;
 
     loop {
+        if let Some(ws) = ws.as_ref() {
+            loop {
+                match ws.inbound.try_recv() {
+                    Ok(picobot::cli::ws_client::WsUiMessage::WhatsappQr(code)) => {
+                        if let Ok(mut ui) = tui.try_borrow_mut() {
+                            ui.set_pending_qr(code);
+                            ui.refresh().ok();
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+                }
+            }
+        }
+
         let event = {
             let mut ui = tui.borrow_mut();
             ui.next_event().map_err(|err| anyhow::anyhow!(err))?
         };
         match event {
             TuiEvent::Quit => break,
+            TuiEvent::None => {}
             TuiEvent::Input(line) => {
                 if line == "/clear" {
                     let mut ui = tui.borrow_mut();
@@ -224,6 +276,12 @@ async fn run_tui(
                             Ok(message) => match message {
                                 picobot::cli::ws_client::WsUiMessage::Session(id) => {
                                     ws_session_id = Some(id);
+                                }
+                                picobot::cli::ws_client::WsUiMessage::WhatsappQr(code) => {
+                                    if let Ok(mut ui) = tui.try_borrow_mut() {
+                                        ui.set_pending_qr(code);
+                                        ui.refresh().ok();
+                                    }
                                 }
                                 picobot::cli::ws_client::WsUiMessage::Token(token) => {
                                     buffer.push_str(&token);
@@ -516,6 +574,41 @@ fn websocket_profile_from_config(
         picobot::kernel::permissions::PermissionTier::UserGrantable,
     )
     .map_err(|err| anyhow::anyhow!(err))
+}
+
+fn whatsapp_profile_from_config(
+    config: &Config,
+) -> Result<ChannelPermissionProfile, anyhow::Error> {
+    let wa_config = config
+        .channels
+        .as_ref()
+        .and_then(|channels| channels.whatsapp.as_ref());
+    profile_from_config(
+        wa_config,
+        picobot::kernel::permissions::PermissionTier::AdminOnly,
+    )
+    .map_err(|err| anyhow::anyhow!(err))
+}
+
+fn setup_whatsapp_backend(
+    config: &Config,
+) -> (Option<Arc<dyn WhatsAppBackend>>, Option<broadcast::Sender<String>>) {
+    let Some(channel) = config
+        .channels
+        .as_ref()
+        .and_then(|channels| channels.whatsapp.as_ref()) else {
+        return (None, None);
+    };
+    if channel.enabled == Some(false) {
+        return (None, None);
+    }
+    let store_path = channel
+        .store_path
+        .clone()
+        .unwrap_or_else(|| "./data/whatsapp.db".to_string());
+    let (qr_tx, _) = broadcast::channel(4);
+    let backend = Arc::new(WhatsappRustBackend::new(store_path, Some(qr_tx.clone())));
+    (Some(backend), Some(qr_tx))
 }
 
 enum UiMessage {

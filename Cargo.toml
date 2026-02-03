@@ -28,3 +28,22 @@ tower-http = { version = "0.6", features = ["cors", "trace", "limit", "util"] }
 uuid = { version = "1", features = ["v4"] }
 tokio-stream = "0.1"
 url = "2"
+whatsapp-rust = "0.2"
+whatsapp-rust-sqlite-storage = "0.2"
+whatsapp-rust-tokio-transport = "0.2"
+whatsapp-rust-ureq-http-client = "0.2"
+wacore = "0.2"
+wacore-binary = "0.2"
+waproto = "0.2"
+
+[patch.crates-io]
+whatsapp-rust = { git = "https://github.com/jlucaso1/whatsapp-rust", branch = "main" }
+whatsapp-rust-sqlite-storage = { git = "https://github.com/jlucaso1/whatsapp-rust", branch = "main" }
+whatsapp-rust-tokio-transport = { git = "https://github.com/jlucaso1/whatsapp-rust", branch = "main" }
+whatsapp-rust-ureq-http-client = { git = "https://github.com/jlucaso1/whatsapp-rust", branch = "main" }
+wacore = { git = "https://github.com/jlucaso1/whatsapp-rust", branch = "main" }
+wacore-appstate = { git = "https://github.com/jlucaso1/whatsapp-rust", branch = "main" }
+wacore-binary = { git = "https://github.com/jlucaso1/whatsapp-rust", branch = "main" }
+wacore-libsignal = { git = "https://github.com/jlucaso1/whatsapp-rust", branch = "main" }
+wacore-noise = { git = "https://github.com/jlucaso1/whatsapp-rust", branch = "main" }
+waproto = { git = "https://github.com/jlucaso1/whatsapp-rust", branch = "main" }

@@ -7,7 +7,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::http::HeaderMap;
 use axum::response::Response;
 use futures::{SinkExt, StreamExt};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
 
 use crate::channels::adapter::ChannelType;
@@ -44,6 +44,22 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     let pending_permissions: Arc<
         Mutex<HashMap<String, std::sync::mpsc::Sender<PermissionDecision>>>,
     > = Arc::new(Mutex::new(HashMap::new()));
+
+    if let Some(qr_tx) = state.whatsapp_qr.as_ref() {
+        let mut qr_rx = qr_tx.subscribe();
+        let tx_clone = tx.clone();
+        tokio::spawn(async move {
+            loop {
+                match qr_rx.recv().await {
+                    Ok(code) => {
+                        let _ = tx_clone.send(WsServerMessage::WhatsappQr { code });
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                }
+            }
+        });
+    }
 
     let send_task = tokio::spawn(async move {
         while let Some(message) = rx.recv().await {

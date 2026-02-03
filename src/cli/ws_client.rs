@@ -13,6 +13,7 @@ use crate::channels::websocket::{WsClientMessage, WsServerMessage};
 #[derive(Debug)]
 pub enum WsUiMessage {
     Session(String),
+    WhatsappQr(String),
     Token(String),
     Done(String),
     Error(String),
@@ -89,6 +90,9 @@ pub fn spawn_ws_client(url: String, api_key: Option<String>) -> WsClientHandle {
                                     match event {
                                         WsServerMessage::Session { session_id } => {
                                             let _ = inbound_tx.send(WsUiMessage::Session(session_id));
+                                        }
+                                        WsServerMessage::WhatsappQr { code } => {
+                                            let _ = inbound_tx.send(WsUiMessage::WhatsappQr(code));
                                         }
                                         WsServerMessage::Token { token } => {
                                             let _ = inbound_tx.send(WsUiMessage::Token(token));

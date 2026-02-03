@@ -22,6 +22,9 @@ pub enum WsServerMessage {
     Session {
         session_id: String,
     },
+    WhatsappQr {
+        code: String,
+    },
     Token {
         token: String,
     },

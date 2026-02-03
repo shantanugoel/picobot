@@ -265,11 +265,11 @@ src/
 
 ### Week 4: WhatsApp Integration (whatsapp-rust)
 
-- Implement WhatsAppBackend trait
-- Use whatsapp-rust Bot with SQLite store
-- Handle QR pairing via TUI
-- Convert inbound events to InboundMessage
-- Map send_text to OutboundSender
+- [x] Implement WhatsAppBackend trait
+- [x] Use whatsapp-rust Bot with SQLite store
+- [x] Handle QR pairing via TUI
+- [x] Convert inbound events to InboundMessage
+- [x] Map send_text to OutboundSender
 
 ### Week 5: Reliability + Observability
 

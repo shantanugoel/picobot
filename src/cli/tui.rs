@@ -35,6 +35,7 @@ pub struct Tui {
     show_debug: bool,
     status: String,
     pending_permission: Option<(String, Vec<String>)>,
+    pending_qr: Option<String>,
     pending_model_picker: Option<Vec<ModelChoice>>,
     busy: bool,
     current_model: Option<String>,
@@ -80,6 +81,7 @@ impl Tui {
             show_debug: false,
             status: "F2: Debug  F3: Help  Ctrl+C: Quit".to_string(),
             pending_permission: None,
+            pending_qr: None,
             pending_model_picker: None,
             busy: false,
             current_model: None,
@@ -122,6 +124,10 @@ impl Tui {
             }
         }
 
+        if self.pending_qr.is_some() {
+            return Ok(TuiEvent::None);
+        }
+
         if let Some(models) = &self.pending_model_picker {
             match key.code {
                 KeyCode::Esc => {
@@ -154,6 +160,10 @@ impl Tui {
             }
             KeyCode::F(3) => {
                 self.push_system("Commands: /help /quit /exit /clear /permissions /models");
+                Ok(TuiEvent::None)
+            }
+            KeyCode::Esc if self.pending_qr.is_some() => {
+                self.pending_qr = None;
                 Ok(TuiEvent::None)
             }
             KeyCode::Char(ch) => {
@@ -253,6 +263,14 @@ impl Tui {
         self.pending_permission = None;
     }
 
+    pub fn set_pending_qr(&mut self, code: String) {
+        self.pending_qr = Some(code);
+    }
+
+    pub fn clear_pending_qr(&mut self) {
+        self.pending_qr = None;
+    }
+
     pub fn has_pending_permission(&self) -> bool {
         self.pending_permission.is_some()
     }
@@ -287,6 +305,7 @@ impl Tui {
         let input = self.input.clone();
         let status = self.status.clone();
         let permission = self.pending_permission.clone();
+        let qr_code = self.pending_qr.clone();
         let model_picker = self.pending_model_picker.clone();
         let busy = self.busy;
         let model_label = self
@@ -356,6 +375,16 @@ impl Tui {
                 let popup_area = centered_rect(70, 30, area);
                 let block = Block::default().title("Permission").borders(Borders::ALL);
                 let widget = Paragraph::new(text).block(block).wrap(Wrap { trim: true });
+                frame.render_widget(widget, popup_area);
+            }
+
+            if let Some(code) = qr_code {
+                let text = format!(
+                    "Scan this WhatsApp QR code:\n\n{code}\n\nPress Esc to dismiss",
+                );
+                let popup_area = centered_rect(70, 40, area);
+                let block = Block::default().title("WhatsApp").borders(Borders::ALL);
+                let widget = Paragraph::new(text).block(block).wrap(Wrap { trim: false });
                 frame.render_widget(widget, popup_area);
             }
 
