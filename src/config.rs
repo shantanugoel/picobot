@@ -11,6 +11,8 @@ pub struct Config {
     #[serde(default)]
     pub logging: Option<LoggingConfig>,
     #[serde(default)]
+    pub server: Option<ServerConfig>,
+    #[serde(default)]
     pub channels: Option<ChannelsConfig>,
     #[serde(default)]
     pub session: Option<SessionConfig>,
@@ -64,6 +66,28 @@ pub struct ShellPermissions {
 pub struct LoggingConfig {
     pub level: Option<String>,
     pub audit_file: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct ServerConfig {
+    pub bind: Option<String>,
+    pub expose_externally: Option<bool>,
+    #[serde(default)]
+    pub auth: Option<AuthConfig>,
+    #[serde(default)]
+    pub cors: Option<CorsConfig>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct AuthConfig {
+    #[serde(default)]
+    pub api_keys: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct CorsConfig {
+    #[serde(default)]
+    pub allowed_origins: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]

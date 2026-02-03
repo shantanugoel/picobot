@@ -5,6 +5,8 @@ use std::sync::{mpsc, Arc, Mutex};
 
 use picobot::cli::format_permissions;
 use picobot::cli::tui::{ModelChoice, PermissionChoice, Tui, TuiEvent};
+use picobot::channels::config::profile_from_config;
+use picobot::channels::permissions::ChannelPermissionProfile;
 use picobot::config::Config;
 use picobot::kernel::agent::Kernel;
 use picobot::kernel::agent_loop::{
@@ -12,11 +14,20 @@ use picobot::kernel::agent_loop::{
 };
 use picobot::kernel::permissions::CapabilitySet;
 use picobot::models::router::ModelRegistry;
+use picobot::server::app::{bind_address, build_router, is_localhost_only};
+use picobot::server::snapshot::spawn_snapshot_task;
+use picobot::server::state::AppState;
+use picobot::session::manager::SessionManager;
+use picobot::session::snapshot::SnapshotStore;
 use picobot::tools::builtin::register_builtin_tools;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = load_config().unwrap_or_default();
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 && args[1] == "serve" {
+        return run_server(config).await;
+    }
 
     let registry = match ModelRegistry::from_config(&config) {
         Ok(registry) => registry,
@@ -46,6 +57,71 @@ async fn main() -> anyhow::Result<()> {
 
     let registry = Arc::new(registry);
     run_tui(kernel, registry, state, config.permissions.as_ref()).await
+}
+
+async fn run_server(config: Config) -> anyhow::Result<()> {
+    let registry = match ModelRegistry::from_config(&config) {
+        Ok(registry) => registry,
+        Err(err) => {
+            eprintln!("Model registry error: {err}");
+            return Ok(());
+        }
+    };
+
+    let tool_registry = register_builtin_tools(config.permissions.as_ref())?;
+    let working_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let capabilities = config
+        .permissions
+        .as_ref()
+        .map(CapabilitySet::from_config)
+        .unwrap_or_else(CapabilitySet::empty);
+    let kernel = Arc::new(Kernel::new(tool_registry, working_dir).with_capabilities(capabilities));
+
+    let api_profile = api_profile_from_config(&config)?;
+    let sessions = Arc::new(SessionManager::new());
+    let snapshot_path = config
+        .session
+        .as_ref()
+        .and_then(|session| session.snapshot_path.clone());
+    let mut snapshot_store = None;
+    if let Some(path) = snapshot_path.clone() {
+        let store = SnapshotStore::new(path);
+        if let Ok(Some(snapshot)) = store.load() {
+            sessions.restore_sessions(snapshot.sessions);
+        }
+        snapshot_store = Some(store);
+    }
+
+    let state = AppState {
+        kernel,
+        models: Arc::new(registry),
+        sessions,
+        api_profile,
+        server_config: config.server.clone(),
+        snapshot_path,
+        max_tool_rounds: 8,
+        channel_type: picobot::channels::adapter::ChannelType::Api,
+    };
+
+    if let Some(store) = snapshot_store {
+        let interval_secs = config
+            .session
+            .as_ref()
+            .and_then(|session| session.snapshot_interval_secs)
+            .unwrap_or(300);
+        spawn_snapshot_task(Arc::clone(&state.sessions), store, interval_secs);
+    }
+
+    let app = build_router(state.clone());
+    let addr = bind_address(&state);
+    if !is_localhost_only(&state) {
+        eprintln!("Warning: server is configured to expose externally.");
+    }
+    println!("Starting server on http://{}", addr);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app)
+        .await
+        .map_err(|err| anyhow::anyhow!(err))
 }
 
 async fn run_tui(
@@ -280,6 +356,12 @@ async fn run_tui(
 fn load_config() -> Option<Config> {
     let raw = fs::read_to_string("config.toml").ok()?;
     toml::from_str(&raw).ok()
+}
+
+fn api_profile_from_config(config: &Config) -> Result<ChannelPermissionProfile, anyhow::Error> {
+    let api_config = config.channels.as_ref().and_then(|channels| channels.api.as_ref());
+    profile_from_config(api_config, picobot::kernel::permissions::PermissionTier::UserGrantable)
+        .map_err(|err| anyhow::anyhow!(err))
 }
 
 enum UiMessage {

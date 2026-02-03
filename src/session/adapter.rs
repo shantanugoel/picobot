@@ -13,6 +13,7 @@ pub fn state_from_session(session: &Session) -> ConversationState {
 
 pub fn session_from_state(session: &mut Session, state: &ConversationState) {
     session.conversation = state.messages().to_vec();
+    session.permissions = state.session_grants().clone();
 }
 
 pub fn append_user_message(session: &mut Session, content: String) {

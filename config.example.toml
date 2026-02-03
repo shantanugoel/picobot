@@ -58,3 +58,24 @@ working_directory = "~/Projects"
 [logging]
 level = "info"
 audit_file = "~/.picobot/audit.log"
+
+[server]
+bind = "127.0.0.1:8080"
+expose_externally = false
+
+[server.auth]
+api_keys = ["change-me"]
+
+[server.cors]
+allowed_origins = ["http://localhost:3000"]
+
+
+[channels.api]
+enabled = true
+allow_user_prompts = true
+pre_authorized = []
+max_allowed = ["filesystem:read:/tmp/**", "net:api.github.com"]
+
+[session]
+snapshot_interval_secs = 300
+snapshot_path = "./data/sessions.json"

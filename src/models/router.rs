@@ -155,6 +155,9 @@ mod tests {
             agent: None,
             permissions: None,
             logging: None,
+            server: None,
+            channels: None,
+            session: None,
         };
 
         let result = ModelRegistry::from_config(&config);

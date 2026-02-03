@@ -244,16 +244,16 @@ src/
 - [x] Introduce inbound/outbound adapter traits
 - [x] Build SessionManager + JSON snapshot persistence
 - [x] Extend permissions with tiers
-- [~] Adapter layer for agent_loop (preserve Kernel path) (session <-> state adapter added; server loop wiring pending)
+- [x] Adapter layer for agent_loop (preserve Kernel path)
 - [x] Add channel permission profiles to config
 
 ### Week 2: HTTP Server + REST
 
-- Add axum + tower dependencies
-- Build AppState and REST endpoints
-- Add auth, CORS, rate limiting
-- Implement chat endpoints (sync + stream)
-- Structured logging + health/metrics
+- [x] Add axum + tower dependencies
+- [x] Build AppState and REST endpoints
+- [x] Add auth, CORS (rate limiting stubbed)
+- [x] Implement chat endpoints (sync + stream)
+- [x] Structured logging + health/metrics
 
 ### Week 3: WebSocket + TUI Migration
 

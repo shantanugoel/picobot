@@ -97,7 +97,7 @@ mod tests {
 
     #[test]
     fn required_permissions_wrap_command() {
-        let tool = ShellTool::default();
+        let tool = ShellTool;
         let ctx = crate::tools::traits::ToolContext {
             working_dir: std::path::PathBuf::from("/"),
             capabilities: std::sync::Arc::new(crate::kernel::permissions::CapabilitySet::empty()),
