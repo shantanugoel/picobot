@@ -25,6 +25,9 @@ pub enum Permission {
     MemoryWrite {
         scope: MemoryScope,
     },
+    Schedule {
+        action: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -184,6 +187,10 @@ impl Permission {
                 Permission::MemoryWrite { scope: granted },
                 Permission::MemoryWrite { scope: needed },
             ) => granted.covers(*needed),
+            (
+                Permission::Schedule { action: granted },
+                Permission::Schedule { action: needed },
+            ) => granted == "*" || granted == needed,
             _ => false,
         }
     }
@@ -245,6 +252,14 @@ impl std::str::FromStr for Permission {
         if let Some(scope) = value.strip_prefix("memory:write:") {
             return Ok(Permission::MemoryWrite {
                 scope: parse_memory_scope(scope)?,
+            });
+        }
+        if let Some(action) = value.strip_prefix("schedule:") {
+            if action.is_empty() {
+                return Err("schedule permission requires an action".to_string());
+            }
+            return Ok(Permission::Schedule {
+                action: action.to_string(),
             });
         }
         Err(format!("invalid permission '{value}'"))
@@ -364,6 +379,12 @@ mod tests {
                 scope: MemoryScope::User
             }
         ));
+    }
+
+    #[test]
+    fn permission_from_str_parses_schedule() {
+        let permission = Permission::from_str("schedule:create").unwrap();
+        assert!(matches!(permission, Permission::Schedule { .. }));
     }
 
     #[test]

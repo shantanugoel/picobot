@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use rusqlite::{Connection, OpenFlags, params};
+use rusqlite::{params, Connection, OpenFlags};
 
 use crate::session::error::{SessionDbError, SessionDbResult};
 
@@ -88,7 +88,47 @@ impl SqliteStore {
             CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
             CREATE INDEX IF NOT EXISTS idx_sessions_channel ON sessions(channel_id);
             CREATE INDEX IF NOT EXISTS idx_user_memories_user ON user_memories(user_id);
-            CREATE INDEX IF NOT EXISTS idx_session_summaries_session ON session_summaries(session_id);",
+            CREATE INDEX IF NOT EXISTS idx_session_summaries_session ON session_summaries(session_id);
+            CREATE TABLE IF NOT EXISTS schedules (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                schedule_type TEXT NOT NULL CHECK(schedule_type IN ('interval', 'once')),
+                schedule_expr TEXT NOT NULL,
+                task_prompt TEXT NOT NULL,
+                session_id TEXT,
+                user_id TEXT NOT NULL,
+                channel_id TEXT,
+                capabilities_json TEXT NOT NULL,
+                creator_principal TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                max_executions INTEGER,
+                execution_count INTEGER NOT NULL DEFAULT 0,
+                claimed_at TEXT,
+                claim_id TEXT,
+                claim_expires_at TEXT,
+                last_run_at TEXT,
+                next_run_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                consecutive_failures INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT,
+                backoff_until TEXT,
+                metadata_json TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules(next_run_at, enabled, claimed_at);
+            CREATE INDEX IF NOT EXISTS idx_schedules_user ON schedules(user_id);
+            CREATE INDEX IF NOT EXISTS idx_schedules_claim ON schedules(claim_id);
+            CREATE TABLE IF NOT EXISTS schedule_executions (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                status TEXT NOT NULL CHECK(status IN ('running', 'completed', 'failed', 'timeout', 'cancelled')),
+                result_summary TEXT,
+                error TEXT,
+                execution_time_ms INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_schedule_executions_job ON schedule_executions(job_id, started_at);",
         )
         .map_err(|err| SessionDbError::MigrationFailed(err.to_string()))?;
         Ok(())

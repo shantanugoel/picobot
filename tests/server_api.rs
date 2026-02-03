@@ -36,6 +36,7 @@ fn build_test_state() -> AppState {
         channels: None,
         session: None,
         data: None,
+        scheduler: None,
     };
 
     let registry = ModelRegistry::from_config(&config).expect("registry");
@@ -76,6 +77,7 @@ fn build_test_state() -> AppState {
         channel_type: picobot::channels::adapter::ChannelType::Api,
         whatsapp_qr: None,
         whatsapp_qr_cache: None,
+        scheduler: None,
     }
 }
 

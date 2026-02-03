@@ -6,6 +6,7 @@ use crate::config::ServerConfig;
 use crate::delivery::tracking::DeliveryTracker;
 use crate::kernel::agent::Kernel;
 use crate::models::router::ModelRegistry;
+use crate::scheduler::service::SchedulerService;
 use crate::server::rate_limit::RateLimiter;
 use crate::session::persistent_manager::PersistentSessionManager;
 use crate::session::retention::{spawn_retention_task, spawn_summarization_task};
@@ -27,6 +28,7 @@ pub struct AppState {
     pub channel_type: ChannelType,
     pub whatsapp_qr: Option<broadcast::Sender<String>>,
     pub whatsapp_qr_cache: Option<watch::Receiver<Option<String>>>,
+    pub scheduler: Option<Arc<SchedulerService>>,
 }
 
 pub fn maybe_start_retention(config: &crate::config::Config, models: &Arc<ModelRegistry>) {

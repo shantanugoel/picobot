@@ -24,6 +24,9 @@ use picobot::server::app::{bind_address, build_router, is_localhost_only};
 use picobot::server::rate_limit::RateLimiter;
 use picobot::server::snapshot::spawn_snapshot_task;
 use picobot::server::state::{AppState, maybe_start_retention};
+use picobot::scheduler::executor::JobExecutor;
+use picobot::scheduler::service::SchedulerService;
+use picobot::scheduler::store::ScheduleStore;
 use picobot::session::persistent_manager::PersistentSessionManager;
 use picobot::session::snapshot::SnapshotStore;
 use picobot::tools::builtin::register_builtin_tools;
@@ -165,9 +168,39 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
         .as_ref()
         .and_then(|server| server.rate_limit.as_ref())
         .and_then(RateLimiter::from_config);
+    let models = Arc::new(registry);
+    let scheduler_config = config.scheduler.clone().unwrap_or_default();
+    let scheduler = if scheduler_config.enabled() {
+        let schedule_store = ScheduleStore::new(picobot::session::db::SqliteStore::new(
+            std::path::PathBuf::from(data_dir.unwrap_or("data"))
+                .join("conversations.db")
+                .to_string_lossy()
+                .to_string(),
+        ));
+        let _ = schedule_store.store().touch();
+        let executor = JobExecutor::new(
+            Arc::clone(&kernel),
+            Arc::clone(&models),
+            schedule_store.clone(),
+            scheduler_config.clone(),
+        );
+        let service = Arc::new(SchedulerService::new(
+            schedule_store,
+            executor,
+            scheduler_config.clone(),
+        ));
+        let service_clone = Arc::clone(&service);
+        tokio::spawn(async move {
+            service_clone.run_loop().await;
+        });
+        Some(service)
+    } else {
+        None
+    };
+
     let state = AppState {
         kernel,
-        models: Arc::new(registry),
+        models,
         sessions,
         deliveries: deliveries.clone(),
         api_profile,
@@ -179,6 +212,7 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
         channel_type: picobot::channels::adapter::ChannelType::Api,
         whatsapp_qr: _whatsapp_qr,
         whatsapp_qr_cache: _whatsapp_qr_cache,
+        scheduler,
     };
 
     maybe_start_retention(&config, &state.models);

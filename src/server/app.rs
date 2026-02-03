@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
-use axum::Router;
 use axum::routing::{delete, get, post};
+use axum::Router;
 use tower::ServiceBuilder;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
@@ -9,6 +9,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::config::CorsConfig;
 use crate::server::routes;
+use crate::server::scheduler_routes;
 use crate::server::state::AppState;
 use crate::server::ws;
 
@@ -22,6 +23,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v1/sessions/{id}", delete(routes::delete_session))
         .route("/api/v1/permissions", get(routes::permissions))
         .route("/api/v1/permissions/grant", post(routes::grant_permissions))
+        .route("/api/v1/schedules", get(scheduler_routes::list_schedules))
+        .route("/api/v1/schedules", post(scheduler_routes::create_schedule))
         .route("/api/v1/chat", post(routes::chat))
         .route("/api/v1/chat/stream", post(routes::chat_stream))
         .route("/ws", get(ws::websocket_handler))
