@@ -5,6 +5,7 @@ use crate::tools::filesystem::FilesystemTool;
 use crate::tools::http::HttpTool;
 use crate::tools::memory::MemoryTool;
 use crate::tools::registry::{ToolRegistry, ToolRegistryError};
+use crate::tools::schedule::ScheduleTool;
 use crate::tools::shell::ShellTool;
 use crate::tools::traits::ToolError;
 
@@ -39,6 +40,7 @@ pub fn register_builtin_tools(
             detail: err.to_string(),
         })?;
     registry.register(Box::new(MemoryTool::new(store)))?;
+    registry.register(Box::new(ScheduleTool))?;
 
     if let Some(permissions) = permissions
         && let Some(shell) = &permissions.shell

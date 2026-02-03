@@ -125,6 +125,7 @@ mod tests {
             capabilities: Arc::new(CapabilitySet::empty()),
             user_id: Some("api:user".to_string()),
             session_id: Some("session-1".to_string()),
+            scheduler: Arc::new(std::sync::RwLock::new(None)),
         };
         controller.purge(&ctx, PurgeScope::Session, None).unwrap();
         assert!(manager.get_session("session-1").unwrap().is_none());
@@ -169,6 +170,7 @@ mod tests {
             capabilities: Arc::new(CapabilitySet::empty()),
             user_id: Some("api:user2".to_string()),
             session_id: None,
+            scheduler: Arc::new(std::sync::RwLock::new(None)),
         };
         controller.purge(&ctx, PurgeScope::User, None).unwrap();
         assert!(manager.get_session("session-2").unwrap().is_none());
@@ -226,6 +228,7 @@ mod tests {
             capabilities: Arc::new(CapabilitySet::empty()),
             user_id: Some("api:user3".to_string()),
             session_id: Some("session-3".to_string()),
+            scheduler: Arc::new(std::sync::RwLock::new(None)),
         };
         controller
             .purge(&ctx, PurgeScope::OlderThanDays, Some(1))

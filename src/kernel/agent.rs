@@ -22,6 +22,7 @@ impl Kernel {
                 capabilities: Arc::new(CapabilitySet::empty()),
                 user_id: None,
                 session_id: None,
+                scheduler: Arc::new(std::sync::RwLock::new(None)),
             },
             memory_retriever: None,
         }
@@ -66,6 +67,19 @@ impl Kernel {
 
     pub fn set_capabilities(&mut self, capabilities: CapabilitySet) {
         self.context.capabilities = Arc::new(capabilities);
+    }
+
+    pub fn set_scheduler(
+        &mut self,
+        scheduler: Option<Arc<crate::scheduler::service::SchedulerService>>,
+    ) {
+        if let Ok(mut slot) = self.context.scheduler.write() {
+            *slot = scheduler;
+        }
+    }
+
+    pub fn scheduler(&self) -> Option<Arc<crate::scheduler::service::SchedulerService>> {
+        self.context.scheduler()
     }
 
     pub async fn invoke_tool(

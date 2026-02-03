@@ -142,6 +142,7 @@ mod tests {
             capabilities: std::sync::Arc::new(CapabilitySet::empty()),
             user_id: None,
             session_id: None,
+            scheduler: std::sync::Arc::new(std::sync::RwLock::new(None)),
         };
 
         let perms = registry

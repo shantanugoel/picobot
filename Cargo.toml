@@ -23,6 +23,8 @@ anyhow = "1"
 crossterm = "0.28"
 ratatui = "0.29"
 chrono = { version = "0.4", features = ["serde", "clock"] }
+chrono-tz = "0.10"
+cron = "0.12"
 axum = { version = "0.8", features = ["json", "macros", "ws"] }
 tokio-tungstenite = { version = "0.27", features = ["rustls-tls-webpki-roots"] }
 tower = { version = "0.5", features = ["limit"] }

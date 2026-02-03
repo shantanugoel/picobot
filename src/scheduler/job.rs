@@ -7,6 +7,7 @@ use crate::kernel::permissions::CapabilitySet;
 pub enum ScheduleType {
     Interval,
     Once,
+    Cron,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,6 +95,7 @@ impl ScheduledJob {
         match self.schedule_type {
             ScheduleType::Interval => self.schedule_expr.parse::<u64>().ok(),
             ScheduleType::Once => None,
+            ScheduleType::Cron => None,
         }
     }
 }

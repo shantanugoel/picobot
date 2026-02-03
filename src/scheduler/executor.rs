@@ -9,6 +9,7 @@ use crate::kernel::agent::Kernel;
 use crate::kernel::agent_loop::{ConversationState, run_agent_loop_with_limit};
 use crate::models::router::ModelRegistry;
 use crate::scheduler::job::{ExecutionStatus, JobExecution, ScheduleType, ScheduledJob};
+use crate::scheduler::service::next_cron_occurrence;
 use crate::scheduler::store::ScheduleStore;
 
 #[derive(Clone)]
@@ -198,6 +199,15 @@ fn apply_next_run(
             job.enabled = false;
             job.next_run_at = now + chrono::Duration::seconds(config.tick_interval_secs() as i64);
         }
+        ScheduleType::Cron => match next_cron_occurrence(&job.schedule_expr, now) {
+            Ok(next) => {
+                job.next_run_at = next;
+            }
+            Err(err) => {
+                job.enabled = false;
+                job.last_error = Some(err.to_string());
+            }
+        },
     }
     job
 }

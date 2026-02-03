@@ -67,18 +67,18 @@ async fn main() -> anyhow::Result<()> {
             .to_string_lossy()
             .to_string(),
     );
-    let kernel = if memory_config.enable_user_memories.unwrap_or(true) {
-        Arc::new(
-            Kernel::new(tool_registry, working_dir)
-                .with_capabilities(capabilities)
-                .with_memory_retriever(picobot::kernel::memory::MemoryRetriever::new(
-                    memory_config,
-                    memory_store,
-                )),
-        )
+    let mut kernel = if memory_config.enable_user_memories.unwrap_or(true) {
+        Kernel::new(tool_registry, working_dir)
+            .with_capabilities(capabilities)
+            .with_memory_retriever(picobot::kernel::memory::MemoryRetriever::new(
+                memory_config,
+                memory_store,
+            ))
     } else {
-        Arc::new(Kernel::new(tool_registry, working_dir).with_capabilities(capabilities))
+        Kernel::new(tool_registry, working_dir).with_capabilities(capabilities)
     };
+    kernel.set_scheduler(None);
+    let kernel = Arc::new(kernel);
 
     let mut state = ConversationState::new();
     if let Some(agent) = &config.agent
@@ -121,18 +121,18 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
             .to_string_lossy()
             .to_string(),
     );
-    let kernel = if memory_config.enable_user_memories.unwrap_or(true) {
-        Arc::new(
-            Kernel::new(tool_registry, working_dir)
-                .with_capabilities(capabilities)
-                .with_memory_retriever(picobot::kernel::memory::MemoryRetriever::new(
-                    memory_config,
-                    memory_store,
-                )),
-        )
+    let mut kernel = if memory_config.enable_user_memories.unwrap_or(true) {
+        Kernel::new(tool_registry, working_dir)
+            .with_capabilities(capabilities)
+            .with_memory_retriever(picobot::kernel::memory::MemoryRetriever::new(
+                memory_config,
+                memory_store,
+            ))
     } else {
-        Arc::new(Kernel::new(tool_registry, working_dir).with_capabilities(capabilities))
+        Kernel::new(tool_registry, working_dir).with_capabilities(capabilities)
     };
+    kernel.set_scheduler(None);
+    let kernel = Arc::new(kernel);
 
     let api_profile = api_profile_from_config(&config)?;
     let websocket_profile = websocket_profile_from_config(&config)?;
@@ -197,6 +197,12 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
     } else {
         None
     };
+
+    if let Some(service) = scheduler.as_ref()
+        && let Ok(mut slot) = kernel.context().scheduler.write()
+    {
+        *slot = Some(Arc::clone(service));
+    }
 
     let state = AppState {
         kernel,

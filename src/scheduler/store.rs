@@ -1,4 +1,4 @@
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 
 use crate::scheduler::error::{SchedulerError, SchedulerResult};
 use crate::scheduler::job::{
@@ -477,6 +477,7 @@ fn parse_schedule_type(value: &str) -> crate::session::error::SessionDbResult<Sc
     match value {
         "interval" => Ok(ScheduleType::Interval),
         "once" => Ok(ScheduleType::Once),
+        "cron" => Ok(ScheduleType::Cron),
         other => Err(crate::session::error::SessionDbError::QueryFailed(format!(
             "invalid schedule_type '{other}'",
         ))),
@@ -487,6 +488,7 @@ fn schedule_type_to_str(value: ScheduleType) -> &'static str {
     match value {
         ScheduleType::Interval => "interval",
         ScheduleType::Once => "once",
+        ScheduleType::Cron => "cron",
     }
 }
 

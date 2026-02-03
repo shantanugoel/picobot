@@ -116,6 +116,10 @@ impl SchedulerService {
         Ok(self.executor.cancel_job(job_id))
     }
 
+    pub fn store(&self) -> &ScheduleStore {
+        &self.store
+    }
+
     fn ensure_schedule_permission(
         &self,
         capabilities: &crate::kernel::permissions::CapabilitySet,
@@ -165,12 +169,82 @@ fn compute_initial_run(
             Ok(chrono::Utc::now() + chrono::Duration::seconds(secs as i64))
         }
         ScheduleType::Once => Ok(chrono::Utc::now()),
+        ScheduleType::Cron => compute_cron_initial_run(&request.schedule_expr),
+    }
+}
+
+const MIN_CRON_INTERVAL_SECS: i64 = 60;
+
+fn compute_cron_initial_run(expr: &str) -> SchedulerResult<chrono::DateTime<chrono::Utc>> {
+    let (schedule, timezone) = parse_cron_schedule(expr)?;
+    let now = chrono::Utc::now();
+    let next = next_cron_occurrence_with_schedule(&schedule, timezone, now)?;
+    let follow = next_cron_occurrence_with_schedule(&schedule, timezone, next)?;
+    let delta = follow - next;
+    if delta < chrono::Duration::seconds(MIN_CRON_INTERVAL_SECS) {
+        return Err(SchedulerError::InvalidSchedule(
+            "cron interval must be at least 60 seconds".to_string(),
+        ));
+    }
+    Ok(next)
+}
+
+pub fn next_cron_occurrence(
+    expr: &str,
+    after: chrono::DateTime<chrono::Utc>,
+) -> SchedulerResult<chrono::DateTime<chrono::Utc>> {
+    let (schedule, timezone) = parse_cron_schedule(expr)?;
+    next_cron_occurrence_with_schedule(&schedule, timezone, after)
+}
+
+fn parse_cron_schedule(
+    expr: &str,
+) -> SchedulerResult<(cron::Schedule, chrono_tz::Tz)> {
+    let (timezone, raw_expr) = parse_cron_with_timezone(expr)?;
+    let schedule = raw_expr
+        .parse::<cron::Schedule>()
+        .map_err(|err| SchedulerError::InvalidSchedule(err.to_string()))?;
+    Ok((schedule, timezone))
+}
+
+fn next_cron_occurrence_with_schedule(
+    schedule: &cron::Schedule,
+    timezone: chrono_tz::Tz,
+    after: chrono::DateTime<chrono::Utc>,
+) -> SchedulerResult<chrono::DateTime<chrono::Utc>> {
+    let localized = after.with_timezone(&timezone);
+    schedule
+        .after(&localized)
+        .next()
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .ok_or_else(|| {
+            SchedulerError::InvalidSchedule("cron has no future occurrences".to_string())
+        })
+}
+
+fn parse_cron_with_timezone(expr: &str) -> SchedulerResult<(chrono_tz::Tz, &str)> {
+    let trimmed = expr.trim();
+    let mut parts = trimmed.splitn(2, '|');
+    let first = parts.next().unwrap_or_default().trim();
+    let second = parts.next().map(str::trim);
+    if let Some(schedule_expr) = second {
+        let tz = first
+            .parse::<chrono_tz::Tz>()
+            .map_err(|_| SchedulerError::InvalidSchedule("invalid cron timezone".to_string()))?;
+        if schedule_expr.is_empty() {
+            return Err(SchedulerError::InvalidSchedule(
+                "cron expression missing".to_string(),
+            ));
+        }
+        Ok((tz, schedule_expr))
+    } else {
+        Ok((chrono_tz::UTC, first))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::compute_initial_run;
+    use super::{compute_initial_run, next_cron_occurrence};
     use crate::scheduler::job::{CreateJobRequest, Principal, PrincipalType, ScheduleType};
 
     #[test]
@@ -194,5 +268,36 @@ mod tests {
         };
         let next = compute_initial_run(&request).unwrap();
         assert!(next > chrono::Utc::now());
+    }
+
+    #[test]
+    fn compute_initial_run_cron_respects_min_interval() {
+        let request = CreateJobRequest {
+            name: "cron".to_string(),
+            schedule_type: ScheduleType::Cron,
+            schedule_expr: "* * * * * *".to_string(),
+            task_prompt: "ping".to_string(),
+            session_id: None,
+            user_id: "user".to_string(),
+            channel_id: None,
+            capabilities: crate::kernel::permissions::CapabilitySet::empty(),
+            creator: Principal {
+                principal_type: PrincipalType::User,
+                id: "user".to_string(),
+            },
+            enabled: true,
+            max_executions: None,
+            metadata: None,
+        };
+        let err = compute_initial_run(&request).unwrap_err();
+        assert!(err.to_string().contains("cron interval"));
+    }
+
+    #[test]
+    fn next_cron_occurrence_supports_timezone_prefix() {
+        let expr = "America/New_York|0 */2 * * * *";
+        let now = chrono::Utc::now();
+        let next = next_cron_occurrence(expr, now).unwrap();
+        assert!(next > now);
     }
 }

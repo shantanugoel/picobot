@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use rusqlite::{Connection, OpenFlags, params};
+use rusqlite::{params, Connection, OpenFlags};
 
 use crate::session::error::{SessionDbError, SessionDbResult};
 
@@ -92,7 +92,7 @@ impl SqliteStore {
             CREATE TABLE IF NOT EXISTS schedules (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
-                schedule_type TEXT NOT NULL CHECK(schedule_type IN ('interval', 'once')),
+                schedule_type TEXT NOT NULL CHECK(schedule_type IN ('interval', 'once', 'cron')),
                 schedule_expr TEXT NOT NULL,
                 task_prompt TEXT NOT NULL,
                 session_id TEXT,

@@ -3,6 +3,7 @@ pub mod filesystem;
 pub mod http;
 pub mod memory;
 pub mod registry;
+pub mod schedule;
 pub mod schema;
 pub mod shell;
 pub mod traits;
