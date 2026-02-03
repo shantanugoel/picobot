@@ -1,10 +1,10 @@
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
-use tokio::sync::{Mutex, broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use crate::channels::adapter::{
@@ -65,7 +65,10 @@ impl WhatsAppBackend for WhatsappRustBackend {
     }
 
     fn inbound_stream(&self) -> Pin<Box<dyn Stream<Item = InboundMessage> + Send>> {
-        let mut guard = self.inbound_rx.blocking_lock();
+        let mut guard = self
+            .inbound_rx
+            .lock()
+            .expect("inbound stream mutex poisoned");
         let receiver = guard.take().expect("inbound stream already taken");
         Box::pin(UnboundedReceiverStream::new(receiver))
     }
