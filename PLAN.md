@@ -26,6 +26,7 @@
 - Sandboxed shell execution
 - Resource limits (CPU, memory, wall time)
 - Capability grants lifecycle (expiry + revocation)
+- Secure Admin TUI, accessible only via a specific port different from regular chat so we can avoid exposing it.
 
 ## Phase 5: Extensibility
 
