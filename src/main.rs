@@ -1,12 +1,12 @@
 use std::cell::RefCell;
 use std::fs;
 use std::rc::Rc;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
-use picobot::cli::format_permissions;
-use picobot::cli::tui::{ModelChoice, PermissionChoice, Tui, TuiEvent};
 use picobot::channels::config::profile_from_config;
 use picobot::channels::permissions::ChannelPermissionProfile;
+use picobot::cli::format_permissions;
+use picobot::cli::tui::{ModelChoice, PermissionChoice, Tui, TuiEvent};
 use picobot::config::Config;
 use picobot::kernel::agent::Kernel;
 use picobot::kernel::agent_loop::{
@@ -154,15 +154,13 @@ async fn run_tui(
     }
     let ws_url = std::env::var("PICOBOT_WS_URL").ok();
     let ws_api_key = std::env::var("PICOBOT_WS_API_KEY").ok();
-    let ws = ws_url
-        .map(|url| picobot::cli::ws_client::spawn_ws_client(url, ws_api_key));
+    let ws = ws_url.map(|url| picobot::cli::ws_client::spawn_ws_client(url, ws_api_key));
     let mut ws_session_id: Option<String> = None;
 
     loop {
         let event = {
             let mut ui = tui.borrow_mut();
-            ui.next_event()
-                .map_err(|err| anyhow::anyhow!(err))?
+            ui.next_event().map_err(|err| anyhow::anyhow!(err))?
         };
         match event {
             TuiEvent::Quit => break,
@@ -212,17 +210,18 @@ async fn run_tui(
                 }
 
                 if let Some(ws) = ws.as_ref() {
-                    let _ = ws.outbound.send(picobot::channels::websocket::WsClientMessage::Chat {
-                        session_id: ws_session_id.clone(),
-                        user_id: Some("tui".to_string()),
-                        message: line.clone(),
-                        model: Some(current_model_id.clone()),
-                    });
+                    let _ = ws
+                        .outbound
+                        .send(picobot::channels::websocket::WsClientMessage::Chat {
+                            session_id: ws_session_id.clone(),
+                            user_id: Some("tui".to_string()),
+                            message: line.clone(),
+                            model: Some(current_model_id.clone()),
+                        });
                     let mut buffer = String::new();
                     loop {
                         match ws.inbound.try_recv() {
-                            Ok(message) => {
-                            match message {
+                            Ok(message) => match message {
                                 picobot::cli::ws_client::WsUiMessage::Session(id) => {
                                     ws_session_id = Some(id);
                                 }
@@ -232,7 +231,11 @@ async fn run_tui(
                                         ui.append_output(&token);
                                     }
                                 }
-                                picobot::cli::ws_client::WsUiMessage::PermissionRequired { tool, permissions, request_id } => {
+                                picobot::cli::ws_client::WsUiMessage::PermissionRequired {
+                                    tool,
+                                    permissions,
+                                    request_id,
+                                } => {
                                     if let Ok(mut ui) = tui.try_borrow_mut() {
                                         ui.set_pending_permission(tool, permissions);
                                         ui.set_busy(false);
@@ -241,8 +244,10 @@ async fn run_tui(
                                     loop {
                                         let event = {
                                             let mut ui = tui.borrow_mut();
-                                            ui.next_event_with_timeout(std::time::Duration::from_millis(80))
-                                                .map_err(|err| anyhow::anyhow!(err))?
+                                            ui.next_event_with_timeout(
+                                                std::time::Duration::from_millis(80),
+                                            )
+                                            .map_err(|err| anyhow::anyhow!(err))?
                                         };
                                         if let TuiEvent::Permission(choice) = event {
                                             if let Ok(mut ui) = tui.try_borrow_mut() {
@@ -281,8 +286,7 @@ async fn run_tui(
                                     }
                                     break;
                                 }
-                            }
-                            }
+                            },
                             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                                 if let Ok(mut ui) = tui.try_borrow_mut() {
                                     ui.set_busy(false);
@@ -304,7 +308,10 @@ async fn run_tui(
                                 if let Ok(mut ui) = tui.try_borrow_mut() {
                                     if let Some(model) = registry.get(&current_model_id) {
                                         let info = model.info();
-                                        ui.set_current_model(format!("{} ({})", info.provider, info.model));
+                                        ui.set_current_model(format!(
+                                            "{} ({})",
+                                            info.provider, info.model
+                                        ));
                                         ui.push_output(format!("Switched to model '{}'", info.id));
                                     } else {
                                         ui.push_output("Unknown model id".to_string());
@@ -324,7 +331,8 @@ async fn run_tui(
                     let mut buffer = String::new();
 
                     let (tx, rx) = mpsc::channel::<UiMessage>();
-                    let decision_slot: Arc<Mutex<Option<PermissionDecision>>> = Arc::new(Mutex::new(None));
+                    let decision_slot: Arc<Mutex<Option<PermissionDecision>>> =
+                        Arc::new(Mutex::new(None));
                     let decision_worker = Arc::clone(&decision_slot);
 
                     let kernel_worker = Arc::clone(&kernel);
@@ -341,16 +349,16 @@ async fn run_tui(
                         };
                         let mut on_permission =
                             |tool: &str, required: &[picobot::kernel::permissions::Permission]| {
-                                let permissions = required
-                                    .iter()
-                                    .map(|perm| format!("{perm:?}"))
-                                    .collect();
-                                let _ = tx.send(UiMessage::Permission(tool.to_string(), permissions));
+                                let permissions =
+                                    required.iter().map(|perm| format!("{perm:?}")).collect();
+                                let _ =
+                                    tx.send(UiMessage::Permission(tool.to_string(), permissions));
                                 loop {
                                     if let Ok(mut slot) = decision_worker.lock()
-                                        && let Some(decision) = slot.take() {
-                                            return decision;
-                                        }
+                                        && let Some(decision) = slot.take()
+                                    {
+                                        return decision;
+                                    }
                                     std::thread::sleep(std::time::Duration::from_millis(30));
                                 }
                             };
@@ -439,7 +447,10 @@ async fn run_tui(
                                 if let Ok(mut ui) = tui.try_borrow_mut() {
                                     if let Some(model) = registry.get(&current_model_id) {
                                         let info = model.info();
-                                        ui.set_current_model(format!("{} ({})", info.provider, info.model));
+                                        ui.set_current_model(format!(
+                                            "{} ({})",
+                                            info.provider, info.model
+                                        ));
                                         ui.push_output(format!("Switched to model '{}'", info.id));
                                     } else {
                                         ui.push_output("Unknown model id".to_string());
@@ -482,23 +493,37 @@ fn load_config() -> Option<Config> {
 }
 
 fn api_profile_from_config(config: &Config) -> Result<ChannelPermissionProfile, anyhow::Error> {
-    let api_config = config.channels.as_ref().and_then(|channels| channels.api.as_ref());
-    profile_from_config(api_config, picobot::kernel::permissions::PermissionTier::UserGrantable)
-        .map_err(|err| anyhow::anyhow!(err))
+    let api_config = config
+        .channels
+        .as_ref()
+        .and_then(|channels| channels.api.as_ref());
+    profile_from_config(
+        api_config,
+        picobot::kernel::permissions::PermissionTier::UserGrantable,
+    )
+    .map_err(|err| anyhow::anyhow!(err))
 }
 
-fn websocket_profile_from_config(config: &Config) -> Result<ChannelPermissionProfile, anyhow::Error> {
+fn websocket_profile_from_config(
+    config: &Config,
+) -> Result<ChannelPermissionProfile, anyhow::Error> {
     let ws_config = config
         .channels
         .as_ref()
         .and_then(|channels| channels.websocket.as_ref());
-    profile_from_config(ws_config, picobot::kernel::permissions::PermissionTier::UserGrantable)
-        .map_err(|err| anyhow::anyhow!(err))
+    profile_from_config(
+        ws_config,
+        picobot::kernel::permissions::PermissionTier::UserGrantable,
+    )
+    .map_err(|err| anyhow::anyhow!(err))
 }
 
 enum UiMessage {
     Token(String),
     Debug(String),
     Permission(String, Vec<String>),
-    Done(Result<String, picobot::tools::traits::ToolError>, ConversationState),
+    Done(
+        Result<String, picobot::tools::traits::ToolError>,
+        ConversationState,
+    ),
 }

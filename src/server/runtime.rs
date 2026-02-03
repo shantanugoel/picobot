@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tokio_stream::StreamExt;
 
 use crate::channels::adapter::{InboundAdapter, OutboundMessage, OutboundSender};
+use crate::channels::permissions::ChannelPermissionProfile;
 use crate::kernel::agent::Kernel;
 use crate::kernel::agent_loop::{
     PermissionDecision, run_agent_loop_streamed_with_permissions_limit,
@@ -10,7 +11,6 @@ use crate::kernel::agent_loop::{
 use crate::models::router::ModelRegistry;
 use crate::session::adapter::{append_user_message, session_from_state, state_from_session};
 use crate::session::manager::{Session, SessionManager};
-use crate::channels::permissions::ChannelPermissionProfile;
 
 pub async fn run_adapter_loop(
     inbound: Arc<dyn InboundAdapter>,

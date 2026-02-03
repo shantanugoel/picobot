@@ -4,8 +4,8 @@ use futures::{SinkExt, StreamExt};
 use http::HeaderValue;
 use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use url::Url;
 
 use crate::channels::websocket::{WsClientMessage, WsServerMessage};

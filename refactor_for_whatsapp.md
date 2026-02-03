@@ -257,11 +257,11 @@ src/
 
 ### Week 3: WebSocket + TUI Migration
 
-- WebSocket protocol + adapter
-- Token streaming over WS
-- Permission flow over WS
-- TUI connects as WS client
-- Concurrent TUI + REST access
+- [x] WebSocket protocol + adapter
+- [x] Token streaming over WS
+- [x] Permission flow over WS
+- [x] TUI connects as WS client
+- [x] Concurrent TUI + REST access
 
 ### Week 4: WhatsApp Integration (whatsapp-rust)
 

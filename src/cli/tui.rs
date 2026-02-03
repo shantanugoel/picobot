@@ -265,7 +265,6 @@ impl Tui {
         self.pending_model_picker = None;
     }
 
-
     pub fn refresh(&mut self) -> Result<(), io::Error> {
         self.draw()
     }

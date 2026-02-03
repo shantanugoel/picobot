@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::http::HeaderMap;
 use axum::response::Response;
 use futures::{SinkExt, StreamExt};
@@ -12,14 +12,12 @@ use uuid::Uuid;
 
 use crate::channels::adapter::ChannelType;
 use crate::channels::permissions::ChannelPermissionProfile;
-use crate::channels::websocket::{
-    PermissionDecisionChoice, WsClientMessage, WsServerMessage,
-};
+use crate::channels::websocket::{PermissionDecisionChoice, WsClientMessage, WsServerMessage};
 use crate::kernel::agent_loop::PermissionDecision;
-use crate::session::adapter::{session_from_state, state_from_session};
-use crate::session::manager::{Session, SessionManager};
 use crate::server::middleware::check_api_key;
 use crate::server::state::AppState;
+use crate::session::adapter::{session_from_state, state_from_session};
+use crate::session::manager::{Session, SessionManager};
 
 use super::routes::ChatRequest;
 
@@ -30,7 +28,10 @@ pub async fn websocket_handler(
 ) -> Response {
     if let Err(response) = check_api_key(
         &headers,
-        state.server_config.as_ref().and_then(|cfg| cfg.auth.as_ref()),
+        state
+            .server_config
+            .as_ref()
+            .and_then(|cfg| cfg.auth.as_ref()),
     ) {
         return *response;
     }
@@ -40,8 +41,9 @@ pub async fn websocket_handler(
 async fn handle_socket(socket: WebSocket, state: AppState) {
     let (mut sender, mut receiver) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<WsServerMessage>();
-    let pending_permissions: Arc<Mutex<HashMap<String, std::sync::mpsc::Sender<PermissionDecision>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    let pending_permissions: Arc<
+        Mutex<HashMap<String, std::sync::mpsc::Sender<PermissionDecision>>>,
+    > = Arc::new(Mutex::new(HashMap::new()));
 
     let send_task = tokio::spawn(async move {
         while let Some(message) = rx.recv().await {
@@ -63,12 +65,18 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                         WsClientMessage::Ping => {
                             let _ = tx.send(WsServerMessage::Pong);
                         }
-                        WsClientMessage::PermissionDecision { request_id, decision } => {
+                        WsClientMessage::PermissionDecision {
+                            request_id,
+                            decision,
+                        } => {
                             if let Ok(mut map) = pending_permissions.lock()
-                                && let Some(sender) = map.remove(&request_id) {
+                                && let Some(sender) = map.remove(&request_id)
+                            {
                                 let mapped = match decision {
                                     PermissionDecisionChoice::Once => PermissionDecision::Once,
-                                    PermissionDecisionChoice::Session => PermissionDecision::Session,
+                                    PermissionDecisionChoice::Session => {
+                                        PermissionDecision::Session
+                                    }
                                     PermissionDecisionChoice::Deny => PermissionDecision::Deny,
                                 };
                                 let _ = sender.send(mapped);
@@ -120,9 +128,7 @@ async fn handle_chat(
 
     let mut convo_state = state_from_session(&session);
     if !payload.message.trim().is_empty() {
-        convo_state.push(crate::models::types::Message::user(
-            payload.message.clone(),
-        ));
+        convo_state.push(crate::models::types::Message::user(payload.message.clone()));
     }
 
     let _ = tx.send(WsServerMessage::Session {

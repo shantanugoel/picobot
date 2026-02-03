@@ -10,6 +10,20 @@ cp config.example.toml config.toml
 cargo run
 ```
 
+## Server + TUI (WebSocket)
+
+The server requires an API key when `server.auth.api_keys` is configured. The TUI can connect over WebSocket with the same API key.
+
+```bash
+# terminal 1
+cargo run -- serve
+
+# terminal 2
+PICOBOT_WS_URL=ws://127.0.0.1:8080/ws \
+PICOBOT_WS_API_KEY=change-me \
+cargo run
+```
+
 ## Usage
 
 - Type text to chat.

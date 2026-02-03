@@ -277,6 +277,11 @@ mod tests {
         assert!(matches!(permission, Permission::ShellExec { .. }));
 
         let permission = Permission::from_str("shell:*").unwrap();
-        assert!(matches!(permission, Permission::ShellExec { allowed_commands: None }));
+        assert!(matches!(
+            permission,
+            Permission::ShellExec {
+                allowed_commands: None
+            }
+        ));
     }
 }

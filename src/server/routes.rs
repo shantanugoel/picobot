@@ -1,22 +1,22 @@
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde::{Deserialize, Serialize};
-use tokio_stream::wrappers::UnboundedReceiverStream;
-use tokio_stream::StreamExt;
-use uuid::Uuid;
 use std::convert::Infallible;
 use std::sync::Arc;
 use tokio::task::spawn_blocking;
+use tokio_stream::StreamExt;
+use tokio_stream::wrappers::UnboundedReceiverStream;
+use uuid::Uuid;
 
 use crate::channels::adapter::ChannelType;
 use crate::channels::permissions::ChannelPermissionProfile;
 use crate::kernel::agent_loop::PermissionDecision;
+use crate::server::metrics::{collect_metrics, render_metrics};
 use crate::session::adapter::{session_from_state, state_from_session};
 use crate::session::manager::{Session, SessionManager, SessionState};
-use crate::server::metrics::{collect_metrics, render_metrics};
 
 use super::middleware::check_api_key;
 use super::state::AppState;
@@ -24,7 +24,10 @@ use super::state::AppState;
 fn ensure_api_key(headers: &HeaderMap, state: &AppState) -> Result<(), Box<Response>> {
     check_api_key(
         headers,
-        state.server_config.as_ref().and_then(|cfg| cfg.auth.as_ref()),
+        state
+            .server_config
+            .as_ref()
+            .and_then(|cfg| cfg.auth.as_ref()),
     )
 }
 
@@ -108,10 +111,7 @@ pub async fn metrics(State(state): State<AppState>) -> Response {
     (StatusCode::OK, output).into_response()
 }
 
-pub async fn list_sessions(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> Response {
+pub async fn list_sessions(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(response) = ensure_api_key(&headers, &state) {
         return *response;
     }
@@ -146,10 +146,13 @@ pub async fn get_session(
             };
             (StatusCode::OK, Json(details)).into_response()
         }
-        None => (StatusCode::NOT_FOUND, Json(ErrorResponse {
-            error: "session not found".to_string(),
-        }))
-        .into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "session not found".to_string(),
+            }),
+        )
+            .into_response(),
     }
 }
 
@@ -208,10 +211,13 @@ pub async fn grant_permissions(
     }
 
     let Some(mut session) = state.sessions.get_session(&payload.session_id) else {
-        return (StatusCode::NOT_FOUND, Json(ErrorResponse {
-            error: "session not found".to_string(),
-        }))
-        .into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "session not found".to_string(),
+            }),
+        )
+            .into_response();
     };
 
     let mut granted = Vec::new();
@@ -224,19 +230,25 @@ pub async fn grant_permissions(
                 }
             }
             Err(_) => {
-                return (StatusCode::BAD_REQUEST, Json(ErrorResponse {
-                    error: "invalid permission".to_string(),
-                }))
-                .into_response();
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "invalid permission".to_string(),
+                    }),
+                )
+                    .into_response();
             }
         }
     }
     state.sessions.update_session(session);
-    (StatusCode::OK, Json(GrantResponse {
-        session_id: payload.session_id.clone(),
-        permissions: granted,
-    }))
-    .into_response()
+    (
+        StatusCode::OK,
+        Json(GrantResponse {
+            session_id: payload.session_id.clone(),
+            permissions: granted,
+        }),
+    )
+        .into_response()
 }
 
 pub async fn chat(
@@ -261,9 +273,7 @@ pub async fn chat(
 
     let mut convo_state = state_from_session(&session);
     if !payload.message.trim().is_empty() {
-        convo_state.push(crate::models::types::Message::user(
-            payload.message.clone(),
-        ));
+        convo_state.push(crate::models::types::Message::user(payload.message.clone()));
     }
     let model = match payload.model {
         Some(model_id) => state
@@ -298,10 +308,13 @@ pub async fn chat(
             };
             (StatusCode::OK, Json(response)).into_response()
         }
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
-            error: err.to_string(),
-        }))
-        .into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: err.to_string(),
+            }),
+        )
+            .into_response(),
     }
 }
 
@@ -327,9 +340,7 @@ pub async fn chat_stream(
 
     let mut convo_state = state_from_session(&session);
     if !payload.message.trim().is_empty() {
-        convo_state.push(crate::models::types::Message::user(
-            payload.message.clone(),
-        ));
+        convo_state.push(crate::models::types::Message::user(payload.message.clone()));
     }
 
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<StreamEvent>();
@@ -366,15 +377,13 @@ pub async fn chat_stream(
         let event = match event {
             StreamEvent::Session(id) => Event::default().event("session").data(id),
             StreamEvent::Token(token) => Event::default().event("token").data(token),
-            StreamEvent::Done(text) => Event::default()
-                .event("done")
-                .data(
-                    serde_json::json!({
-                        "response": text,
-                        "session_id": session_id,
-                    })
-                    .to_string(),
-                ),
+            StreamEvent::Done(text) => Event::default().event("done").data(
+                serde_json::json!({
+                    "response": text,
+                    "session_id": session_id,
+                })
+                .to_string(),
+            ),
             StreamEvent::Error(error) => Event::default()
                 .event("error")
                 .data(serde_json::json!({"error": error}).to_string()),
@@ -455,7 +464,9 @@ struct ChatExecution {
     session: Option<Session>,
 }
 
-fn run_chat_blocking_sync(exec: ChatExecution) -> Result<(String, crate::kernel::agent_loop::ConversationState), String> {
+fn run_chat_blocking_sync(
+    exec: ChatExecution,
+) -> Result<(String, crate::kernel::agent_loop::ConversationState), String> {
     let ChatExecution {
         kernel,
         model,
@@ -488,16 +499,18 @@ fn run_chat_blocking_sync(exec: ChatExecution) -> Result<(String, crate::kernel:
         .enable_all()
         .build()
         .map_err(|err| err.to_string())?;
-    let result = runtime.block_on(crate::kernel::agent_loop::run_agent_loop_streamed_with_permissions_limit(
-        kernel.as_ref(),
-        model.as_ref(),
-        &mut convo_state,
-        message,
-        &mut on_token,
-        &mut on_permission,
-        &mut |_| {},
-        max_tool_rounds,
-    ));
+    let result = runtime.block_on(
+        crate::kernel::agent_loop::run_agent_loop_streamed_with_permissions_limit(
+            kernel.as_ref(),
+            model.as_ref(),
+            &mut convo_state,
+            message,
+            &mut on_token,
+            &mut on_permission,
+            &mut |_| {},
+            max_tool_rounds,
+        ),
+    );
 
     match result {
         Ok(text) => {

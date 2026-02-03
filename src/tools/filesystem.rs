@@ -151,9 +151,9 @@ fn normalize_path(path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use super::FilesystemTool;
     use super::normalize_path;
     use super::resolve_path;
-    use super::FilesystemTool;
     use crate::kernel::permissions::Permission;
     use crate::tools::traits::Tool;
     use serde_json::json;

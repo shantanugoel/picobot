@@ -37,8 +37,9 @@ fn build_test_state() -> AppState {
 
     let registry = ModelRegistry::from_config(&config).expect("registry");
     let tools = register_builtin_tools(config.permissions.as_ref()).expect("tools");
-    let kernel = Arc::new(Kernel::new(tools, std::path::PathBuf::from("."))
-        .with_capabilities(CapabilitySet::empty()));
+    let kernel = Arc::new(
+        Kernel::new(tools, std::path::PathBuf::from(".")).with_capabilities(CapabilitySet::empty()),
+    );
     let api_profile = default_profile();
     let server_config = ServerConfig {
         bind: None,

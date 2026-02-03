@@ -2,8 +2,8 @@ pub mod repl;
 pub mod tui;
 pub mod ws_client;
 
-use crate::config::PermissionsConfig;
 use crate::channels::permissions::ChannelPermissionProfile;
+use crate::config::PermissionsConfig;
 
 pub fn format_permissions(config: Option<&PermissionsConfig>) -> String {
     let mut lines = Vec::new();
@@ -62,8 +62,14 @@ pub fn format_channel_permissions(profile: &ChannelPermissionProfile) -> String 
         "max_allowed: {}",
         format_list(&format_permissions_display(&profile.max_allowed))
     ));
-    lines.push(format!("allow_user_prompts: {}", profile.allow_user_prompts));
-    lines.push(format!("prompt_timeout_secs: {}", profile.prompt_timeout_secs));
+    lines.push(format!(
+        "allow_user_prompts: {}",
+        profile.allow_user_prompts
+    ));
+    lines.push(format!(
+        "prompt_timeout_secs: {}",
+        profile.prompt_timeout_secs
+    ));
     lines.join("\n")
 }
 
