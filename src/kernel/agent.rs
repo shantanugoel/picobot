@@ -8,20 +8,22 @@ use crate::tools::registry::ToolRegistry;
 use crate::tools::traits::{Tool, ToolError, ToolOutput};
 
 pub struct Kernel {
-    tool_registry: ToolRegistry,
+    tool_registry: Arc<ToolRegistry>,
     context: ToolContext,
+    memory_retriever: Option<crate::kernel::memory::MemoryRetriever>,
 }
 
 impl Kernel {
     pub fn new(tool_registry: ToolRegistry, working_dir: std::path::PathBuf) -> Self {
         Self {
-            tool_registry,
+            tool_registry: Arc::new(tool_registry),
             context: ToolContext {
                 working_dir,
                 capabilities: Arc::new(CapabilitySet::empty()),
                 user_id: None,
                 session_id: None,
             },
+            memory_retriever: None,
         }
     }
 
@@ -30,12 +32,39 @@ impl Kernel {
         self
     }
 
+    pub fn with_memory_retriever(
+        mut self,
+        memory: crate::kernel::memory::MemoryRetriever,
+    ) -> Self {
+        self.memory_retriever = Some(memory);
+        self
+    }
+
+    pub fn clone_with_context(
+        &self,
+        user_id: Option<String>,
+        session_id: Option<String>,
+    ) -> Self {
+        let mut context = self.context.clone();
+        context.user_id = user_id;
+        context.session_id = session_id;
+        Self {
+            tool_registry: Arc::clone(&self.tool_registry),
+            context,
+            memory_retriever: self.memory_retriever.clone(),
+        }
+    }
+
     pub fn tool_registry(&self) -> &ToolRegistry {
-        &self.tool_registry
+        self.tool_registry.as_ref()
     }
 
     pub fn context(&self) -> &ToolContext {
         &self.context
+    }
+
+    pub fn memory_retriever(&self) -> Option<&crate::kernel::memory::MemoryRetriever> {
+        self.memory_retriever.as_ref()
     }
 
     pub fn set_working_dir(&mut self, working_dir: std::path::PathBuf) {
@@ -68,7 +97,8 @@ impl Kernel {
         let allowed = self.context.capabilities.allows_all(&required)
             || extra_grants
                 .map(|grants| grants.allows_all(&required))
-                .unwrap_or(false);
+                .unwrap_or(false)
+            || required.iter().all(|permission| permission.is_auto_granted(&self.context));
         if !allowed {
             return Err(ToolError::PermissionDenied {
                 tool: tool.name().to_string(),

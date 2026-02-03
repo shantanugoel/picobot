@@ -526,9 +526,13 @@ fn run_chat_blocking_sync(
         .enable_all()
         .build()
         .map_err(|err| err.to_string())?;
+    let scoped_kernel = kernel.clone_with_context(
+        session.as_ref().map(|value| value.user_id.clone()),
+        session.as_ref().map(|value| value.id.clone()),
+    );
     let result = runtime.block_on(
         crate::kernel::agent_loop::run_agent_loop_streamed_with_permissions_limit(
-            kernel.as_ref(),
+            &scoped_kernel,
             model.as_ref(),
             &mut convo_state,
             message,

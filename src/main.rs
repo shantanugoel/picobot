@@ -22,7 +22,7 @@ use picobot::models::router::ModelRegistry;
 use picobot::server::app::{bind_address, build_router, is_localhost_only};
 use picobot::server::rate_limit::RateLimiter;
 use picobot::server::snapshot::spawn_snapshot_task;
-use picobot::server::state::AppState;
+use picobot::server::state::{AppState, maybe_start_retention};
 use picobot::session::manager::SessionManager;
 use picobot::session::snapshot::SnapshotStore;
 use picobot::tools::builtin::register_builtin_tools;
@@ -44,14 +44,37 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    let tool_registry = register_builtin_tools(config.permissions.as_ref())?;
+    let data_dir = config.data.as_ref().and_then(|data| data.dir.as_deref());
+    let tool_registry = register_builtin_tools(config.permissions.as_ref(), data_dir)?;
     let working_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let capabilities = config
         .permissions
         .as_ref()
         .map(CapabilitySet::from_config)
         .unwrap_or_else(CapabilitySet::empty);
-    let kernel = Arc::new(Kernel::new(tool_registry, working_dir).with_capabilities(capabilities));
+    let memory_config = config
+        .session
+        .as_ref()
+        .and_then(|session| session.memory.clone())
+        .unwrap_or_default();
+    let memory_store = picobot::session::db::SqliteStore::new(
+        std::path::PathBuf::from(data_dir.unwrap_or("data"))
+            .join("conversations.db")
+            .to_string_lossy()
+            .to_string(),
+    );
+    let kernel = if memory_config.enable_user_memories.unwrap_or(true) {
+        Arc::new(
+            Kernel::new(tool_registry, working_dir)
+                .with_capabilities(capabilities)
+                .with_memory_retriever(picobot::kernel::memory::MemoryRetriever::new(
+                    memory_config,
+                    memory_store,
+                )),
+        )
+    } else {
+        Arc::new(Kernel::new(tool_registry, working_dir).with_capabilities(capabilities))
+    };
 
     let mut state = ConversationState::new();
     if let Some(agent) = &config.agent
@@ -75,14 +98,37 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
         }
     };
 
-    let tool_registry = register_builtin_tools(config.permissions.as_ref())?;
+    let data_dir = config.data.as_ref().and_then(|data| data.dir.as_deref());
+    let tool_registry = register_builtin_tools(config.permissions.as_ref(), data_dir)?;
     let working_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let capabilities = config
         .permissions
         .as_ref()
         .map(CapabilitySet::from_config)
         .unwrap_or_else(CapabilitySet::empty);
-    let kernel = Arc::new(Kernel::new(tool_registry, working_dir).with_capabilities(capabilities));
+    let memory_config = config
+        .session
+        .as_ref()
+        .and_then(|session| session.memory.clone())
+        .unwrap_or_default();
+    let memory_store = picobot::session::db::SqliteStore::new(
+        std::path::PathBuf::from(data_dir.unwrap_or("data"))
+            .join("conversations.db")
+            .to_string_lossy()
+            .to_string(),
+    );
+    let kernel = if memory_config.enable_user_memories.unwrap_or(true) {
+        Arc::new(
+            Kernel::new(tool_registry, working_dir)
+                .with_capabilities(capabilities)
+                .with_memory_retriever(picobot::kernel::memory::MemoryRetriever::new(
+                    memory_config,
+                    memory_store,
+                )),
+        )
+    } else {
+        Arc::new(Kernel::new(tool_registry, working_dir).with_capabilities(capabilities))
+    };
 
     let api_profile = api_profile_from_config(&config)?;
     let websocket_profile = websocket_profile_from_config(&config)?;
@@ -124,6 +170,8 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
         whatsapp_qr: _whatsapp_qr,
         whatsapp_qr_cache: _whatsapp_qr_cache,
     };
+
+    maybe_start_retention(&config);
 
     if let Some(store) = snapshot_store {
         let interval_secs = config

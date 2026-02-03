@@ -19,6 +19,12 @@ pub enum Permission {
     ShellExec {
         allowed_commands: Option<Vec<String>>,
     },
+    MemoryRead {
+        scope: MemoryScope,
+    },
+    MemoryWrite {
+        scope: MemoryScope,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -31,6 +37,13 @@ pub struct DomainPattern(pub String);
 pub enum PermissionTier {
     UserGrantable,
     AdminOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum MemoryScope {
+    Session,
+    User,
+    Global,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -163,6 +176,27 @@ impl Permission {
                 (Some(granted), Some(needed)) => needed.iter().all(|cmd| granted.contains(cmd)),
                 (Some(_), None) => false,
             },
+            (
+                Permission::MemoryRead { scope: granted },
+                Permission::MemoryRead { scope: needed },
+            ) => granted.covers(*needed),
+            (
+                Permission::MemoryWrite { scope: granted },
+                Permission::MemoryWrite { scope: needed },
+            ) => granted.covers(*needed),
+            _ => false,
+        }
+    }
+
+    pub fn is_auto_granted(&self, ctx: &crate::kernel::context::ToolContext) -> bool {
+        match self {
+            Permission::MemoryRead { scope } | Permission::MemoryWrite { scope } => {
+                match scope {
+                    MemoryScope::Session => ctx.session_id.is_some(),
+                    MemoryScope::User => ctx.user_id.is_some(),
+                    MemoryScope::Global => false,
+                }
+            }
             _ => false,
         }
     }
@@ -205,13 +239,43 @@ impl std::str::FromStr for Permission {
                 allowed_commands: Some(commands),
             });
         }
+        if let Some(scope) = value.strip_prefix("memory:read:") {
+            return Ok(Permission::MemoryRead {
+                scope: parse_memory_scope(scope)?,
+            });
+        }
+        if let Some(scope) = value.strip_prefix("memory:write:") {
+            return Ok(Permission::MemoryWrite {
+                scope: parse_memory_scope(scope)?,
+            });
+        }
         Err(format!("invalid permission '{value}'"))
+    }
+}
+
+fn parse_memory_scope(value: &str) -> Result<MemoryScope, String> {
+    match value {
+        "session" => Ok(MemoryScope::Session),
+        "user" => Ok(MemoryScope::User),
+        "global" => Ok(MemoryScope::Global),
+        _ => Err(format!("invalid memory scope '{value}'")),
+    }
+}
+
+impl MemoryScope {
+    pub fn covers(self, required: MemoryScope) -> bool {
+        matches!(
+            (self, required),
+            (MemoryScope::Global, _)
+                | (MemoryScope::User, MemoryScope::User | MemoryScope::Session)
+                | (MemoryScope::Session, MemoryScope::Session)
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{CapabilitySet, DomainPattern, PathPattern, Permission};
+    use super::{CapabilitySet, DomainPattern, MemoryScope, PathPattern, Permission};
     use std::str::FromStr;
 
     #[test]
@@ -283,5 +347,46 @@ mod tests {
                 allowed_commands: None
             }
         ));
+    }
+
+    #[test]
+    fn permission_from_str_parses_memory_scopes() {
+        let permission = Permission::from_str("memory:read:session").unwrap();
+        assert!(matches!(
+            permission,
+            Permission::MemoryRead {
+                scope: MemoryScope::Session
+            }
+        ));
+
+        let permission = Permission::from_str("memory:write:user").unwrap();
+        assert!(matches!(
+            permission,
+            Permission::MemoryWrite {
+                scope: MemoryScope::User
+            }
+        ));
+    }
+
+    #[test]
+    fn memory_scope_covers_global() {
+        let global = Permission::MemoryRead {
+            scope: MemoryScope::Global,
+        };
+        let needed = Permission::MemoryRead {
+            scope: MemoryScope::Session,
+        };
+        assert!(global.covers(&needed));
+    }
+
+    #[test]
+    fn memory_scope_user_covers_session() {
+        let user = Permission::MemoryWrite {
+            scope: MemoryScope::User,
+        };
+        let needed = Permission::MemoryWrite {
+            scope: MemoryScope::Session,
+        };
+        assert!(user.covers(&needed));
     }
 }

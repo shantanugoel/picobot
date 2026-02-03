@@ -1,13 +1,16 @@
 use crate::config::PermissionsConfig;
 use crate::kernel::permissions::Permission;
+use crate::session::db::SqliteStore;
 use crate::tools::filesystem::FilesystemTool;
 use crate::tools::http::HttpTool;
+use crate::tools::memory::MemoryTool;
 use crate::tools::registry::{ToolRegistry, ToolRegistryError};
 use crate::tools::shell::ShellTool;
 use crate::tools::traits::ToolError;
 
 pub fn register_builtin_tools(
     permissions: Option<&PermissionsConfig>,
+    data_dir: Option<&str>,
 ) -> Result<ToolRegistry, ToolRegistryError> {
     let mut registry = ToolRegistry::new();
 
@@ -25,6 +28,15 @@ pub fn register_builtin_tools(
         },
     })?;
     registry.register(Box::new(http))?;
+
+    let base_dir = data_dir.unwrap_or("data");
+    let store_path = std::path::PathBuf::from(base_dir).join("conversations.db");
+    let store = SqliteStore::new(store_path.to_string_lossy().to_string());
+    store.touch().map_err(|err| ToolRegistryError::BuiltinToolInitFailed {
+        tool: "memory".to_string(),
+        detail: err.to_string(),
+    })?;
+    registry.register(Box::new(MemoryTool::new(store)))?;
 
     if let Some(permissions) = permissions
         && let Some(shell) = &permissions.shell

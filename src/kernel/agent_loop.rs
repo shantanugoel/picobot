@@ -1,4 +1,5 @@
 use crate::kernel::agent::Kernel;
+use crate::kernel::memory::MemoryRetriever;
 use crate::kernel::permissions::{CapabilitySet, Permission};
 use crate::models::traits::Model;
 use crate::models::types::{Message, ModelRequest, ModelResponse};
@@ -169,7 +170,10 @@ async fn invoke_tool_with_permissions(
     on_debug: &mut dyn FnMut(&str),
 ) -> Result<ToolOutput, ToolError> {
     let allowed = kernel.context().capabilities.allows_all(required)
-        || state.session_grants().allows_all(required);
+        || state.session_grants().allows_all(required)
+        || required
+            .iter()
+            .all(|permission| permission.is_auto_granted(kernel.context()));
     let mut grants = None;
     if !allowed {
         match request_permission(tool.name(), required) {
@@ -246,7 +250,15 @@ pub async fn run_agent_step(
     model: &dyn Model,
     state: &mut ConversationState,
 ) -> Result<AgentStep, ToolError> {
-    let request = build_model_request(state, kernel.tool_registry().tool_specs());
+    let request = match kernel.memory_retriever() {
+        Some(memory) => build_model_request_with_memory(
+            state,
+            kernel.tool_registry().tool_specs(),
+            memory,
+            kernel.context(),
+        ),
+        None => build_model_request(state, kernel.tool_registry().tool_specs()),
+    };
     let response = model
         .complete(request)
         .await
@@ -264,7 +276,15 @@ pub async fn run_agent_step_streamed(
     state: &mut ConversationState,
     on_token: &mut dyn FnMut(&str),
 ) -> Result<AgentStep, ToolError> {
-    let request = build_model_request(state, kernel.tool_registry().tool_specs());
+    let request = match kernel.memory_retriever() {
+        Some(memory) => build_model_request_with_memory(
+            state,
+            kernel.tool_registry().tool_specs(),
+            memory,
+            kernel.context(),
+        ),
+        None => build_model_request(state, kernel.tool_registry().tool_specs()),
+    };
     let events = model
         .stream(request)
         .await
@@ -390,7 +410,15 @@ pub async fn run_agent_loop_streamed_with_permissions_limit(
 ) -> Result<String, ToolError> {
     state.push(Message::user(user_message));
     for _ in 0..max_tool_rounds {
-        let request = build_model_request(state, kernel.tool_registry().tool_specs());
+        let request = match kernel.memory_retriever() {
+            Some(memory) => build_model_request_with_memory(
+                state,
+                kernel.tool_registry().tool_specs(),
+                memory,
+                kernel.context(),
+            ),
+            None => build_model_request(state, kernel.tool_registry().tool_specs()),
+        };
         let events = model
             .stream(request)
             .await
@@ -451,7 +479,15 @@ pub async fn run_agent_loop_streamed_with_permissions_step(
         state.push(Message::user(message));
     }
     for _ in 0..max_tool_rounds {
-        let request = build_model_request(state, kernel.tool_registry().tool_specs());
+        let request = match kernel.memory_retriever() {
+            Some(memory) => build_model_request_with_memory(
+                state,
+                kernel.tool_registry().tool_specs(),
+                memory,
+                kernel.context(),
+            ),
+            None => build_model_request(state, kernel.tool_registry().tool_specs()),
+        };
         let events = model
             .stream(request)
             .await
@@ -504,13 +540,34 @@ pub fn build_model_request(state: &ConversationState, tools: Vec<ToolSpec>) -> M
     }
 }
 
+pub fn build_model_request_with_memory(
+    state: &ConversationState,
+    tools: Vec<ToolSpec>,
+    memory: &MemoryRetriever,
+    ctx: &crate::kernel::context::ToolContext,
+) -> ModelRequest {
+    let mut messages = memory.build_context(ctx, state.messages());
+    if messages.is_empty() {
+        messages = state.messages().to_vec();
+    }
+    ModelRequest {
+        messages,
+        tools,
+        max_tokens: None,
+        temperature: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
     use serde_json::json;
 
     use crate::kernel::agent::Kernel;
-    use crate::kernel::agent_loop::{ConversationState, build_model_request, run_agent_loop};
+    use crate::kernel::agent_loop::{
+        build_model_request, build_model_request_with_memory, run_agent_loop, ConversationState,
+    };
+    use crate::kernel::memory::MemoryRetriever;
     use crate::kernel::permissions::CapabilitySet;
     use crate::models::traits::{Model, ModelError};
     use crate::models::types::{Message, ModelEvent, ModelResponse, ToolInvocation};
@@ -544,6 +601,29 @@ mod tests {
         }];
         let request = build_model_request(&state, tools);
         assert_eq!(request.tools.len(), 1);
+    }
+
+    #[test]
+    fn build_model_request_with_memory_limits_messages() {
+        let mut state = ConversationState::new();
+        state.push(Message::system("a"));
+        state.push(Message::user("b"));
+        state.push(Message::assistant("c"));
+        let memory = MemoryRetriever::new(
+            crate::config::MemoryConfig {
+                max_session_messages: Some(2),
+                ..Default::default()
+            },
+            crate::session::db::SqliteStore::new(":memory:".to_string()),
+        );
+        let ctx = crate::kernel::context::ToolContext {
+            working_dir: std::path::PathBuf::from("/"),
+            capabilities: std::sync::Arc::new(CapabilitySet::empty()),
+            user_id: None,
+            session_id: None,
+        };
+        let request = build_model_request_with_memory(&state, Vec::new(), &memory, &ctx);
+        assert_eq!(request.messages.len(), 2);
     }
 
     #[test]

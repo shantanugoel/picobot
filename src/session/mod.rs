@@ -4,4 +4,6 @@ pub mod error;
 pub mod manager;
 pub mod migration;
 pub mod persistent_manager;
+pub mod retention;
 pub mod snapshot;
+pub mod summarization;
