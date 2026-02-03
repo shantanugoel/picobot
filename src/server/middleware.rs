@@ -32,3 +32,11 @@ pub fn check_api_key(headers: &HeaderMap, auth: Option<&AuthConfig>) -> Result<(
         (StatusCode::UNAUTHORIZED, "invalid api key").into_response(),
     ))
 }
+
+pub fn api_key_identity(headers: &HeaderMap) -> Option<String> {
+    let header = headers
+        .get("x-api-key")
+        .or_else(|| headers.get("authorization"));
+    let value = header.and_then(|value| value.to_str().ok())?;
+    Some(value.strip_prefix("Bearer ").unwrap_or(value).to_string())
+}

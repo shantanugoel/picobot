@@ -95,6 +95,7 @@ pub struct CorsConfig {
 #[derive(Debug, Deserialize, Default, Clone)]
 pub struct RateLimitConfig {
     pub requests_per_minute: Option<u32>,
+    pub per_key: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -108,6 +109,8 @@ pub struct ChannelsConfig {
 pub struct ChannelConfig {
     pub enabled: Option<bool>,
     pub store_path: Option<String>,
+    #[serde(default)]
+    pub allowed_senders: Vec<String>,
     #[serde(default)]
     pub pre_authorized: Vec<String>,
     #[serde(default)]

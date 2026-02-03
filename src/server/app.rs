@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
-use axum::Router;
 use axum::routing::{delete, get, post};
+use axum::Router;
 use tower::ServiceBuilder;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;

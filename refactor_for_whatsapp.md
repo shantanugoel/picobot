@@ -273,18 +273,18 @@ src/
 
 ### Week 5: Reliability + Observability
 
-- Delivery queue with retry/backoff
-- Delivery status tracking
-- Prometheus metrics
-- Integration tests for full flows
+- [x] Delivery queue with retry/backoff
+- [x] Delivery status tracking
+- [x] Prometheus metrics
+- [x] Integration tests for full flows
 
 ## Security Requirements (Phase 1)
 
-- API key auth (required)
-- CORS restrictions
-- Localhost-only default binding
-- Rate limiting (per-channel + per-user)
-- Admin-only permissions cannot be granted via user channels
+- [x] API key auth (required)
+- [x] CORS restrictions
+- [x] Localhost-only default binding
+- [x] Rate limiting (per-channel + per-user)
+- [x] Admin-only permissions cannot be granted via user channels
 
 ## Config Additions (Draft)
 
@@ -296,9 +296,14 @@ expose_externally = false
 [server.auth]
 api_keys = ["key1", "key2"]
 
+[server.rate_limit]
+requests_per_minute = 120
+per_key = true
+
 [channels.whatsapp]
 enabled = true
 store_path = "./data/whatsapp.db"
+allowed_senders = ["123456789@c.us"]
 allow_user_prompts = true
 pre_authorized = ["http:read:*"]
 max_allowed = ["http:*", "filesystem:read:/public/*"]

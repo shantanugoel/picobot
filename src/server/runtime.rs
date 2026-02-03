@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use tokio_stream::StreamExt;
 
-use crate::channels::adapter::{InboundAdapter, OutboundMessage, OutboundSender};
+use crate::channels::adapter::{InboundAdapter, OutboundMessage};
 use crate::channels::permissions::ChannelPermissionProfile;
 use crate::kernel::agent::Kernel;
+use crate::delivery::queue::DeliveryQueue;
 use crate::kernel::agent_loop::{
     PermissionDecision, run_agent_loop_streamed_with_permissions_limit,
 };
@@ -14,7 +15,7 @@ use crate::session::manager::{Session, SessionManager};
 
 pub async fn run_adapter_loop(
     inbound: Arc<dyn InboundAdapter>,
-    outbound: Arc<dyn OutboundSender>,
+    delivery_queue: DeliveryQueue,
     sessions: Arc<SessionManager>,
     kernel: Arc<Kernel>,
     models: Arc<ModelRegistry>,
@@ -63,13 +64,12 @@ pub async fn run_adapter_loop(
             }
             session_from_state(&mut session, &convo_state);
             sessions.update_session(session);
-            let _ = outbound
-                .send(OutboundMessage {
-                    channel_id: message.channel_id,
-                    user_id: message.user_id,
-                    text: response_text,
-                })
-                .await;
+            let outbound_message = OutboundMessage {
+                channel_id: message.channel_id,
+                user_id: message.user_id,
+                text: response_text,
+            };
+            let _delivery_id = delivery_queue.enqueue(outbound_message).await;
         }
     }
 }

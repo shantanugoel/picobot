@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use async_trait::async_trait;
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use tokio::sync::{Mutex, broadcast, mpsc};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
@@ -73,11 +73,15 @@ impl WhatsAppBackend for WhatsappRustBackend {
 
 pub struct WhatsAppInboundAdapter {
     backend: Arc<dyn WhatsAppBackend>,
+    allowed_senders: Option<Vec<String>>,
 }
 
 impl WhatsAppInboundAdapter {
-    pub fn new(backend: Arc<dyn WhatsAppBackend>) -> Self {
-        Self { backend }
+    pub fn new(backend: Arc<dyn WhatsAppBackend>, allowed_senders: Option<Vec<String>>) -> Self {
+        Self {
+            backend,
+            allowed_senders,
+        }
     }
 }
 
@@ -92,6 +96,23 @@ impl InboundAdapter for WhatsAppInboundAdapter {
     }
 
     async fn subscribe(&self) -> Pin<Box<dyn Stream<Item = InboundMessage> + Send>> {
+        if let Some(allowed) = self.allowed_senders.clone() {
+            let stream = self
+                .backend
+                .inbound_stream()
+                .filter_map(move |message| {
+                    let allowed = allowed.clone();
+                    async move {
+                        let user = message.user_id.clone();
+                        if allowed.iter().any(|sender| sender == &user) {
+                            Some(message)
+                        } else {
+                            None
+                        }
+                    }
+                });
+            return Box::pin(stream);
+        }
         self.backend.inbound_stream()
     }
 }

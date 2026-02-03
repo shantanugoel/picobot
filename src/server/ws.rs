@@ -77,6 +77,22 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         match message {
             Message::Text(text) => {
                 if let Ok(event) = serde_json::from_str::<WsClientMessage>(&text) {
+                    if let Some(limiter) = state.rate_limiter.as_ref() {
+                        let rate_key = match &event {
+                            WsClientMessage::Chat { user_id, .. } => format!(
+                                "ws:chat:{}",
+                                user_id.as_deref().unwrap_or("anonymous")
+                            ),
+                            WsClientMessage::PermissionDecision { .. } => "ws:permission".to_string(),
+                            WsClientMessage::Ping => "ws:ping".to_string(),
+                        };
+                        if !limiter.check_scoped(&rate_key).await {
+                            let _ = tx.send(WsServerMessage::Error {
+                                error: "rate limit exceeded".to_string(),
+                            });
+                            continue;
+                        }
+                    }
                     match event {
                         WsClientMessage::Ping => {
                             let _ = tx.send(WsServerMessage::Pong);

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::channels::adapter::ChannelType;
 use crate::channels::permissions::ChannelPermissionProfile;
 use crate::config::ServerConfig;
+use crate::delivery::tracking::DeliveryTracker;
 use crate::kernel::agent::Kernel;
 use crate::models::router::ModelRegistry;
 use crate::server::rate_limit::RateLimiter;
@@ -14,6 +15,7 @@ pub struct AppState {
     pub kernel: Arc<Kernel>,
     pub models: Arc<ModelRegistry>,
     pub sessions: Arc<SessionManager>,
+    pub deliveries: DeliveryTracker,
     pub api_profile: ChannelPermissionProfile,
     pub websocket_profile: ChannelPermissionProfile,
     pub server_config: Option<ServerConfig>,

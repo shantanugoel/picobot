@@ -18,7 +18,7 @@ use crate::server::metrics::{collect_metrics, render_metrics};
 use crate::session::adapter::{session_from_state, state_from_session};
 use crate::session::manager::{Session, SessionManager, SessionState};
 
-use super::middleware::check_api_key;
+use super::middleware::{api_key_identity, check_api_key};
 use super::state::AppState;
 
 fn ensure_api_key(headers: &HeaderMap, state: &AppState) -> Result<(), Box<Response>> {
@@ -31,11 +31,11 @@ fn ensure_api_key(headers: &HeaderMap, state: &AppState) -> Result<(), Box<Respo
     )
 }
 
-async fn enforce_rate_limit(state: &AppState) -> Result<(), Response> {
+async fn enforce_rate_limit(state: &AppState, key: &str) -> Result<(), Response> {
     let Some(limiter) = state.rate_limiter.as_ref() else {
         return Ok(());
     };
-    if limiter.check().await {
+    if limiter.check_scoped(key).await {
         Ok(())
     } else {
         Err((StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded").into_response())
@@ -95,19 +95,24 @@ pub async fn health() -> &'static str {
 }
 
 pub async fn status(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let snapshot = collect_metrics(&state.sessions);
+    let snapshot = collect_metrics(&state.sessions, &state.deliveries);
     Json(serde_json::json!({
         "sessions": snapshot.sessions_total,
         "active_sessions": snapshot.sessions_active,
         "idle_sessions": snapshot.sessions_idle,
         "awaiting_permission_sessions": snapshot.sessions_awaiting_permission,
         "terminated_sessions": snapshot.sessions_terminated,
+        "deliveries": snapshot.deliveries_total,
+        "pending_deliveries": snapshot.deliveries_pending,
+        "sending_deliveries": snapshot.deliveries_sending,
+        "sent_deliveries": snapshot.deliveries_sent,
+        "failed_deliveries": snapshot.deliveries_failed,
         "channel": "api",
     }))
 }
 
 pub async fn metrics(State(state): State<AppState>) -> Response {
-    let output = render_metrics(&state.sessions);
+    let output = render_metrics(&state.sessions, &state.deliveries);
     (StatusCode::OK, output).into_response()
 }
 
@@ -115,7 +120,9 @@ pub async fn list_sessions(State(state): State<AppState>, headers: HeaderMap) ->
     if let Err(response) = ensure_api_key(&headers, &state) {
         return *response;
     }
-    if let Err(response) = enforce_rate_limit(&state).await {
+    let identity = api_key_identity(&headers).unwrap_or_else(|| "anonymous".to_string());
+    let rate_key = format!("api:list_sessions:{identity}");
+    if let Err(response) = enforce_rate_limit(&state, &rate_key).await {
         return response;
     }
 
@@ -131,7 +138,9 @@ pub async fn get_session(
     if let Err(response) = ensure_api_key(&headers, &state) {
         return *response;
     }
-    if let Err(response) = enforce_rate_limit(&state).await {
+    let identity = api_key_identity(&headers).unwrap_or_else(|| "anonymous".to_string());
+    let rate_key = format!("api:get_session:{identity}");
+    if let Err(response) = enforce_rate_limit(&state, &rate_key).await {
         return response;
     }
 
@@ -164,7 +173,9 @@ pub async fn delete_session(
     if let Err(response) = ensure_api_key(&headers, &state) {
         return *response;
     }
-    if let Err(response) = enforce_rate_limit(&state).await {
+    let identity = api_key_identity(&headers).unwrap_or_else(|| "anonymous".to_string());
+    let rate_key = format!("api:delete_session:{identity}");
+    if let Err(response) = enforce_rate_limit(&state, &rate_key).await {
         return response;
     }
 
@@ -176,7 +187,9 @@ pub async fn permissions(State(state): State<AppState>, headers: HeaderMap) -> R
     if let Err(response) = ensure_api_key(&headers, &state) {
         return *response;
     }
-    if let Err(response) = enforce_rate_limit(&state).await {
+    let identity = api_key_identity(&headers).unwrap_or_else(|| "anonymous".to_string());
+    let rate_key = format!("api:permissions:{identity}");
+    if let Err(response) = enforce_rate_limit(&state, &rate_key).await {
         return response;
     }
 
@@ -206,7 +219,9 @@ pub async fn grant_permissions(
     if let Err(response) = ensure_api_key(&headers, &state) {
         return *response;
     }
-    if let Err(response) = enforce_rate_limit(&state).await {
+    let identity = api_key_identity(&headers).unwrap_or_else(|| "anonymous".to_string());
+    let rate_key = format!("api:grant:{identity}");
+    if let Err(response) = enforce_rate_limit(&state, &rate_key).await {
         return response;
     }
 
@@ -259,7 +274,13 @@ pub async fn chat(
     if let Err(response) = ensure_api_key(&headers, &state) {
         return *response;
     }
-    if let Err(response) = enforce_rate_limit(&state).await {
+    let identity = api_key_identity(&headers).unwrap_or_else(|| "anonymous".to_string());
+    let rate_key = format!(
+        "api:chat:{}:{}",
+        identity,
+        payload.user_id.as_deref().unwrap_or("anonymous")
+    );
+    if let Err(response) = enforce_rate_limit(&state, &rate_key).await {
         return response;
     }
 
@@ -326,7 +347,13 @@ pub async fn chat_stream(
     if let Err(response) = ensure_api_key(&headers, &state) {
         return *response;
     }
-    if let Err(response) = enforce_rate_limit(&state).await {
+    let identity = api_key_identity(&headers).unwrap_or_else(|| "anonymous".to_string());
+    let rate_key = format!(
+        "api:chat_stream:{}:{}",
+        identity,
+        payload.user_id.as_deref().unwrap_or("anonymous")
+    );
+    if let Err(response) = enforce_rate_limit(&state, &rate_key).await {
         return response;
     }
 

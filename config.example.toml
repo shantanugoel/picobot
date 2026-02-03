@@ -71,6 +71,7 @@ allowed_origins = ["http://localhost:3000"]
 
 [server.rate_limit]
 requests_per_minute = 120
+per_key = true
 
 
 [channels.api]
@@ -88,6 +89,7 @@ max_allowed = ["filesystem:read:/tmp/**", "net:api.github.com"]
 [channels.whatsapp]
 enabled = false
 store_path = "./data/whatsapp.db"
+allowed_senders = ["123456789@c.us"]
 allow_user_prompts = true
 pre_authorized = []
 max_allowed = ["filesystem:read:/tmp/**", "net:api.github.com"]

@@ -17,6 +17,8 @@ use picobot::kernel::agent_loop::{
 };
 use picobot::kernel::permissions::CapabilitySet;
 use picobot::models::router::ModelRegistry;
+use picobot::delivery::queue::{DeliveryQueue, DeliveryQueueConfig};
+use picobot::delivery::tracking::DeliveryTracker;
 use picobot::server::app::{bind_address, build_router, is_localhost_only};
 use picobot::server::rate_limit::RateLimiter;
 use picobot::server::snapshot::spawn_snapshot_task;
@@ -86,7 +88,9 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
     let websocket_profile = websocket_profile_from_config(&config)?;
     let whatsapp_profile = whatsapp_profile_from_config(&config)?;
     let sessions = Arc::new(SessionManager::new());
-    let (whatsapp_backend, _whatsapp_qr) = setup_whatsapp_backend(&config);
+    let deliveries = DeliveryTracker::new();
+    let (whatsapp_backend, _whatsapp_qr, whatsapp_allowed_senders) =
+        setup_whatsapp_backend(&config);
     let snapshot_path = config
         .session
         .as_ref()
@@ -109,6 +113,7 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
         kernel,
         models: Arc::new(registry),
         sessions,
+        deliveries: deliveries.clone(),
         api_profile,
         websocket_profile,
         server_config: config.server.clone(),
@@ -129,9 +134,17 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
     }
 
     if let Some(backend) = whatsapp_backend {
-        let whatsapp_profile = whatsapp_profile.clone();
-        let inbound = Arc::new(WhatsAppInboundAdapter::new(Arc::clone(&backend)));
+        let delivery_queue = DeliveryQueue::new(deliveries.clone(), DeliveryQueueConfig::default());
+        let delivery_worker = delivery_queue.clone();
         let outbound = Arc::new(WhatsAppOutboundSender::new(Arc::clone(&backend)));
+        tokio::spawn(async move {
+            delivery_worker.worker_loop(outbound).await;
+        });
+        let whatsapp_profile = whatsapp_profile.clone();
+        let inbound = Arc::new(WhatsAppInboundAdapter::new(
+            Arc::clone(&backend),
+            whatsapp_allowed_senders,
+        ));
         let sessions = Arc::clone(&state.sessions);
         let kernel = Arc::clone(&state.kernel);
         let models = Arc::clone(&state.models);
@@ -146,7 +159,7 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
                 }
                 picobot::server::runtime::run_adapter_loop(
                     inbound,
-                    outbound,
+                    delivery_queue,
                     sessions,
                     kernel,
                     models,
@@ -592,29 +605,37 @@ fn whatsapp_profile_from_config(
     .map_err(|err| anyhow::anyhow!(err))
 }
 
-fn setup_whatsapp_backend(
-    config: &Config,
-) -> (
+type WhatsappSetup = (
     Option<Arc<dyn WhatsAppBackend>>,
     Option<broadcast::Sender<String>>,
-) {
+    Option<Vec<String>>,
+);
+
+fn setup_whatsapp_backend(
+    config: &Config,
+) -> WhatsappSetup {
     let Some(channel) = config
         .channels
         .as_ref()
         .and_then(|channels| channels.whatsapp.as_ref())
     else {
-        return (None, None);
+        return (None, None, None);
     };
     if channel.enabled == Some(false) {
-        return (None, None);
+        return (None, None, None);
     }
+    let allowed_senders = if channel.allowed_senders.is_empty() {
+        None
+    } else {
+        Some(channel.allowed_senders.clone())
+    };
     let store_path = channel
         .store_path
         .clone()
         .unwrap_or_else(|| "./data/whatsapp.db".to_string());
     let (qr_tx, _) = broadcast::channel(4);
     let backend = Arc::new(WhatsappRustBackend::new(store_path, Some(qr_tx.clone())));
-    (Some(backend), Some(qr_tx))
+    (Some(backend), Some(qr_tx), allowed_senders)
 }
 
 enum UiMessage {
