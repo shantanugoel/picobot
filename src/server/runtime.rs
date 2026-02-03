@@ -11,12 +11,13 @@ use crate::kernel::agent_loop::{
 };
 use crate::models::router::ModelRegistry;
 use crate::session::adapter::{append_user_message, session_from_state, state_from_session};
-use crate::session::manager::{Session, SessionManager};
+use crate::session::manager::Session;
+use crate::session::persistent_manager::PersistentSessionManager;
 
 pub async fn run_adapter_loop(
     inbound: Arc<dyn InboundAdapter>,
     delivery_queue: DeliveryQueue,
-    sessions: Arc<SessionManager>,
+    sessions: Arc<PersistentSessionManager>,
     kernel: Arc<Kernel>,
     models: Arc<ModelRegistry>,
     profile: ChannelPermissionProfile,
@@ -24,13 +25,16 @@ pub async fn run_adapter_loop(
 ) {
     let mut stream = inbound.subscribe().await;
     while let Some(message) = stream.next().await {
-        let (_session_id, mut session) = load_or_create_session(
+        let (_session_id, mut session) = match load_or_create_session(
             &sessions,
             message.channel_id.clone(),
             message.user_id.clone(),
             inbound.channel_type(),
             &profile,
-        );
+        ) {
+            Ok(result) => result,
+            Err(_) => continue,
+        };
         append_user_message(&mut session, message.text.clone());
         let mut convo_state = state_from_session(&session);
         let model = models.default_model_arc();
@@ -67,7 +71,7 @@ pub async fn run_adapter_loop(
                 response_text = text;
             }
             session_from_state(&mut session, &convo_state);
-            sessions.update_session(session);
+            let _ = sessions.update_session(&session);
             let outbound_message = OutboundMessage {
                 channel_id: message.channel_id,
                 user_id: message.user_id,
@@ -79,22 +83,24 @@ pub async fn run_adapter_loop(
 }
 
 fn load_or_create_session(
-    sessions: &SessionManager,
+    sessions: &PersistentSessionManager,
     channel_id: String,
     user_id: String,
     channel_type: crate::channels::adapter::ChannelType,
     profile: &ChannelPermissionProfile,
-) -> (String, Session) {
+) -> Result<(String, Session), String> {
     let session_id = format!("{}:{}", channel_id, user_id);
-    if let Some(session) = sessions.get_session(&session_id) {
-        return (session_id, session);
+    if let Ok(Some(session)) = sessions.get_session(&session_id) {
+        return Ok((session_id, session));
     }
-    let session = sessions.create_session(
-        session_id.clone(),
-        channel_type,
-        channel_id,
-        user_id,
-        profile,
-    );
-    (session_id, session)
+    let session = sessions
+        .create_session(
+            session_id.clone(),
+            channel_type,
+            channel_id,
+            user_id,
+            profile,
+        )
+        .map_err(|err| err.to_string())?;
+    Ok((session_id, session))
 }

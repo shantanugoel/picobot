@@ -16,7 +16,8 @@ use crate::channels::permissions::ChannelPermissionProfile;
 use crate::kernel::agent_loop::PermissionDecision;
 use crate::server::metrics::{collect_metrics, render_metrics};
 use crate::session::adapter::{session_from_state, state_from_session};
-use crate::session::manager::{Session, SessionManager, SessionState};
+use crate::session::manager::{Session, SessionState};
+use crate::session::persistent_manager::PersistentSessionManager;
 
 use super::middleware::{api_key_identity, check_api_key};
 use super::state::AppState;
@@ -126,7 +127,34 @@ pub async fn list_sessions(State(state): State<AppState>, headers: HeaderMap) ->
         return response;
     }
 
-    let sessions = state.sessions.list_sessions();
+    let sessions = if let Some(identity) = api_key_identity(&headers) {
+        let prefix = identity.chars().take(8).collect::<String>();
+        match state.sessions.list_sessions_by_user(&format!("api:{prefix}")) {
+            Ok(sessions) => sessions,
+            Err(err) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: err.to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    } else {
+        match state.sessions.list_sessions() {
+            Ok(sessions) => sessions,
+            Err(err) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: err.to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    };
     (StatusCode::OK, Json(sessions)).into_response()
 }
 
@@ -144,8 +172,33 @@ pub async fn get_session(
         return response;
     }
 
-    match state.sessions.get_session(&id) {
+    let session = match state.sessions.get_session(&id) {
+        Ok(session) => session,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: err.to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+    match session {
         Some(session) => {
+            if let Some(identity) = api_key_identity(&headers) {
+                let prefix = identity.chars().take(8).collect::<String>();
+                let expected = format!("api:{prefix}");
+                if session.user_id != expected {
+                    return (
+                        StatusCode::FORBIDDEN,
+                        Json(ErrorResponse {
+                            error: "session not owned by api key".to_string(),
+                        }),
+                    )
+                        .into_response();
+                }
+            }
             let details = SessionDetails {
                 id: session.id,
                 channel_id: session.channel_id,
@@ -179,7 +232,30 @@ pub async fn delete_session(
         return response;
     }
 
-    state.sessions.delete_session(&id);
+    if let Some(identity) = api_key_identity(&headers)
+        && let Ok(Some(session)) = state.sessions.get_session(&id)
+    {
+        let prefix = identity.chars().take(8).collect::<String>();
+        let expected = format!("api:{prefix}");
+        if session.user_id != expected {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse {
+                    error: "session not owned by api key".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    }
+    if let Err(err) = state.sessions.delete_session(&id) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: err.to_string(),
+            }),
+        )
+            .into_response();
+    }
     StatusCode::NO_CONTENT.into_response()
 }
 
@@ -225,7 +301,19 @@ pub async fn grant_permissions(
         return response;
     }
 
-    let Some(mut session) = state.sessions.get_session(&payload.session_id) else {
+    let session = match state.sessions.get_session(&payload.session_id) {
+        Ok(session) => session,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: err.to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+    let Some(mut session) = session else {
         return (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
@@ -234,6 +322,19 @@ pub async fn grant_permissions(
         )
             .into_response();
     };
+    if let Some(identity) = api_key_identity(&headers) {
+        let prefix = identity.chars().take(8).collect::<String>();
+        let expected = format!("api:{prefix}");
+        if session.user_id != expected {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse {
+                    error: "session not owned by api key".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    }
 
     let mut granted = Vec::new();
     for raw in &payload.permissions {
@@ -255,7 +356,15 @@ pub async fn grant_permissions(
             }
         }
     }
-    state.sessions.update_session(session);
+    if let Err(err) = state.sessions.update_session(&session) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: err.to_string(),
+            }),
+        )
+            .into_response();
+    }
     (
         StatusCode::OK,
         Json(GrantResponse {
@@ -275,22 +384,31 @@ pub async fn chat(
         return *response;
     }
     let identity = api_key_identity(&headers).unwrap_or_else(|| "anonymous".to_string());
-    let rate_key = format!(
-        "api:chat:{}:{}",
-        identity,
-        payload.user_id.as_deref().unwrap_or("anonymous")
-    );
+    let prefix = identity.chars().take(8).collect::<String>();
+    let rate_key = format!("api:chat:{}:{}", identity, prefix);
     if let Err(response) = enforce_rate_limit(&state, &rate_key).await {
         return response;
     }
 
-    let (session_id, mut session) = load_or_create_session(
+    let user_id = normalize_api_user_id(payload.user_id.clone(), &headers);
+    let (session_id, mut session) = match load_or_create_session(
         &state.sessions,
         payload.session_id,
-        payload.user_id,
+        Some(user_id),
         state.channel_type,
         &state.api_profile,
-    );
+    ) {
+        Ok(result) => result,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: err.to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
 
     let mut convo_state = state_from_session(&session);
     if !payload.message.trim().is_empty() {
@@ -322,7 +440,15 @@ pub async fn chat(
     match result {
         Ok((response_text, updated_state)) => {
             session_from_state(&mut session, &updated_state);
-            state.sessions.update_session(session);
+            if let Err(err) = state.sessions.update_session(&session) {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: err.to_string(),
+                    }),
+                )
+                    .into_response();
+            }
             let response = ChatResponse {
                 session_id,
                 response: response_text,
@@ -348,22 +474,31 @@ pub async fn chat_stream(
         return *response;
     }
     let identity = api_key_identity(&headers).unwrap_or_else(|| "anonymous".to_string());
-    let rate_key = format!(
-        "api:chat_stream:{}:{}",
-        identity,
-        payload.user_id.as_deref().unwrap_or("anonymous")
-    );
+    let prefix = identity.chars().take(8).collect::<String>();
+    let rate_key = format!("api:chat_stream:{}:{}", identity, prefix);
     if let Err(response) = enforce_rate_limit(&state, &rate_key).await {
         return response;
     }
 
-    let (session_id, session) = load_or_create_session(
+    let user_id = normalize_api_user_id(payload.user_id.clone(), &headers);
+    let (session_id, session) = match load_or_create_session(
         &state.sessions,
         payload.session_id.clone(),
-        payload.user_id.clone(),
+        Some(user_id),
         state.channel_type,
         &state.api_profile,
-    );
+    ) {
+        Ok(result) => result,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: err.to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
 
     let mut convo_state = state_from_session(&session);
     if !payload.message.trim().is_empty() {
@@ -424,27 +559,41 @@ pub async fn chat_stream(
 }
 
 fn load_or_create_session(
-    sessions: &SessionManager,
+    sessions: &PersistentSessionManager,
     session_id: Option<String>,
     user_id: Option<String>,
     channel_type: ChannelType,
     profile: &ChannelPermissionProfile,
-) -> (String, Session) {
+) -> Result<(String, Session), String> {
     if let Some(session_id) = session_id
-        && let Some(session) = sessions.get_session(&session_id)
+        && let Ok(Some(session)) = sessions.get_session(&session_id)
     {
-        return (session_id, session);
+        return Ok((session_id, session));
     }
     let session_id = Uuid::new_v4().to_string();
     let user_id = user_id.unwrap_or_else(|| "api".to_string());
-    let session = sessions.create_session(
-        session_id.clone(),
-        channel_type,
-        "api".to_string(),
-        user_id,
-        profile,
-    );
-    (session_id, session)
+    let session = sessions
+        .create_session(
+            session_id.clone(),
+            channel_type,
+            "api".to_string(),
+            user_id,
+            profile,
+        )
+        .map_err(|err| err.to_string())?;
+    Ok((session_id, session))
+}
+
+fn normalize_api_user_id(value: Option<String>, headers: &HeaderMap) -> String {
+    let identity = api_key_identity(headers).unwrap_or_else(|| "anonymous".to_string());
+    let prefix = identity.chars().take(8).collect::<String>();
+    if let Some(value) = value {
+        if value.starts_with("api:") {
+            return value;
+        }
+        return format!("api:{value}");
+    }
+    format!("api:{prefix}")
 }
 
 enum StreamEvent {
@@ -487,7 +636,7 @@ struct ChatExecution {
     profile: ChannelPermissionProfile,
     max_tool_rounds: usize,
     tx: Option<tokio::sync::mpsc::UnboundedSender<StreamEvent>>,
-    sessions: Option<Arc<SessionManager>>,
+    sessions: Option<Arc<PersistentSessionManager>>,
     session: Option<Session>,
 }
 
@@ -551,7 +700,7 @@ fn run_chat_blocking_sync(
             if let Some(session_value) = session.as_mut() {
                 session_from_state(session_value, &convo_state);
                 if let Some(session_store) = sessions {
-                    session_store.update_session(session_value.clone());
+                    let _ = session_store.update_session(session_value);
                 }
             }
             if let Some(sender) = &tx {

@@ -17,7 +17,8 @@ use crate::kernel::agent_loop::PermissionDecision;
 use crate::server::middleware::check_api_key;
 use crate::server::state::AppState;
 use crate::session::adapter::{session_from_state, state_from_session};
-use crate::session::manager::{Session, SessionManager};
+use crate::session::manager::Session;
+use crate::session::persistent_manager::PersistentSessionManager;
 
 use super::routes::ChatRequest;
 
@@ -127,9 +128,16 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                             message,
                             model,
                         } => {
+                            let normalized_user = user_id.map(|value| {
+                                if value.starts_with("ws:") {
+                                    value
+                                } else {
+                                    format!("ws:{value}")
+                                }
+                            });
                             let payload = ChatRequest {
                                 session_id,
-                                user_id,
+                                user_id: normalized_user,
                                 message,
                                 model,
                             };
@@ -157,13 +165,21 @@ async fn handle_chat(
     tx: mpsc::UnboundedSender<WsServerMessage>,
     pending: Arc<Mutex<HashMap<String, std::sync::mpsc::Sender<PermissionDecision>>>>,
 ) {
-    let (session_id, session) = load_or_create_session(
+    let (session_id, session) = match load_or_create_session(
         &state.sessions,
         payload.session_id.clone(),
         payload.user_id.clone(),
         ChannelType::Websocket,
         &state.websocket_profile,
-    );
+    ) {
+        Ok(result) => result,
+        Err(err) => {
+            let _ = tx.send(WsServerMessage::Error {
+                error: err.to_string(),
+            });
+            return;
+        }
+    };
 
     let mut convo_state = state_from_session(&session);
     if !payload.message.trim().is_empty() {
@@ -204,27 +220,29 @@ async fn handle_chat(
 }
 
 fn load_or_create_session(
-    sessions: &SessionManager,
+    sessions: &PersistentSessionManager,
     session_id: Option<String>,
     user_id: Option<String>,
     channel_type: ChannelType,
     profile: &ChannelPermissionProfile,
-) -> (String, Session) {
+) -> Result<(String, Session), String> {
     if let Some(session_id) = session_id
-        && let Some(session) = sessions.get_session(&session_id)
+        && let Ok(Some(session)) = sessions.get_session(&session_id)
     {
-        return (session_id, session);
+        return Ok((session_id, session));
     }
     let session_id = Uuid::new_v4().to_string();
     let user_id = user_id.unwrap_or_else(|| "ws".to_string());
-    let session = sessions.create_session(
-        session_id.clone(),
-        channel_type,
-        "ws".to_string(),
-        user_id,
-        profile,
-    );
-    (session_id, session)
+    let session = sessions
+        .create_session(
+            session_id.clone(),
+            channel_type,
+            "ws".to_string(),
+            user_id,
+            profile,
+        )
+        .map_err(|err| err.to_string())?;
+    Ok((session_id, session))
 }
 
 struct WsChatExecution {
@@ -235,7 +253,7 @@ struct WsChatExecution {
     profile: ChannelPermissionProfile,
     max_tool_rounds: usize,
     tx: mpsc::UnboundedSender<WsServerMessage>,
-    sessions: Arc<SessionManager>,
+    sessions: Arc<PersistentSessionManager>,
     session: Session,
     pending: Arc<Mutex<HashMap<String, std::sync::mpsc::Sender<PermissionDecision>>>>,
 }
@@ -316,7 +334,7 @@ fn run_chat_blocking_sync(exec: WsChatExecution) -> Result<(), String> {
                 response_text = text;
             }
             session_from_state(&mut session, &convo_state);
-            sessions.update_session(session.clone());
+            let _ = sessions.update_session(&session);
             let _ = tx.send(WsServerMessage::Done {
                 response: response_text,
                 session_id: session.id.clone(),

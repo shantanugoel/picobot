@@ -14,6 +14,7 @@ use picobot::config::Config;
 use picobot::delivery::queue::{DeliveryQueue, DeliveryQueueConfig};
 use picobot::delivery::tracking::DeliveryTracker;
 use picobot::kernel::agent::Kernel;
+use picobot::kernel::privacy::{PrivacyController, PurgeScope};
 use picobot::kernel::agent_loop::{
     ConversationState, PermissionDecision, run_agent_loop_streamed_with_permissions_limit,
 };
@@ -23,7 +24,7 @@ use picobot::server::app::{bind_address, build_router, is_localhost_only};
 use picobot::server::rate_limit::RateLimiter;
 use picobot::server::snapshot::spawn_snapshot_task;
 use picobot::server::state::{AppState, maybe_start_retention};
-use picobot::session::manager::SessionManager;
+use picobot::session::persistent_manager::PersistentSessionManager;
 use picobot::session::snapshot::SnapshotStore;
 use picobot::tools::builtin::register_builtin_tools;
 use tokio::sync::{broadcast, watch};
@@ -133,7 +134,13 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
     let api_profile = api_profile_from_config(&config)?;
     let websocket_profile = websocket_profile_from_config(&config)?;
     let whatsapp_profile = whatsapp_profile_from_config(&config)?;
-    let sessions = Arc::new(SessionManager::new());
+    let session_store_path = std::path::PathBuf::from(data_dir.unwrap_or("data"))
+        .join("conversations.db")
+        .to_string_lossy()
+        .to_string();
+    let session_store = picobot::session::db::SqliteStore::new(session_store_path);
+    let _ = session_store.touch();
+    let sessions = Arc::new(PersistentSessionManager::new(session_store));
     let deliveries = DeliveryTracker::new();
     let (whatsapp_backend, _whatsapp_qr, _whatsapp_qr_cache, whatsapp_allowed_senders) =
         setup_whatsapp_backend(&config);
@@ -143,11 +150,14 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
         .and_then(|session| session.snapshot_path.clone());
     let mut snapshot_store = None;
     if let Some(path) = snapshot_path.clone() {
-        let store = SnapshotStore::new(path);
-        if let Ok(Some(snapshot)) = store.load() {
-            sessions.restore_sessions(snapshot.sessions);
-        }
-        snapshot_store = Some(store);
+        let store_path = std::path::PathBuf::from(data_dir.unwrap_or("data"))
+            .join("conversations.db")
+            .to_string_lossy()
+            .to_string();
+        let store = picobot::session::db::SqliteStore::new(store_path);
+        let _ = store.touch();
+        let _ = picobot::session::migration::migrate_snapshot_if_present(&store, &path);
+        snapshot_store = Some(SnapshotStore::new(path));
     }
 
     let rate_limiter = config
@@ -171,8 +181,7 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
         whatsapp_qr_cache: _whatsapp_qr_cache,
     };
 
-    maybe_start_retention(&config);
-
+    maybe_start_retention(&config, &state.models);
     if let Some(store) = snapshot_store {
         let interval_secs = config
             .session
@@ -251,6 +260,7 @@ async fn run_tui(
             ui.refresh().ok();
         }
     }
+    let env_config = load_config().unwrap_or_default();
     let ws_url = std::env::var("PICOBOT_WS_URL").ok();
     let ws_api_key = std::env::var("PICOBOT_WS_API_KEY").ok();
     let ws = ws_url.map(|url| picobot::cli::ws_client::spawn_ws_client(url, ws_api_key));
@@ -289,8 +299,80 @@ async fn run_tui(
                 }
                 if line == "/help" {
                     let mut ui = tui.borrow_mut();
-                    ui.push_output("Commands: /help /quit /exit /clear /permissions /models");
+                    ui.push_output(
+                        "Commands: /help /quit /exit /clear /permissions /models /purge_session /purge_user /purge_older <days>",
+                    );
                     ui.refresh().ok();
+                    continue;
+                }
+                if line == "/purge_session" || line == "/purge_user" || line.starts_with("/purge_older") {
+                    if let Ok(ui) = tui.try_borrow()
+                        && ui.is_busy()
+                    {
+                        continue;
+                    }
+                    let data_dir_value = std::env::var("PICOBOT_DATA_DIR")
+                        .ok()
+                        .or_else(|| std::env::var("DATA_DIR").ok())
+                        .or_else(|| env_config.data.as_ref().and_then(|data| data.dir.clone()));
+                    let data_dir = data_dir_value.as_deref();
+                    let mut parts = line.split_whitespace();
+                    let command = parts.next().unwrap_or_default();
+                    let days = parts.next().and_then(|value| value.parse::<u32>().ok());
+                    let scope = match command {
+                        "/purge_session" => Some(PurgeScope::Session),
+                        "/purge_user" => Some(PurgeScope::User),
+                        "/purge_older" => Some(PurgeScope::OlderThanDays),
+                        _ => None,
+                    };
+                    let Some(scope) = scope else {
+                        continue;
+                    };
+                    if let Ok(mut ui) = tui.try_borrow_mut() {
+                        ui.set_pending_confirmation("Confirm purge? (y/n)");
+                        ui.refresh().ok();
+                    }
+                    loop {
+                        let event = {
+                            let mut ui = tui.borrow_mut();
+                            ui.next_event_with_timeout(std::time::Duration::from_millis(80))
+                                .map_err(|err| anyhow::anyhow!(err))?
+                        };
+                        if let TuiEvent::Permission(choice) = event {
+                            if let Ok(mut ui) = tui.try_borrow_mut() {
+                                ui.clear_pending_permission();
+                                match choice {
+                                    PermissionChoice::Once | PermissionChoice::Session => {
+                                        if matches!(scope, PurgeScope::OlderThanDays) && days.is_none() {
+                                            ui.push_output("Missing days for /purge_older".to_string());
+                                            break;
+                                        }
+                                    let store_path = std::path::PathBuf::from(
+                                        data_dir.unwrap_or("data"),
+                                    )
+                                        .join("conversations.db")
+                                        .to_string_lossy()
+                                        .to_string();
+                                        let store = picobot::session::db::SqliteStore::new(store_path);
+                                        let sessions = Arc::new(PersistentSessionManager::new(store));
+                                        let controller = PrivacyController::new(sessions);
+                                        let ctx = kernel.context();
+                                        let result = controller.purge(ctx, scope, days);
+                                        if let Err(err) = result {
+                                            ui.push_output(format!("Purge failed: {err}"));
+                                        } else {
+                                            ui.push_output("Purge completed".to_string());
+                                        }
+                                    }
+                                    PermissionChoice::Deny => {
+                                        ui.push_output("Purge cancelled".to_string());
+                                    }
+                                }
+                                ui.refresh().ok();
+                            }
+                            break;
+                        }
+                    }
                     continue;
                 }
                 if line == "/permissions" {

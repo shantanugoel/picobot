@@ -7,8 +7,8 @@ use crate::delivery::tracking::DeliveryTracker;
 use crate::kernel::agent::Kernel;
 use crate::models::router::ModelRegistry;
 use crate::server::rate_limit::RateLimiter;
-use crate::session::manager::SessionManager;
-use crate::session::retention::spawn_retention_task;
+use crate::session::persistent_manager::PersistentSessionManager;
+use crate::session::retention::{spawn_retention_task, spawn_summarization_task};
 use tokio::sync::broadcast;
 use tokio::sync::watch;
 
@@ -16,7 +16,7 @@ use tokio::sync::watch;
 pub struct AppState {
     pub kernel: Arc<Kernel>,
     pub models: Arc<ModelRegistry>,
-    pub sessions: Arc<SessionManager>,
+    pub sessions: Arc<PersistentSessionManager>,
     pub deliveries: DeliveryTracker,
     pub api_profile: ChannelPermissionProfile,
     pub websocket_profile: ChannelPermissionProfile,
@@ -29,11 +29,16 @@ pub struct AppState {
     pub whatsapp_qr_cache: Option<watch::Receiver<Option<String>>>,
 }
 
-pub fn maybe_start_retention(config: &crate::config::Config) {
+pub fn maybe_start_retention(config: &crate::config::Config, models: &Arc<ModelRegistry>) {
     let retention = config
         .session
         .as_ref()
         .and_then(|session| session.retention.clone())
+        .unwrap_or_default();
+    let memory = config
+        .session
+        .as_ref()
+        .and_then(|session| session.memory.clone())
         .unwrap_or_default();
     let max_age_days = retention.max_age_days.unwrap_or(90);
     let interval_secs = retention.cleanup_interval_secs.unwrap_or(3600);
@@ -44,5 +49,10 @@ pub fn maybe_start_retention(config: &crate::config::Config) {
         .to_string();
     let store = crate::session::db::SqliteStore::new(store_path);
     let _ = store.touch();
-    let _task = spawn_retention_task(store, max_age_days, interval_secs);
+    let _task = spawn_retention_task(store.clone(), max_age_days, interval_secs);
+    if memory.enable_summarization.unwrap_or(true) {
+        let trigger = memory.summarization_trigger_tokens.unwrap_or(8000);
+        let model = models.default_model_arc();
+        let _task = spawn_summarization_task(store, model, trigger, interval_secs);
+    }
 }

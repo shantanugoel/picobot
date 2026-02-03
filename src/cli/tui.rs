@@ -270,6 +270,10 @@ impl Tui {
         self.pending_permission = Some((tool.into(), permissions));
     }
 
+    pub fn set_pending_confirmation(&mut self, message: impl Into<String>) {
+        self.pending_permission = Some(("confirm".to_string(), vec![message.into()]));
+    }
+
     pub fn clear_pending_permission(&mut self) {
         self.pending_permission = None;
     }
@@ -284,6 +288,10 @@ impl Tui {
 
     pub fn has_pending_permission(&self) -> bool {
         self.pending_permission.is_some()
+    }
+
+    pub fn is_busy(&self) -> bool {
+        self.busy
     }
 
     pub fn set_pending_model_picker(&mut self, models: Vec<ModelChoice>) {

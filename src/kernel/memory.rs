@@ -24,6 +24,7 @@ impl MemoryRetriever {
 
     pub fn build_context(&self, ctx: &ToolContext, session_messages: &[Message]) -> Vec<Message> {
         let mut output = Vec::new();
+        let include_summary = self.config.include_summary_on_truncation.unwrap_or(true);
         if let Some(user_id) = ctx.user_id.as_ref()
             && let Ok(memories) =
                 load_user_memories(&self.store, user_id, self.max_user_memories())
@@ -40,6 +41,11 @@ impl MemoryRetriever {
         let max_messages = self.config.max_session_messages.unwrap_or(20);
         let count = session_messages.len();
         let start = count.saturating_sub(max_messages);
+        if include_summary && start > 0
+            && let Some(summary) = load_session_summary(&self.store, ctx.session_id.as_deref())
+        {
+            output.push(Message::system(format!("Session summary:\n{summary}")));
+        }
         output.extend_from_slice(&session_messages[start..]);
 
         self.apply_budget(output)
@@ -58,7 +64,9 @@ impl MemoryRetriever {
             if messages.len() <= 1 {
                 break;
             }
-            messages.remove(1.min(messages.len() - 1));
+            if messages.len() > 1 {
+                messages.remove(1);
+            }
         }
         messages
     }
@@ -98,4 +106,30 @@ fn estimate_tokens(messages: &[Message]) -> usize {
             | Message::Tool { content, .. } => content.len().div_ceil(4),
         })
         .sum()
+}
+
+fn load_session_summary(store: &SqliteStore, session_id: Option<&str>) -> Option<String> {
+    let session_id = session_id?;
+    store
+        .with_connection(|conn| {
+            let mut stmt = conn
+                .prepare("SELECT summary FROM session_summaries WHERE session_id = ?1")
+                .map_err(|err| SessionDbError::QueryFailed(err.to_string()))?;
+            let mut rows = stmt
+                .query([session_id])
+                .map_err(|err| SessionDbError::QueryFailed(err.to_string()))?;
+            let row = rows
+                .next()
+                .map_err(|err| SessionDbError::QueryFailed(err.to_string()))?;
+            if let Some(row) = row {
+                let summary: String = row
+                    .get(0)
+                    .map_err(|err| SessionDbError::QueryFailed(err.to_string()))?;
+                Ok(Some(summary))
+            } else {
+                Ok(None)
+            }
+        })
+        .ok()
+        .flatten()
 }

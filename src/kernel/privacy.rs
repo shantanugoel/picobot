@@ -1,5 +1,7 @@
 use crate::kernel::context::ToolContext;
 use crate::session::error::SessionDbResult;
+use std::sync::Arc;
+
 use crate::session::persistent_manager::PersistentSessionManager;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -10,11 +12,11 @@ pub enum PurgeScope {
 }
 
 pub struct PrivacyController {
-    sessions: PersistentSessionManager,
+    sessions: Arc<PersistentSessionManager>,
 }
 
 impl PrivacyController {
-    pub fn new(sessions: PersistentSessionManager) -> Self {
+    pub fn new(sessions: Arc<PersistentSessionManager>) -> Self {
         Self { sessions }
     }
 

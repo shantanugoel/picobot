@@ -99,6 +99,37 @@ impl PersistentSessionManager {
         })
     }
 
+    pub fn list_sessions_by_user(&self, user_id: &str) -> SessionDbResult<Vec<SessionSummary>> {
+        self.store.with_connection(|conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, channel_id, user_id, last_active, state_json
+                     FROM sessions WHERE user_id = ?1",
+                )
+                .map_err(|err| SessionDbError::QueryFailed(err.to_string()))?;
+            let rows = stmt
+                .query_map([user_id], |row| {
+                    let state_json: String = row.get(4)?;
+                    let state: SessionState = serde_json::from_str(&state_json)
+                        .map_err(|_| rusqlite::Error::InvalidQuery)?;
+                    Ok(SessionSummary {
+                        id: row.get(0)?,
+                        channel_id: row.get(1)?,
+                        user_id: row.get(2)?,
+                        last_active: parse_datetime(row.get::<_, String>(3)?)
+                            .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                        state,
+                    })
+                })
+                .map_err(|err| SessionDbError::QueryFailed(err.to_string()))?;
+            let mut sessions = Vec::new();
+            for row in rows {
+                sessions.push(row.map_err(|err| SessionDbError::QueryFailed(err.to_string()))?);
+            }
+            Ok(sessions)
+        })
+    }
+
     pub fn all_sessions(&self) -> SessionDbResult<Vec<Session>> {
         self.store.with_connection(|conn| {
             let mut stmt = conn

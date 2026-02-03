@@ -149,4 +149,6 @@ pub struct MemoryConfig {
     pub max_session_messages: Option<usize>,
     pub max_user_memories: Option<usize>,
     pub enable_summarization: Option<bool>,
+    pub include_summary_on_truncation: Option<bool>,
+    pub summarization_trigger_tokens: Option<u32>,
 }

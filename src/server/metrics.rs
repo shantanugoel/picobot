@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::delivery::tracking::{DeliveryStatus, DeliveryTracker};
-use crate::session::manager::SessionManager;
+use crate::session::persistent_manager::PersistentSessionManager;
 
 #[derive(Default, Debug, Clone)]
 pub struct MetricsSnapshot {
@@ -17,7 +17,10 @@ pub struct MetricsSnapshot {
     pub deliveries_failed: usize,
 }
 
-pub fn render_metrics(sessions: &Arc<SessionManager>, deliveries: &DeliveryTracker) -> String {
+pub fn render_metrics(
+    sessions: &Arc<PersistentSessionManager>,
+    deliveries: &DeliveryTracker,
+) -> String {
     let snapshot = collect_metrics(sessions, deliveries);
     format!(
         "picobot_sessions_total {}\n\
@@ -44,10 +47,10 @@ picobot_deliveries_failed {}\n",
 }
 
 pub fn collect_metrics(
-    sessions: &Arc<SessionManager>,
+    sessions: &Arc<PersistentSessionManager>,
     deliveries: &DeliveryTracker,
 ) -> MetricsSnapshot {
-    let summaries = sessions.list_sessions();
+    let summaries = sessions.list_sessions().unwrap_or_default();
     let mut snapshot = MetricsSnapshot {
         sessions_total: summaries.len(),
         ..MetricsSnapshot::default()
