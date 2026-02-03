@@ -158,6 +158,7 @@ mod tests {
             server: None,
             channels: None,
             session: None,
+            data: None,
         };
 
         let result = ModelRegistry::from_config(&config);

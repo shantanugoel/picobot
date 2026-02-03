@@ -82,6 +82,7 @@ The session is stored at `store_path` and reused on restart.
 
 - Type text to chat.
 - Built-in commands: `/help`, `/clear`, `/permissions`, `/models`, `/quit`.
+- Purge commands: `/purge_session`, `/purge_user`, `/purge_older <days>` (TUI confirmation required).
 - Permission prompts appear when a tool needs access outside the current capability set.
 
 ## Configuration Reference
@@ -123,6 +124,19 @@ PicoBot is configured via `config.toml`. Key options include:
 
 - `session.snapshot_interval_secs`: How often to write session snapshots.
 - `session.snapshot_path`: Snapshot file path.
+- `session.retention.max_age_days`: Max age for message retention (default 90 days).
+- `session.retention.cleanup_interval_secs`: Retention cleanup interval.
+- `session.memory.enable_user_memories`: Toggle user-scoped memories.
+- `session.memory.context_budget_tokens`: Memory context token budget.
+- `session.memory.max_session_messages`: Max session messages in context.
+- `session.memory.max_user_memories`: Max user memories to include.
+- `session.memory.enable_summarization`: Toggle summarization task.
+- `session.memory.include_summary_on_truncation`: Inject summaries when truncating.
+- `session.memory.summarization_trigger_tokens`: Threshold for summarization.
+
+### Data
+
+- `data.dir`: Base directory for persistent data (defaults to `data/`).
 
 ### Agent
 

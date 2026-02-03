@@ -68,3 +68,182 @@ impl PrivacyController {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{PrivacyController, PurgeScope};
+    use crate::channels::adapter::ChannelType;
+    use crate::channels::permissions::ChannelPermissionProfile;
+    use crate::kernel::context::ToolContext;
+    use crate::kernel::permissions::{CapabilitySet, PermissionTier};
+    use crate::session::db::SqliteStore;
+    use crate::session::persistent_manager::PersistentSessionManager;
+    use std::sync::Arc;
+    use uuid::Uuid;
+
+    fn temp_store() -> (SqliteStore, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("picobot-privacy-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("conversations.db");
+        let store = SqliteStore::new(path.to_string_lossy().to_string());
+        store.touch().unwrap();
+        (store, dir)
+    }
+
+    fn profile() -> ChannelPermissionProfile {
+        ChannelPermissionProfile {
+            tier: PermissionTier::UserGrantable,
+            pre_authorized: Vec::new(),
+            max_allowed: Vec::new(),
+            allow_user_prompts: true,
+            prompt_timeout_secs: 120,
+        }
+    }
+
+    #[test]
+    fn purge_session_removes_session_and_messages() {
+        let (store, dir) = temp_store();
+        let manager = Arc::new(PersistentSessionManager::new(store.clone()));
+        let session = manager
+            .create_session(
+                "session-1".to_string(),
+                ChannelType::Api,
+                "api".to_string(),
+                "api:user".to_string(),
+                &profile(),
+            )
+            .unwrap();
+        let mut session = session;
+        session
+            .conversation
+            .push(crate::models::types::Message::user("hello"));
+        manager.update_session(&session).unwrap();
+
+        let controller = PrivacyController::new(Arc::clone(&manager));
+        let ctx = ToolContext {
+            working_dir: std::path::PathBuf::from("/"),
+            capabilities: Arc::new(CapabilitySet::empty()),
+            user_id: Some("api:user".to_string()),
+            session_id: Some("session-1".to_string()),
+        };
+        controller.purge(&ctx, PurgeScope::Session, None).unwrap();
+        assert!(manager.get_session("session-1").unwrap().is_none());
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn purge_user_removes_sessions_and_memories() {
+        let (store, dir) = temp_store();
+        let manager = Arc::new(PersistentSessionManager::new(store.clone()));
+        let _ = manager
+            .create_session(
+                "session-2".to_string(),
+                ChannelType::Api,
+                "api".to_string(),
+                "api:user2".to_string(),
+                &profile(),
+            )
+            .unwrap();
+        store
+            .with_connection(|conn| {
+                conn.execute(
+                    "INSERT INTO user_memories (user_id, key, content, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    rusqlite::params![
+                        "api:user2",
+                        "favorite",
+                        "blue",
+                        chrono::Utc::now().to_rfc3339(),
+                        chrono::Utc::now().to_rfc3339()
+                    ],
+                )
+                .unwrap();
+                Ok(())
+            })
+            .unwrap();
+
+        let controller = PrivacyController::new(Arc::clone(&manager));
+        let ctx = ToolContext {
+            working_dir: std::path::PathBuf::from("/"),
+            capabilities: Arc::new(CapabilitySet::empty()),
+            user_id: Some("api:user2".to_string()),
+            session_id: None,
+        };
+        controller.purge(&ctx, PurgeScope::User, None).unwrap();
+        assert!(manager.get_session("session-2").unwrap().is_none());
+        let memories = store
+            .with_connection(|conn| {
+                let count: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM user_memories WHERE user_id = ?1",
+                        ["api:user2"],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                Ok(count)
+            })
+            .unwrap();
+        assert_eq!(memories, 0);
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn purge_older_than_removes_messages_only() {
+        let (store, dir) = temp_store();
+        let manager = Arc::new(PersistentSessionManager::new(store.clone()));
+        let session = manager
+            .create_session(
+                "session-3".to_string(),
+                ChannelType::Api,
+                "api".to_string(),
+                "api:user3".to_string(),
+                &profile(),
+            )
+            .unwrap();
+        store
+            .with_connection(|conn| {
+                conn.execute(
+                    "INSERT INTO messages (session_id, message_type, content, created_at, seq_order)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    rusqlite::params![
+                        session.id,
+                        "user",
+                        "old",
+                        "2000-01-01T00:00:00Z",
+                        0
+                    ],
+                )
+                .unwrap();
+                Ok(())
+            })
+            .unwrap();
+
+        let controller = PrivacyController::new(Arc::clone(&manager));
+        let ctx = ToolContext {
+            working_dir: std::path::PathBuf::from("/"),
+            capabilities: Arc::new(CapabilitySet::empty()),
+            user_id: Some("api:user3".to_string()),
+            session_id: Some("session-3".to_string()),
+        };
+        controller
+            .purge(&ctx, PurgeScope::OlderThanDays, Some(1))
+            .unwrap();
+        let remaining = store
+            .with_connection(|conn| {
+                let count: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM messages WHERE session_id = ?1",
+                        ["session-3"],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                Ok(count)
+            })
+            .unwrap();
+        assert_eq!(remaining, 0);
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+}

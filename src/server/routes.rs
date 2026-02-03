@@ -558,6 +558,27 @@ pub async fn chat_stream(
         .into_response()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::normalize_api_user_id;
+    use axum::http::HeaderMap;
+
+    #[test]
+    fn normalize_api_user_id_prefers_payload_value() {
+        let headers = HeaderMap::new();
+        let value = normalize_api_user_id(Some("customer".to_string()), &headers);
+        assert_eq!(value, "api:customer");
+    }
+
+    #[test]
+    fn normalize_api_user_id_uses_prefix_when_missing() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-api-key", "abcdef123456".parse().unwrap());
+        let value = normalize_api_user_id(None, &headers);
+        assert_eq!(value, "api:abcdef12");
+    }
+}
+
 fn load_or_create_session(
     sessions: &PersistentSessionManager,
     session_id: Option<String>,
