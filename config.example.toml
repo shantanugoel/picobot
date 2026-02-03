@@ -70,7 +70,7 @@ api_keys = ["change-me"]
 allowed_origins = ["http://localhost:3000"]
 
 [server.rate_limit]
-requests_per_minute = 120
+requests_per_minute = 60
 per_key = true
 
 
@@ -78,21 +78,21 @@ per_key = true
 enabled = true
 allow_user_prompts = true
 pre_authorized = []
-max_allowed = ["filesystem:read:/tmp/**", "net:api.github.com"]
+max_allowed = ["filesystem:read:/tmp/**", "net:api.github.com", "net:httpbin.org"]
 
 [channels.websocket]
 enabled = true
 allow_user_prompts = true
 pre_authorized = []
-max_allowed = ["filesystem:read:/tmp/**", "net:api.github.com"]
+max_allowed = ["filesystem:read:/tmp/**", "net:api.github.com", "net:httpbin.org"]
 
 [channels.whatsapp]
 enabled = false
 store_path = "./data/whatsapp.db"
-allowed_senders = ["123456789@c.us"]
-allow_user_prompts = true
+allowed_senders = ["919876543210@c.us"]
+allow_user_prompts = false
 pre_authorized = []
-max_allowed = ["filesystem:read:/tmp/**", "net:api.github.com"]
+max_allowed = ["filesystem:read:/tmp/**"]
 
 [session]
 snapshot_interval_secs = 300

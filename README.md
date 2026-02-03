@@ -2,15 +2,17 @@
 
 PicoBot is a security-first AI agent with a kernel that enforces capability checks on every tool invocation. It ships with a TUI, OpenAI-compatible model providers, and a minimal toolset (filesystem, shell, HTTP fetch).
 
-## Quick start
+## Quick Start
+
+### Standalone TUI
 
 ```bash
 cp config.example.toml config.toml
-# Set API keys in your environment
+# Set API keys in your environment (e.g., OPENAI_API_KEY)
 cargo run
 ```
 
-## Server + TUI (WebSocket)
+### Server + Remote TUI (WebSocket)
 
 The server requires an API key when `server.auth.api_keys` is configured. The TUI can connect over WebSocket with the same API key.
 
@@ -24,7 +26,7 @@ PICOBOT_WS_API_KEY=change-me \
 cargo run
 ```
 
-## WhatsApp setup
+## WhatsApp Setup
 
 PicoBot supports WhatsApp via the native `whatsapp-rust` client (not the Meta Cloud API).
 
@@ -44,9 +46,10 @@ Enable the WhatsApp channel in `config.toml` (see `config.example.toml`):
 [channels.whatsapp]
 enabled = true
 store_path = "./data/whatsapp.db"
-allow_user_prompts = true
+allowed_senders = ["919876543210@c.us"]
+allow_user_prompts = false
 pre_authorized = []
-max_allowed = ["filesystem:read:/tmp/**", "net:api.github.com"]
+max_allowed = ["filesystem:read:/tmp/**"]
 ```
 
 ### Pairing (QR code)
@@ -72,7 +75,7 @@ The session is stored at `store_path` and reused on restart.
 
 ### JID format
 
-- Individual: `<phone>@s.whatsapp.net` (example: `15551234567@s.whatsapp.net`)
+- Individual: `<phone>@c.us` (example India: `919876543210@c.us`)
 - Group: `<group_id>@g.us`
 
 ## Usage
@@ -81,9 +84,55 @@ The session is stored at `store_path` and reused on restart.
 - Built-in commands: `/help`, `/clear`, `/permissions`, `/models`, `/quit`.
 - Permission prompts appear when a tool needs access outside the current capability set.
 
-## Configuration
+## Configuration Reference
 
-Update `config.toml` to change models, routing, and permissions. See `config.example.toml` for the full schema.
+PicoBot is configured via `config.toml`. Key options include:
+
+### Server (`[server]`)
+
+- `bind`: Network address to bind to (e.g., `127.0.0.1:8080`).
+- `expose_externally`: When true, allows binding to non-localhost addresses.
+- `auth.api_keys`: List of keys for REST/WS authentication.
+- `cors.allowed_origins`: Allowed origins for browser clients.
+- `rate_limit.requests_per_minute`: Request ceiling per minute.
+- `rate_limit.per_key`: If true, applies limits per API key or user identity.
+
+### Channels (`[channels.api|websocket|whatsapp]`)
+
+- `enabled`: Toggle the channel.
+- `store_path`: (WhatsApp only) Local path for the session database.
+- `allowed_senders`: (WhatsApp only) JIDs allowed to message the bot.
+- `allow_user_prompts`: Allow interactive permission prompts on this channel.
+- `pre_authorized`: Capabilities granted by default.
+- `max_allowed`: Hard limit on capabilities this channel can ever access.
+
+### Permissions (`[permissions]`)
+
+- `filesystem.read_paths`: Globbed paths the filesystem tool can read.
+- `filesystem.write_paths`: Globbed paths the filesystem tool can write.
+- `network.allowed_domains`: Domains allowed for HTTP fetch.
+- `shell.allowed_commands`: Shell commands allowed for execution.
+- `shell.working_directory`: Default working directory for shell tool.
+
+### Models & Routing
+
+- `models`: List of model providers and IDs.
+- `routing.default`: Default model ID.
+
+### Sessions
+
+- `session.snapshot_interval_secs`: How often to write session snapshots.
+- `session.snapshot_path`: Snapshot file path.
+
+### Agent
+
+- `agent.name`: Display name for the assistant.
+- `agent.system_prompt`: System prompt prepended to conversations.
+
+### Logging
+
+- `logging.level`: Log level (e.g., `info`, `debug`).
+- `logging.audit_file`: Audit log file path.
 
 ## Notes
 
