@@ -7,7 +7,7 @@ use crate::config::SchedulerConfig;
 use crate::kernel::permissions::Permission;
 use crate::scheduler::error::{SchedulerError, SchedulerResult};
 use crate::scheduler::executor::JobExecutor;
-use crate::scheduler::job::{CreateJobRequest, ScheduledJob, ScheduleType};
+use crate::scheduler::job::{CreateJobRequest, ScheduleType, ScheduledJob};
 use crate::scheduler::store::ScheduleStore;
 
 #[derive(Clone)]
@@ -68,9 +68,7 @@ impl SchedulerService {
             let user_semaphore = self
                 .per_user_semaphores
                 .entry(job.user_id.clone())
-                .or_insert_with(|| {
-                    Arc::new(Semaphore::new(self.config.max_concurrent_per_user()))
-                })
+                .or_insert_with(|| Arc::new(Semaphore::new(self.config.max_concurrent_per_user())))
                 .clone();
             if user_semaphore.available_permits() == 0 {
                 let _ = self.store.release_claim(&job.id, &claim_id);

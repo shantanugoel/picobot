@@ -187,10 +187,9 @@ impl Permission {
                 Permission::MemoryWrite { scope: granted },
                 Permission::MemoryWrite { scope: needed },
             ) => granted.covers(*needed),
-            (
-                Permission::Schedule { action: granted },
-                Permission::Schedule { action: needed },
-            ) => granted == "*" || granted == needed,
+            (Permission::Schedule { action: granted }, Permission::Schedule { action: needed }) => {
+                granted == "*" || granted == needed
+            }
             _ => false,
         }
     }

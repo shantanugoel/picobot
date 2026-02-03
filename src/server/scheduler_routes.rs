@@ -1,7 +1,7 @@
+use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::scheduler::job::{CreateJobRequest, Principal, PrincipalType, ScheduleType};
@@ -67,14 +67,12 @@ pub async fn create_schedule(
                     error: "scheduler disabled".to_string(),
                 }),
             )
-                .into_response()
+                .into_response();
         }
     };
     let identity = api_key_identity(&headers).unwrap_or_else(|| "anonymous".to_string());
     let prefix = identity.chars().take(8).collect::<String>();
-    let mut user_id = payload
-        .user_id
-        .unwrap_or_else(|| format!("api:{prefix}"));
+    let mut user_id = payload.user_id.unwrap_or_else(|| format!("api:{prefix}"));
     if !user_id.starts_with("api:") {
         user_id = format!("api:{user_id}");
     }
@@ -164,10 +162,7 @@ pub async fn create_schedule(
     }
 }
 
-pub async fn list_schedules(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> Response {
+pub async fn list_schedules(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(response) = check_api_key(
         &headers,
         state
@@ -186,7 +181,7 @@ pub async fn list_schedules(
                     error: "scheduler disabled".to_string(),
                 }),
             )
-                .into_response()
+                .into_response();
         }
     };
     let identity = api_key_identity(&headers).unwrap_or_else(|| "anonymous".to_string());

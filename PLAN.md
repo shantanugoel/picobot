@@ -28,17 +28,17 @@
 - Capability grants lifecycle (expiry + revocation)
 - Secure Admin TUI, accessible only via a specific port different from regular chat so we can avoid exposing it.
 
-## Phase 5: Extensibility
-
-- Dynamic tool loading (WASM plugins)
-- Multi-model routing by task hint
-- Tool metadata registry for discovery
-
-## Phase 6
+## Phase 5 - Browser Use
 
 - Add a browser-use agent that can do extensive usage of browser
 - Allow to persist cookies etc after logging in so it retains login status
 - Think about how to get initial logins done for tricky cases (captchas that it can solve on its own, and where it can take user's help either via TUI or whatsapp, and where it needs user to login separately on their own and provide something to the bot)
+
+## Phase 6: Extensibility
+
+- Dynamic tool loading (WASM plugins)
+- Multi-model routing by task hint
+- Tool metadata registry for discovery
 
 ## Phase 7: Ecosystem & UX
 

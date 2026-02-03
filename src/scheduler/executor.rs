@@ -5,10 +5,10 @@ use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::SchedulerConfig;
-use crate::kernel::agent_loop::{ConversationState, run_agent_loop_with_limit};
 use crate::kernel::agent::Kernel;
+use crate::kernel::agent_loop::{ConversationState, run_agent_loop_with_limit};
 use crate::models::router::ModelRegistry;
-use crate::scheduler::job::{ExecutionStatus, JobExecution, ScheduledJob, ScheduleType};
+use crate::scheduler::job::{ExecutionStatus, JobExecution, ScheduleType, ScheduledJob};
 use crate::scheduler::store::ScheduleStore;
 
 #[derive(Clone)]
@@ -101,9 +101,10 @@ impl JobExecutor {
                 job.last_error = Some(error);
                 job.backoff_until = Some(
                     finished_at
-                        + chrono::Duration::seconds(
-                            calculate_backoff_secs(job.consecutive_failures, &self.config) as i64,
-                        ),
+                        + chrono::Duration::seconds(calculate_backoff_secs(
+                            job.consecutive_failures,
+                            &self.config,
+                        ) as i64),
                 );
             }
             ExecutionOutcome::Timeout => {
@@ -113,9 +114,10 @@ impl JobExecutor {
                 job.last_error = Some("job timed out".to_string());
                 job.backoff_until = Some(
                     finished_at
-                        + chrono::Duration::seconds(
-                            calculate_backoff_secs(job.consecutive_failures, &self.config) as i64,
-                        ),
+                        + chrono::Duration::seconds(calculate_backoff_secs(
+                            job.consecutive_failures,
+                            &self.config,
+                        ) as i64),
                 );
             }
             ExecutionOutcome::Cancelled => {
@@ -220,7 +222,7 @@ fn truncate(value: &str, max: usize) -> String {
 mod tests {
     use super::{apply_next_run, calculate_backoff_secs};
     use crate::config::SchedulerConfig;
-    use crate::scheduler::job::{ScheduledJob, ScheduleType};
+    use crate::scheduler::job::{ScheduleType, ScheduledJob};
 
     fn sample_job(schedule_type: ScheduleType, expr: &str) -> ScheduledJob {
         ScheduledJob {

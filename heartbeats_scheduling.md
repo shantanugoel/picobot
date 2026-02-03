@@ -226,7 +226,6 @@ Security tests:
 - Phase 3.1: cron expression support.
 - Phase 3.1: ScheduleTool for agent self-scheduling.
 - Phase 3.1: heartbeat-specific config and UX.
-- Add job chaining and workflows.
-- Add distributed scheduling (multi-instance coordination).
-- Add structured metrics and tracing for scheduler runs.
-- Extend operational controls (pause all schedules, rescan, admin audit UI).
+- Phase 3.1: Add job chaining and workflows.
+- Phase 3.1: Add structured metrics and tracing for scheduler runs.
+- Phase 3.1: Extend operational controls (pause, rescan, cancel, delete schedules).
