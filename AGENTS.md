@@ -2,6 +2,10 @@
 
 This file is a concise, project-specific guide for AI agents working in this repo. It focuses on invariants, architecture, and non-obvious constraints.
 
+## Working Guidelines
+- Always use latest versions of any rust crates
+- Whenever you make any changes, make sure there are no errors or warnings by running `cargo check` and `cargo clippy`
+
 ## Architecture Summary
 
 - **Kernel**: Single enforcement point for permissions and tool invocation (`Kernel::invoke_tool*`).

@@ -3,8 +3,10 @@
 ## Phase 1: Communication Surface
 
 - WhatsApp adapter (send/receive, auth, session lifecycle)
-- HTTP API (REST + WebSocket) for remote access
+- We should be able to run the agent as a server so it can communicate with whatsapp always on, and should also be able to connect to it via TUI simultaneously if needed
+- Maybe we evaluate building HTTP API (REST + WebSocket) for core?
 - Webhook retries + delivery observability
+- Is an admin interface needed?
 
 ## Phase 2: Persistent Memory
 
