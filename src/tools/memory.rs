@@ -102,7 +102,9 @@ fn validate_key(key: &str) -> Result<(), ToolError> {
         return Err(ToolError::InvalidInput("key too long".to_string()));
     }
     if key.starts_with("system_") || key.starts_with("internal_") {
-        return Err(ToolError::InvalidInput("key prefix is reserved".to_string()));
+        return Err(ToolError::InvalidInput(
+            "key prefix is reserved".to_string(),
+        ));
     }
     let mut chars = key.chars();
     let first = chars

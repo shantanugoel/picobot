@@ -129,7 +129,10 @@ pub async fn list_sessions(State(state): State<AppState>, headers: HeaderMap) ->
 
     let sessions = if let Some(identity) = api_key_identity(&headers) {
         let prefix = identity.chars().take(8).collect::<String>();
-        match state.sessions.list_sessions_by_user(&format!("api:{prefix}")) {
+        match state
+            .sessions
+            .list_sessions_by_user(&format!("api:{prefix}"))
+        {
             Ok(sessions) => sessions,
             Err(err) => {
                 return (

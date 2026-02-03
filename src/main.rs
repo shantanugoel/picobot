@@ -14,11 +14,11 @@ use picobot::config::Config;
 use picobot::delivery::queue::{DeliveryQueue, DeliveryQueueConfig};
 use picobot::delivery::tracking::DeliveryTracker;
 use picobot::kernel::agent::Kernel;
-use picobot::kernel::privacy::{PrivacyController, PurgeScope};
 use picobot::kernel::agent_loop::{
     ConversationState, PermissionDecision, run_agent_loop_streamed_with_permissions_limit,
 };
 use picobot::kernel::permissions::CapabilitySet;
+use picobot::kernel::privacy::{PrivacyController, PurgeScope};
 use picobot::models::router::ModelRegistry;
 use picobot::server::app::{bind_address, build_router, is_localhost_only};
 use picobot::server::rate_limit::RateLimiter;
@@ -305,7 +305,10 @@ async fn run_tui(
                     ui.refresh().ok();
                     continue;
                 }
-                if line == "/purge_session" || line == "/purge_user" || line.starts_with("/purge_older") {
+                if line == "/purge_session"
+                    || line == "/purge_user"
+                    || line.starts_with("/purge_older")
+                {
                     if let Ok(ui) = tui.try_borrow()
                         && ui.is_busy()
                     {
@@ -343,18 +346,23 @@ async fn run_tui(
                                 ui.clear_pending_permission();
                                 match choice {
                                     PermissionChoice::Once | PermissionChoice::Session => {
-                                        if matches!(scope, PurgeScope::OlderThanDays) && days.is_none() {
-                                            ui.push_output("Missing days for /purge_older".to_string());
+                                        if matches!(scope, PurgeScope::OlderThanDays)
+                                            && days.is_none()
+                                        {
+                                            ui.push_output(
+                                                "Missing days for /purge_older".to_string(),
+                                            );
                                             break;
                                         }
-                                    let store_path = std::path::PathBuf::from(
-                                        data_dir.unwrap_or("data"),
-                                    )
-                                        .join("conversations.db")
-                                        .to_string_lossy()
-                                        .to_string();
-                                        let store = picobot::session::db::SqliteStore::new(store_path);
-                                        let sessions = Arc::new(PersistentSessionManager::new(store));
+                                        let store_path =
+                                            std::path::PathBuf::from(data_dir.unwrap_or("data"))
+                                                .join("conversations.db")
+                                                .to_string_lossy()
+                                                .to_string();
+                                        let store =
+                                            picobot::session::db::SqliteStore::new(store_path);
+                                        let sessions =
+                                            Arc::new(PersistentSessionManager::new(store));
                                         let controller = PrivacyController::new(sessions);
                                         let ctx = kernel.context();
                                         let result = controller.purge(ctx, scope, days);

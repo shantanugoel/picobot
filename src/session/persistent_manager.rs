@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 use crate::channels::adapter::ChannelType;
 use crate::channels::permissions::ChannelPermissionProfile;

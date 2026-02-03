@@ -51,10 +51,8 @@ pub async fn run_adapter_loop(
             }
             PermissionDecision::Session
         };
-        let scoped_kernel = kernel.clone_with_context(
-            Some(message.user_id.clone()),
-            Some(session.id.clone()),
-        );
+        let scoped_kernel =
+            kernel.clone_with_context(Some(message.user_id.clone()), Some(session.id.clone()));
         let result = run_agent_loop_streamed_with_permissions_limit(
             &scoped_kernel,
             model.as_ref(),

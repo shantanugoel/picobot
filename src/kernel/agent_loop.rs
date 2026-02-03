@@ -565,7 +565,7 @@ mod tests {
 
     use crate::kernel::agent::Kernel;
     use crate::kernel::agent_loop::{
-        build_model_request, build_model_request_with_memory, run_agent_loop, ConversationState,
+        ConversationState, build_model_request, build_model_request_with_memory, run_agent_loop,
     };
     use crate::kernel::memory::MemoryRetriever;
     use crate::kernel::permissions::CapabilitySet;

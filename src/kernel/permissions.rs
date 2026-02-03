@@ -190,13 +190,11 @@ impl Permission {
 
     pub fn is_auto_granted(&self, ctx: &crate::kernel::context::ToolContext) -> bool {
         match self {
-            Permission::MemoryRead { scope } | Permission::MemoryWrite { scope } => {
-                match scope {
-                    MemoryScope::Session => ctx.session_id.is_some(),
-                    MemoryScope::User => ctx.user_id.is_some(),
-                    MemoryScope::Global => false,
-                }
-            }
+            Permission::MemoryRead { scope } | Permission::MemoryWrite { scope } => match scope {
+                MemoryScope::Session => ctx.session_id.is_some(),
+                MemoryScope::User => ctx.user_id.is_some(),
+                MemoryScope::Global => false,
+            },
             _ => false,
         }
     }

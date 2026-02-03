@@ -32,10 +32,12 @@ pub fn register_builtin_tools(
     let base_dir = data_dir.unwrap_or("data");
     let store_path = std::path::PathBuf::from(base_dir).join("conversations.db");
     let store = SqliteStore::new(store_path.to_string_lossy().to_string());
-    store.touch().map_err(|err| ToolRegistryError::BuiltinToolInitFailed {
-        tool: "memory".to_string(),
-        detail: err.to_string(),
-    })?;
+    store
+        .touch()
+        .map_err(|err| ToolRegistryError::BuiltinToolInitFailed {
+            tool: "memory".to_string(),
+            detail: err.to_string(),
+        })?;
     registry.register(Box::new(MemoryTool::new(store)))?;
 
     if let Some(permissions) = permissions

@@ -26,8 +26,7 @@ impl MemoryRetriever {
         let mut output = Vec::new();
         let include_summary = self.config.include_summary_on_truncation.unwrap_or(true);
         if let Some(user_id) = ctx.user_id.as_ref()
-            && let Ok(memories) =
-                load_user_memories(&self.store, user_id, self.max_user_memories())
+            && let Ok(memories) = load_user_memories(&self.store, user_id, self.max_user_memories())
             && !memories.is_empty()
         {
             let mut lines = Vec::new();
@@ -41,7 +40,8 @@ impl MemoryRetriever {
         let max_messages = self.config.max_session_messages.unwrap_or(20);
         let count = session_messages.len();
         let start = count.saturating_sub(max_messages);
-        if include_summary && start > 0
+        if include_summary
+            && start > 0
             && let Some(summary) = load_session_summary(&self.store, ctx.session_id.as_deref())
         {
             output.push(Message::system(format!("Session summary:\n{summary}")));

@@ -32,19 +32,12 @@ impl Kernel {
         self
     }
 
-    pub fn with_memory_retriever(
-        mut self,
-        memory: crate::kernel::memory::MemoryRetriever,
-    ) -> Self {
+    pub fn with_memory_retriever(mut self, memory: crate::kernel::memory::MemoryRetriever) -> Self {
         self.memory_retriever = Some(memory);
         self
     }
 
-    pub fn clone_with_context(
-        &self,
-        user_id: Option<String>,
-        session_id: Option<String>,
-    ) -> Self {
+    pub fn clone_with_context(&self, user_id: Option<String>, session_id: Option<String>) -> Self {
         let mut context = self.context.clone();
         context.user_id = user_id;
         context.session_id = session_id;
@@ -98,7 +91,9 @@ impl Kernel {
             || extra_grants
                 .map(|grants| grants.allows_all(&required))
                 .unwrap_or(false)
-            || required.iter().all(|permission| permission.is_auto_granted(&self.context));
+            || required
+                .iter()
+                .all(|permission| permission.is_auto_granted(&self.context));
         if !allowed {
             return Err(ToolError::PermissionDenied {
                 tool: tool.name().to_string(),

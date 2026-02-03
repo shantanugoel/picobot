@@ -70,7 +70,10 @@ fn load_session_messages(
                 "system" => Message::system(content),
                 "user" => Message::user(content),
                 "assistant" => Message::assistant(content),
-                "tool" => Message::tool(tool_call_id.unwrap_or_else(|| "unknown".to_string()), content),
+                "tool" => Message::tool(
+                    tool_call_id.unwrap_or_else(|| "unknown".to_string()),
+                    content,
+                ),
                 _ => Message::assistant(content),
             };
             items.push(message);

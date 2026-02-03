@@ -311,10 +311,8 @@ fn run_chat_blocking_sync(exec: WsChatExecution) -> Result<(), String> {
         .enable_all()
         .build()
         .map_err(|err| err.to_string())?;
-    let scoped_kernel = kernel.clone_with_context(
-        Some(session.user_id.clone()),
-        Some(session.id.clone()),
-    );
+    let scoped_kernel =
+        kernel.clone_with_context(Some(session.user_id.clone()), Some(session.id.clone()));
     let result = runtime.block_on(
         crate::kernel::agent_loop::run_agent_loop_streamed_with_permissions_limit(
             &scoped_kernel,
