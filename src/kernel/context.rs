@@ -7,4 +7,6 @@ use crate::kernel::permissions::CapabilitySet;
 pub struct ToolContext {
     pub working_dir: PathBuf,
     pub capabilities: Arc<CapabilitySet>,
+    pub user_id: Option<String>,
+    pub session_id: Option<String>,
 }

@@ -19,6 +19,8 @@ impl Kernel {
             context: ToolContext {
                 working_dir,
                 capabilities: Arc::new(CapabilitySet::empty()),
+                user_id: None,
+                session_id: None,
             },
         }
     }

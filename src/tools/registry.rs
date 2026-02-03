@@ -140,6 +140,8 @@ mod tests {
         let ctx = ToolContext {
             working_dir: std::path::PathBuf::from("/"),
             capabilities: std::sync::Arc::new(CapabilitySet::empty()),
+            user_id: None,
+            session_id: None,
         };
 
         let perms = registry

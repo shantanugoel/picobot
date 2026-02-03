@@ -16,6 +16,8 @@ pub struct Config {
     pub channels: Option<ChannelsConfig>,
     #[serde(default)]
     pub session: Option<SessionConfig>,
+    #[serde(default)]
+    pub data: Option<DataConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -123,4 +125,28 @@ pub struct ChannelConfig {
 pub struct SessionConfig {
     pub snapshot_interval_secs: Option<u64>,
     pub snapshot_path: Option<String>,
+    #[serde(default)]
+    pub retention: Option<RetentionConfig>,
+    #[serde(default)]
+    pub memory: Option<MemoryConfig>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct DataConfig {
+    pub dir: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct RetentionConfig {
+    pub max_age_days: Option<u32>,
+    pub cleanup_interval_secs: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct MemoryConfig {
+    pub enable_user_memories: Option<bool>,
+    pub context_budget_tokens: Option<u32>,
+    pub max_session_messages: Option<usize>,
+    pub max_user_memories: Option<usize>,
+    pub enable_summarization: Option<bool>,
 }

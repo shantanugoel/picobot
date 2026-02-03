@@ -177,6 +177,8 @@ mod tests {
         let ctx = crate::tools::traits::ToolContext {
             working_dir: std::path::PathBuf::from("/tmp"),
             capabilities: std::sync::Arc::new(crate::kernel::permissions::CapabilitySet::empty()),
+            user_id: None,
+            session_id: None,
         };
 
         let read = tool
