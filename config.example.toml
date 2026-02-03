@@ -69,6 +69,9 @@ api_keys = ["change-me"]
 [server.cors]
 allowed_origins = ["http://localhost:3000"]
 
+[server.rate_limit]
+requests_per_minute = 120
+
 
 [channels.api]
 enabled = true

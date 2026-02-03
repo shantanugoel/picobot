@@ -76,6 +76,8 @@ pub struct ServerConfig {
     pub auth: Option<AuthConfig>,
     #[serde(default)]
     pub cors: Option<CorsConfig>,
+    #[serde(default)]
+    pub rate_limit: Option<RateLimitConfig>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -88,6 +90,11 @@ pub struct AuthConfig {
 pub struct CorsConfig {
     #[serde(default)]
     pub allowed_origins: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct RateLimitConfig {
+    pub requests_per_minute: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]

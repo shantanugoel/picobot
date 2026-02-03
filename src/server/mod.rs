@@ -1,4 +1,5 @@
 pub mod app;
+pub mod rate_limit;
 pub mod metrics;
 pub mod middleware;
 pub mod routes;

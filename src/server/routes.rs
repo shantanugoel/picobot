@@ -16,7 +16,7 @@ use crate::channels::permissions::ChannelPermissionProfile;
 use crate::kernel::agent_loop::PermissionDecision;
 use crate::session::adapter::{session_from_state, state_from_session};
 use crate::session::manager::{Session, SessionManager, SessionState};
-use crate::server::metrics::render_metrics;
+use crate::server::metrics::{collect_metrics, render_metrics};
 
 use super::middleware::check_api_key;
 use super::state::AppState;
@@ -26,6 +26,17 @@ fn ensure_api_key(headers: &HeaderMap, state: &AppState) -> Result<(), Box<Respo
         headers,
         state.server_config.as_ref().and_then(|cfg| cfg.auth.as_ref()),
     )
+}
+
+async fn enforce_rate_limit(state: &AppState) -> Result<(), Response> {
+    let Some(limiter) = state.rate_limiter.as_ref() else {
+        return Ok(());
+    };
+    if limiter.check().await {
+        Ok(())
+    } else {
+        Err((StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded").into_response())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,14 +92,13 @@ pub async fn health() -> &'static str {
 }
 
 pub async fn status(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let sessions = state.sessions.list_sessions();
-    let active = sessions
-        .iter()
-        .filter(|session| session.state == SessionState::Active)
-        .count();
+    let snapshot = collect_metrics(&state.sessions);
     Json(serde_json::json!({
-        "sessions": sessions.len(),
-        "active_sessions": active,
+        "sessions": snapshot.sessions_total,
+        "active_sessions": snapshot.sessions_active,
+        "idle_sessions": snapshot.sessions_idle,
+        "awaiting_permission_sessions": snapshot.sessions_awaiting_permission,
+        "terminated_sessions": snapshot.sessions_terminated,
         "channel": "api",
     }))
 }
@@ -105,6 +115,9 @@ pub async fn list_sessions(
     if let Err(response) = ensure_api_key(&headers, &state) {
         return *response;
     }
+    if let Err(response) = enforce_rate_limit(&state).await {
+        return response;
+    }
 
     let sessions = state.sessions.list_sessions();
     (StatusCode::OK, Json(sessions)).into_response()
@@ -117,6 +130,9 @@ pub async fn get_session(
 ) -> Response {
     if let Err(response) = ensure_api_key(&headers, &state) {
         return *response;
+    }
+    if let Err(response) = enforce_rate_limit(&state).await {
+        return response;
     }
 
     match state.sessions.get_session(&id) {
@@ -145,6 +161,9 @@ pub async fn delete_session(
     if let Err(response) = ensure_api_key(&headers, &state) {
         return *response;
     }
+    if let Err(response) = enforce_rate_limit(&state).await {
+        return response;
+    }
 
     state.sessions.delete_session(&id);
     StatusCode::NO_CONTENT.into_response()
@@ -153,6 +172,9 @@ pub async fn delete_session(
 pub async fn permissions(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(response) = ensure_api_key(&headers, &state) {
         return *response;
+    }
+    if let Err(response) = enforce_rate_limit(&state).await {
+        return response;
     }
 
     let profile = &state.api_profile;
@@ -180,6 +202,9 @@ pub async fn grant_permissions(
 ) -> Response {
     if let Err(response) = ensure_api_key(&headers, &state) {
         return *response;
+    }
+    if let Err(response) = enforce_rate_limit(&state).await {
+        return response;
     }
 
     let Some(mut session) = state.sessions.get_session(&payload.session_id) else {
@@ -221,6 +246,9 @@ pub async fn chat(
 ) -> Response {
     if let Err(response) = ensure_api_key(&headers, &state) {
         return *response;
+    }
+    if let Err(response) = enforce_rate_limit(&state).await {
+        return response;
     }
 
     let (session_id, mut session) = load_or_create_session(
@@ -284,6 +312,9 @@ pub async fn chat_stream(
 ) -> Response {
     if let Err(response) = ensure_api_key(&headers, &state) {
         return *response;
+    }
+    if let Err(response) = enforce_rate_limit(&state).await {
+        return response;
     }
 
     let (session_id, session) = load_or_create_session(

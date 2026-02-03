@@ -15,6 +15,7 @@ use picobot::kernel::agent_loop::{
 use picobot::kernel::permissions::CapabilitySet;
 use picobot::models::router::ModelRegistry;
 use picobot::server::app::{bind_address, build_router, is_localhost_only};
+use picobot::server::rate_limit::RateLimiter;
 use picobot::server::snapshot::spawn_snapshot_task;
 use picobot::server::state::AppState;
 use picobot::session::manager::SessionManager;
@@ -92,12 +93,18 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
         snapshot_store = Some(store);
     }
 
+    let rate_limiter = config
+        .server
+        .as_ref()
+        .and_then(|server| server.rate_limit.as_ref())
+        .and_then(RateLimiter::from_config);
     let state = AppState {
         kernel,
         models: Arc::new(registry),
         sessions,
         api_profile,
         server_config: config.server.clone(),
+        rate_limiter,
         snapshot_path,
         max_tool_rounds: 8,
         channel_type: picobot::channels::adapter::ChannelType::Api,

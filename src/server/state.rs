@@ -5,6 +5,7 @@ use crate::channels::permissions::ChannelPermissionProfile;
 use crate::config::ServerConfig;
 use crate::kernel::agent::Kernel;
 use crate::models::router::ModelRegistry;
+use crate::server::rate_limit::RateLimiter;
 use crate::session::manager::SessionManager;
 
 #[derive(Clone)]
@@ -14,6 +15,7 @@ pub struct AppState {
     pub sessions: Arc<SessionManager>,
     pub api_profile: ChannelPermissionProfile,
     pub server_config: Option<ServerConfig>,
+    pub rate_limiter: Option<RateLimiter>,
     pub snapshot_path: Option<String>,
     pub max_tool_rounds: usize,
     pub channel_type: ChannelType,

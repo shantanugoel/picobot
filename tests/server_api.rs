@@ -47,6 +47,7 @@ fn build_test_state() -> AppState {
             api_keys: vec!["test-key".to_string()],
         }),
         cors: None,
+        rate_limit: None,
     };
 
     AppState {
@@ -55,6 +56,7 @@ fn build_test_state() -> AppState {
         sessions: Arc::new(SessionManager::new()),
         api_profile,
         server_config: Some(server_config),
+        rate_limiter: None,
         snapshot_path: None,
         max_tool_rounds: 2,
         channel_type: picobot::channels::adapter::ChannelType::Api,
