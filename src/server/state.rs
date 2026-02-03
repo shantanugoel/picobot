@@ -14,6 +14,7 @@ pub struct AppState {
     pub models: Arc<ModelRegistry>,
     pub sessions: Arc<SessionManager>,
     pub api_profile: ChannelPermissionProfile,
+    pub websocket_profile: ChannelPermissionProfile,
     pub server_config: Option<ServerConfig>,
     pub rate_limiter: Option<RateLimiter>,
     pub snapshot_path: Option<String>,

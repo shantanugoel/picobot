@@ -1,5 +1,6 @@
 pub mod repl;
 pub mod tui;
+pub mod ws_client;
 
 use crate::config::PermissionsConfig;
 use crate::channels::permissions::ChannelPermissionProfile;

@@ -10,6 +10,7 @@ use tower_http::trace::TraceLayer;
 use crate::config::CorsConfig;
 use crate::server::routes;
 use crate::server::state::AppState;
+use crate::server::ws;
 
 pub fn build_router(state: AppState) -> Router {
     let mut app = Router::new()
@@ -23,6 +24,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v1/permissions/grant", post(routes::grant_permissions))
         .route("/api/v1/chat", post(routes::chat))
         .route("/api/v1/chat/stream", post(routes::chat_stream))
+        .route("/ws", get(ws::websocket_handler))
         .with_state(state.clone());
 
     let cors_layer = build_cors_layer(
