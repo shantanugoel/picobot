@@ -124,16 +124,14 @@ fn create_job(
         .and_then(Value::as_u64)
         .map(|value| value as u32);
     let metadata = input.get("metadata").cloned();
-    let capabilities = input
+    let requested = input
         .get("capabilities")
         .map(parse_capabilities)
-        .transpose()?
-        .unwrap_or_else(|| ctx.capabilities.as_ref().clone());
-    if !capabilities_subset(ctx.capabilities.as_ref(), &capabilities) {
-        return Err(ToolError::ExecutionFailed(
-            "requested capabilities exceed session".to_string(),
-        ));
-    }
+        .transpose()?;
+    let capabilities = match requested {
+        Some(value) if capabilities_subset(ctx.capabilities.as_ref(), &value) => value,
+        _ => ctx.capabilities.as_ref().clone(),
+    };
     let request = CreateJobRequest {
         name: name.to_string(),
         schedule_type,

@@ -66,6 +66,27 @@ impl Model for OpenAICompatModel {
     }
 
     async fn stream(&self, req: ModelRequest) -> Result<Vec<ModelEvent>, ModelError> {
+        let provider = self.info.provider.to_lowercase();
+        if provider == "google" || provider == "gemini" {
+            let response = self.complete(req).await?;
+            let mut events = Vec::new();
+            match response {
+                ModelResponse::Text(content) => {
+                    if !content.is_empty() {
+                        events.push(ModelEvent::Token(content));
+                    }
+                    events.push(ModelEvent::Done(ModelResponse::Text(String::new())));
+                }
+                ModelResponse::ToolCalls(invocations) => {
+                    for invocation in invocations.clone() {
+                        events.push(ModelEvent::ToolCall(invocation));
+                    }
+                    events.push(ModelEvent::Done(ModelResponse::ToolCalls(invocations)));
+                }
+            }
+            return Ok(events);
+        }
+
         let mut request = build_request(&self.info, &req)?;
         request.stream = Some(true);
 
@@ -135,10 +156,11 @@ fn build_request(
     info: &ModelInfo,
     req: &ModelRequest,
 ) -> Result<CreateChatCompletionRequest, ModelError> {
+    let provider = info.provider.to_lowercase();
     let messages = req
         .messages
         .iter()
-        .map(to_chat_message)
+        .map(|message| to_chat_message(message, &provider))
         .collect::<Result<Vec<_>, ModelError>>()?;
     let tools = to_tools(&req.tools)?;
 
@@ -160,7 +182,10 @@ fn build_request(
         .map_err(|err| ModelError::RequestFailed(err.to_string()))
 }
 
-fn to_chat_message(message: &Message) -> Result<ChatCompletionRequestMessage, ModelError> {
+fn to_chat_message(
+    message: &Message,
+    provider: &str,
+) -> Result<ChatCompletionRequestMessage, ModelError> {
     match message {
         Message::System { content } => Ok(ChatCompletionRequestSystemMessageArgs::default()
             .content(content.clone())
@@ -180,12 +205,21 @@ fn to_chat_message(message: &Message) -> Result<ChatCompletionRequestMessage, Mo
         Message::Tool {
             tool_call_id,
             content,
-        } => Ok(ChatCompletionRequestToolMessageArgs::default()
-            .tool_call_id(tool_call_id)
-            .content(content.clone())
-            .build()
-            .map_err(|err| ModelError::InvalidResponse(err.to_string()))?
-            .into()),
+        } => {
+            if provider == "google" || provider == "gemini" {
+                return Ok(ChatCompletionRequestAssistantMessageArgs::default()
+                    .content(content.clone())
+                    .build()
+                    .map_err(|err| ModelError::InvalidResponse(err.to_string()))?
+                    .into());
+            }
+            Ok(ChatCompletionRequestToolMessageArgs::default()
+                .tool_call_id(tool_call_id)
+                .content(content.clone())
+                .build()
+                .map_err(|err| ModelError::InvalidResponse(err.to_string()))?
+                .into())
+        }
     }
 }
 

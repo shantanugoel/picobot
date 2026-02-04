@@ -307,6 +307,11 @@ fn run_chat_blocking_sync(exec: WsChatExecution) -> Result<(), String> {
         decision
     };
 
+    let mut on_debug = |line: &str| {
+        let _ = tx.send(WsServerMessage::Debug {
+            line: line.to_string(),
+        });
+    };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -321,7 +326,7 @@ fn run_chat_blocking_sync(exec: WsChatExecution) -> Result<(), String> {
             message,
             &mut on_token,
             &mut on_permission,
-            &mut |_| {},
+            &mut on_debug,
             max_tool_rounds,
         ),
     );

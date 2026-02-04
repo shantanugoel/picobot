@@ -17,6 +17,7 @@ pub enum WsUiMessage {
     Token(String),
     Done(String),
     Error(String),
+    Debug(String),
     PermissionRequired {
         tool: String,
         permissions: Vec<String>,
@@ -109,6 +110,9 @@ pub fn spawn_ws_client(url: String, api_key: Option<String>) -> WsClientHandle {
                                                 permissions,
                                                 request_id,
                                             });
+                                        }
+                                        WsServerMessage::Debug { line } => {
+                                            let _ = inbound_tx.send(WsUiMessage::Debug(line));
                                         }
                                         WsServerMessage::Pong => {}
                                     }

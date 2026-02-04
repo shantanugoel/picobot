@@ -114,8 +114,17 @@ impl Kernel {
                 required,
             });
         }
-
-        tool.execute(&self.context, input).await
+        if let Some(grants) = extra_grants {
+            let mut merged = self.context.capabilities.as_ref().clone();
+            for permission in grants.permissions() {
+                merged.insert(permission.clone());
+            }
+            let mut scoped = self.context.clone();
+            scoped.capabilities = Arc::new(merged);
+            tool.execute(&scoped, input).await
+        } else {
+            tool.execute(&self.context, input).await
+        }
     }
 }
 

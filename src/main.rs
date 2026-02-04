@@ -560,6 +560,11 @@ async fn run_tui(
                                         }
                                     }
                                 }
+                                picobot::cli::ws_client::WsUiMessage::Debug(line) => {
+                                    if let Ok(mut ui) = tui.try_borrow_mut() {
+                                        ui.push_debug(line);
+                                    }
+                                }
                                 picobot::cli::ws_client::WsUiMessage::Done(_) => {
                                     if let Ok(mut ui) = tui.try_borrow_mut() {
                                         ui.set_busy(false);

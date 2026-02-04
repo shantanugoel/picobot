@@ -498,7 +498,10 @@ impl Tui {
         if step == 0 {
             return;
         }
-        let next = self.output_scroll.saturating_add(step).min(self.output_scroll_max);
+        let next = self
+            .output_scroll
+            .saturating_add(step)
+            .min(self.output_scroll_max);
         self.output_scroll = next;
         if self.output_scroll == self.output_scroll_max {
             self.follow_output = true;

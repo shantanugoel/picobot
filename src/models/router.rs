@@ -130,7 +130,12 @@ impl ModelRouter for SingleModelRouter {
 
 fn build_model(config: &ModelConfig) -> Result<OpenAICompatModel, ModelRegistryError> {
     let provider = config.provider.to_lowercase();
-    if provider != "openai" && provider != "ollama" && provider != "openrouter" {
+    if provider != "openai"
+        && provider != "ollama"
+        && provider != "openrouter"
+        && provider != "google"
+        && provider != "gemini"
+    {
         return Err(ModelRegistryError::UnsupportedProvider(
             config.provider.clone(),
         ));
@@ -138,13 +143,24 @@ fn build_model(config: &ModelConfig) -> Result<OpenAICompatModel, ModelRegistryE
 
     let mut openai_config = async_openai::config::OpenAIConfig::new();
     if let Some(base_url) = &config.base_url {
-        openai_config = openai_config.with_api_base(base_url);
+        let trimmed = base_url.trim_end_matches('/');
+        openai_config = openai_config.with_api_base(trimmed);
     }
 
-    if let Some(api_key_env) = &config.api_key_env
-        && let Ok(api_key) = std::env::var(api_key_env)
-    {
-        openai_config = openai_config.with_api_key(api_key);
+    if let Some(api_key_env) = &config.api_key_env {
+        match std::env::var(api_key_env) {
+            Ok(api_key) => {
+                openai_config = openai_config.with_api_key(api_key);
+            }
+            Err(_) => {
+                if provider == "google" || provider == "gemini" {
+                    return Err(ModelRegistryError::InitializationFailed(
+                        config.id.clone(),
+                        format!("missing api key env var '{api_key_env}'"),
+                    ));
+                }
+            }
+        }
     }
 
     let client = async_openai::Client::with_config(openai_config);

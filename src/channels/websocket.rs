@@ -40,6 +40,9 @@ pub enum WsServerMessage {
         permissions: Vec<String>,
         request_id: String,
     },
+    Debug {
+        line: String,
+    },
     Pong,
 }
 
