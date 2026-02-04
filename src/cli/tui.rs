@@ -33,6 +33,11 @@ pub struct Tui {
     input: String,
     history: Vec<String>,
     output: Vec<OutputLine>,
+    output_scroll: u16,
+    output_scroll_max: u16,
+    output_viewport_height: u16,
+    output_viewport_width: u16,
+    follow_output: bool,
     debug: Vec<String>,
     show_debug: bool,
     status: String,
@@ -41,6 +46,7 @@ pub struct Tui {
     pending_model_picker: Option<Vec<ModelChoice>>,
     busy: bool,
     current_model: Option<String>,
+    last_tool_event: Option<String>,
     spinner_index: usize,
     last_spinner_tick: Instant,
 }
@@ -79,6 +85,11 @@ impl Tui {
                 text: "PicoBot ready. Type /quit to exit.".to_string(),
                 kind: OutputKind::System,
             }],
+            output_scroll: 0,
+            output_scroll_max: 0,
+            output_viewport_height: 0,
+            output_viewport_width: 0,
+            follow_output: true,
             debug: Vec::new(),
             show_debug: false,
             status: "F2: Debug  F3: Help  Ctrl+C: Quit".to_string(),
@@ -87,6 +98,7 @@ impl Tui {
             pending_model_picker: None,
             busy: false,
             current_model: None,
+            last_tool_event: None,
             spinner_index: 0,
             last_spinner_tick: Instant::now(),
         })
@@ -191,6 +203,24 @@ impl Tui {
                 }
                 Ok(TuiEvent::None)
             }
+            KeyCode::PageUp => {
+                self.scroll_output_up();
+                Ok(TuiEvent::None)
+            }
+            KeyCode::PageDown => {
+                self.scroll_output_down();
+                Ok(TuiEvent::None)
+            }
+            KeyCode::Home => {
+                self.follow_output = false;
+                self.output_scroll = 0;
+                Ok(TuiEvent::None)
+            }
+            KeyCode::End => {
+                self.output_scroll = self.output_scroll_max;
+                self.follow_output = true;
+                Ok(TuiEvent::None)
+            }
             KeyCode::Enter => {
                 let line = self.input.trim().to_string();
                 self.history.push(line.clone());
@@ -255,7 +285,11 @@ impl Tui {
     }
 
     pub fn push_debug(&mut self, line: impl Into<String>) {
-        self.debug.push(line.into());
+        let line = line.into();
+        if let Some(tool_event) = parse_tool_event(&line) {
+            self.last_tool_event = Some(tool_event);
+        }
+        self.debug.push(line);
     }
 
     pub fn drain_debug(&mut self) -> Vec<String> {
@@ -327,6 +361,7 @@ impl Tui {
         let qr_code = self.pending_qr.clone();
         let model_picker = self.pending_model_picker.clone();
         let busy = self.busy;
+        let tool_event = self.last_tool_event.clone();
         let model_label = self
             .current_model
             .clone()
@@ -347,6 +382,27 @@ impl Tui {
                 ])
                 .split(area);
 
+            let output_area = if self.show_debug {
+                let cols = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+                    .split(base[0]);
+                cols[0]
+            } else {
+                base[0]
+            };
+
+            let output_width = output_area.width.saturating_sub(2);
+            let output_height = output_area.height.saturating_sub(2);
+            let content_height = output_content_height(&self.output, output_width);
+            let max_scroll = content_height.saturating_sub(output_height as usize);
+            self.output_scroll_max = (max_scroll.min(u16::MAX as usize)) as u16;
+            if self.follow_output || self.output_scroll > self.output_scroll_max {
+                self.output_scroll = self.output_scroll_max;
+            }
+            self.output_viewport_height = output_height;
+            self.output_viewport_width = output_width;
+
             if self.show_debug {
                 let cols = Layout::default()
                     .direction(Direction::Horizontal)
@@ -355,9 +411,9 @@ impl Tui {
                 let output_block = Block::default().title("PicoBot").borders(Borders::ALL);
                 let output_widget = Paragraph::new(output.clone())
                     .block(output_block)
+                    .scroll((self.output_scroll, 0))
                     .wrap(Wrap { trim: false });
                 frame.render_widget(output_widget, cols[0]);
-
                 let debug_block = Block::default().title("Debug").borders(Borders::ALL);
                 let debug_widget = Paragraph::new(debug.clone())
                     .block(debug_block)
@@ -367,8 +423,9 @@ impl Tui {
                 let output_block = Block::default().title("PicoBot").borders(Borders::ALL);
                 let output_widget = Paragraph::new(output.clone())
                     .block(output_block)
+                    .scroll((self.output_scroll, 0))
                     .wrap(Wrap { trim: false });
-                frame.render_widget(output_widget, base[0]);
+                frame.render_widget(output_widget, output_area);
             }
 
             let input_block = Block::default().title("Input").borders(Borders::ALL);
@@ -383,6 +440,7 @@ impl Tui {
                 &model_label,
                 busy,
                 SPINNER_FRAMES[self.spinner_index],
+                tool_event.as_deref(),
             ));
             frame.render_widget(status_widget, base[2]);
 
@@ -424,6 +482,32 @@ impl Tui {
             }
         })?;
         Ok(())
+    }
+
+    fn scroll_output_up(&mut self) {
+        let step = self.scroll_step();
+        if step == 0 {
+            return;
+        }
+        self.follow_output = false;
+        self.output_scroll = self.output_scroll.saturating_sub(step);
+    }
+
+    fn scroll_output_down(&mut self) {
+        let step = self.scroll_step();
+        if step == 0 {
+            return;
+        }
+        let next = self.output_scroll.saturating_add(step).min(self.output_scroll_max);
+        self.output_scroll = next;
+        if self.output_scroll == self.output_scroll_max {
+            self.follow_output = true;
+        }
+    }
+
+    fn scroll_step(&self) -> u16 {
+        let height = self.output_viewport_height.max(1);
+        height.saturating_sub(1).max(1)
     }
 }
 
@@ -537,7 +621,13 @@ fn centered_rect_size(width: u16, height: u16, rect: Rect) -> Rect {
     }
 }
 
-fn status_line<'a>(status: String, model_label: &'a str, busy: bool, spinner: &'a str) -> Text<'a> {
+fn status_line<'a>(
+    status: String,
+    model_label: &'a str,
+    busy: bool,
+    spinner: &'a str,
+    tool_event: Option<&'a str>,
+) -> Text<'a> {
     let mut spans = Vec::new();
     spans.push(Span::styled(status, Style::default().fg(Color::Gray)));
     spans.push(Span::raw("  |  "));
@@ -560,7 +650,52 @@ fn status_line<'a>(status: String, model_label: &'a str, busy: bool, spinner: &'
             Style::default().fg(Color::Green)
         },
     ));
+    if let Some(event) = tool_event {
+        spans.push(Span::raw("  |  "));
+        spans.push(Span::styled(
+            event.to_string(),
+            Style::default().fg(Color::Cyan),
+        ));
+    }
     Text::from(Line::from(spans))
+}
+
+fn output_content_height(lines: &[OutputLine], width: u16) -> usize {
+    if width == 0 || lines.is_empty() {
+        return 0;
+    }
+    let width = width as usize;
+    lines
+        .iter()
+        .map(|line| {
+            let len = line.text.chars().count();
+            if len == 0 {
+                1
+            } else {
+                (len.saturating_sub(1) / width) + 1
+            }
+        })
+        .sum()
+}
+
+fn parse_tool_event(line: &str) -> Option<String> {
+    if let Some(rest) = line.strip_prefix("tool_call: ") {
+        let name = rest.split_whitespace().next()?;
+        return Some(format!("Tool: {name}"));
+    }
+    if let Some(rest) = line.strip_prefix("tool_result: ") {
+        let name = rest.split_whitespace().next()?;
+        return Some(format!("Tool: {name}"));
+    }
+    if let Some(rest) = line.strip_prefix("tool_permissions: ") {
+        let name = rest.split_whitespace().next()?;
+        return Some(format!("Tool: {name}"));
+    }
+    if let Some(rest) = line.strip_prefix("permission_denied: ") {
+        let name = rest.split_whitespace().next()?;
+        return Some(format!("Tool denied: {name}"));
+    }
+    None
 }
 
 fn model_picker_text(models: &[ModelChoice]) -> Text<'_> {
