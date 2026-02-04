@@ -104,6 +104,7 @@ mod tests {
             user_id: None,
             session_id: None,
             scheduler: std::sync::Arc::new(std::sync::RwLock::new(None)),
+            log_model_requests: false,
         };
         let required = tool
             .required_permissions(&ctx, &json!({"command": "ls"}))

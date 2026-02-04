@@ -69,6 +69,14 @@ fn load_session_messages(
             let message = match message_type.as_str() {
                 "system" => Message::system(content),
                 "user" => Message::user(content),
+                "assistant_tool_calls" => {
+                    match serde_json::from_str::<Vec<crate::models::types::ToolInvocation>>(
+                        &content,
+                    ) {
+                        Ok(tool_calls) => Message::assistant_tool_calls(tool_calls),
+                        Err(_) => Message::assistant(content),
+                    }
+                }
                 "assistant" => {
                     match serde_json::from_str::<Vec<crate::models::types::ToolInvocation>>(
                         &content,

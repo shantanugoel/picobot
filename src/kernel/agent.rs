@@ -23,6 +23,7 @@ impl Kernel {
                 user_id: None,
                 session_id: None,
                 scheduler: Arc::new(std::sync::RwLock::new(None)),
+                log_model_requests: false,
             },
             memory_retriever: None,
         }
@@ -76,6 +77,10 @@ impl Kernel {
         if let Ok(mut slot) = self.context.scheduler.write() {
             *slot = scheduler;
         }
+    }
+
+    pub fn set_log_model_requests(&mut self, enabled: bool) {
+        self.context.log_model_requests = enabled;
     }
 
     pub fn scheduler(&self) -> Option<Arc<crate::scheduler::service::SchedulerService>> {

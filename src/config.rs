@@ -74,6 +74,7 @@ pub struct ShellPermissions {
 pub struct LoggingConfig {
     pub level: Option<String>,
     pub audit_file: Option<String>,
+    pub log_model_requests: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -157,6 +158,16 @@ pub struct MemoryConfig {
     pub enable_summarization: Option<bool>,
     pub include_summary_on_truncation: Option<bool>,
     pub summarization_trigger_tokens: Option<u32>,
+}
+
+impl MemoryConfig {
+    pub fn context_budget_tokens(&self) -> u32 {
+        self.context_budget_tokens.unwrap_or(2048)
+    }
+
+    pub fn max_session_messages(&self) -> usize {
+        self.max_session_messages.unwrap_or(50)
+    }
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]

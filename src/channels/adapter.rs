@@ -19,6 +19,7 @@ pub struct InboundMessage {
     pub channel_id: String,
     pub user_id: String,
     pub text: String,
+    pub message_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]

@@ -10,7 +10,7 @@ use crate::kernel::agent_loop::{
     PermissionDecision, run_agent_loop_streamed_with_permissions_limit,
 };
 use crate::models::router::ModelRegistry;
-use crate::session::adapter::{append_user_message, session_from_state, state_from_session};
+use crate::session::adapter::{session_from_state, state_from_session};
 use crate::session::manager::Session;
 use crate::session::persistent_manager::PersistentSessionManager;
 
@@ -23,8 +23,58 @@ pub async fn run_adapter_loop(
     profile: ChannelPermissionProfile,
     max_tool_rounds: usize,
 ) {
+    let mut recent_messages: std::collections::HashMap<String, (String, std::time::Instant)> =
+        std::collections::HashMap::new();
+    let mut recent_message_ids: std::collections::HashMap<String, std::time::Instant> =
+        std::collections::HashMap::new();
     let mut stream = inbound.subscribe().await;
     while let Some(message) = stream.next().await {
+        if let Some(message_id) = message.message_id.as_ref() {
+            if let Some(last_at) = recent_message_ids.get(message_id)
+                && last_at.elapsed().as_secs() < 30
+            {
+                continue;
+            }
+            recent_message_ids.insert(message_id.clone(), std::time::Instant::now());
+            if recent_message_ids.len() > 500 {
+                let cutoff = std::time::Instant::now() - std::time::Duration::from_secs(120);
+                recent_message_ids.retain(|_, last_at| *last_at >= cutoff);
+            }
+        }
+        let dedupe_key = format!("{}:{}", message.channel_id, message.user_id);
+        let now = std::time::Instant::now();
+        if let Some((last_text, last_at)) = recent_messages.get(&dedupe_key)
+            && last_text == &message.text
+            && now.duration_since(*last_at).as_secs() < 2
+        {
+            continue;
+        }
+        recent_messages.insert(dedupe_key, (message.text.clone(), now));
+        if recent_messages.len() > 200 {
+            let cutoff = std::time::Instant::now() - std::time::Duration::from_secs(30);
+            recent_messages.retain(|_, (_, last_at)| *last_at >= cutoff);
+        }
+        if message.text.trim().eq_ignore_ascii_case("/new")
+            || message.text.trim().eq_ignore_ascii_case("/clear")
+        {
+            if let Ok((session_id, _)) = load_or_create_session(
+                &sessions,
+                message.channel_id.clone(),
+                message.user_id.clone(),
+                inbound.channel_type(),
+                &profile,
+            ) {
+                let _ = sessions.delete_session(&session_id);
+            }
+            let _delivery_id = delivery_queue
+                .enqueue(OutboundMessage {
+                    channel_id: message.channel_id,
+                    user_id: message.user_id,
+                    text: "Started a fresh session.".to_string(),
+                })
+                .await;
+            continue;
+        }
         let (_session_id, mut session) = match load_or_create_session(
             &sessions,
             message.channel_id.clone(),
@@ -35,7 +85,6 @@ pub async fn run_adapter_loop(
             Ok(result) => result,
             Err(_) => continue,
         };
-        append_user_message(&mut session, message.text.clone());
         let mut convo_state = state_from_session(&session);
         let model = models.default_model_arc();
         let mut response_text = String::new();

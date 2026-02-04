@@ -64,6 +64,8 @@ impl PersistentSessionManager {
         self.store.with_connection(|conn| {
             conn.execute("DELETE FROM sessions WHERE id = ?1", params![id])
                 .map_err(|err| SessionDbError::QueryFailed(err.to_string()))?;
+            conn.execute("DELETE FROM messages WHERE session_id = ?1", params![id])
+                .map_err(|err| SessionDbError::QueryFailed(err.to_string()))?;
             Ok(())
         })
     }
@@ -206,7 +208,7 @@ pub(crate) fn insert_session(conn: &Connection, session: &Session) -> SessionDbR
             Message::User { content } => ("user", content.clone(), None),
             Message::Assistant { content } => ("assistant", content.clone(), None),
             Message::AssistantToolCalls { tool_calls } => (
-                "assistant",
+                "assistant_tool_calls",
                 serde_json::to_string(tool_calls)
                     .map_err(|err| SessionDbError::QueryFailed(err.to_string()))?,
                 None,
@@ -329,6 +331,12 @@ fn message_from_row(
     match message_type {
         "system" => Ok(Message::system(content)),
         "user" => Ok(Message::user(content)),
+        "assistant_tool_calls" => {
+            match serde_json::from_str::<Vec<crate::models::types::ToolInvocation>>(&content) {
+                Ok(tool_calls) => Ok(Message::assistant_tool_calls(tool_calls)),
+                Err(_) => Ok(Message::assistant(content)),
+            }
+        }
         "assistant" => {
             match serde_json::from_str::<Vec<crate::models::types::ToolInvocation>>(&content) {
                 Ok(tool_calls) => Ok(Message::assistant_tool_calls(tool_calls)),

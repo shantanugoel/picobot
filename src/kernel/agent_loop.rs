@@ -259,7 +259,11 @@ pub async fn run_agent_step(
             memory,
             kernel.context(),
         ),
-        None => build_model_request(state, kernel.tool_registry().tool_specs()),
+        None => build_model_request_with_logging(
+            state,
+            kernel.tool_registry().tool_specs(),
+            kernel.context().log_model_requests,
+        ),
     };
     let response = model
         .complete(request)
@@ -419,7 +423,11 @@ pub async fn run_agent_loop_streamed_with_permissions_limit(
                 memory,
                 kernel.context(),
             ),
-            None => build_model_request(state, kernel.tool_registry().tool_specs()),
+            None => build_model_request_with_logging(
+                state,
+                kernel.tool_registry().tool_specs(),
+                kernel.context().log_model_requests,
+            ),
         };
         let events = model
             .stream(request)
@@ -488,7 +496,11 @@ pub async fn run_agent_loop_streamed_with_permissions_step(
                 memory,
                 kernel.context(),
             ),
-            None => build_model_request(state, kernel.tool_registry().tool_specs()),
+            None => build_model_request_with_logging(
+                state,
+                kernel.tool_registry().tool_specs(),
+                kernel.context().log_model_requests,
+            ),
         };
         let events = model
             .stream(request)
@@ -533,14 +545,48 @@ pub async fn run_agent_loop_streamed_with_permissions_step(
     Ok(None)
 }
 
-pub fn build_model_request(state: &ConversationState, tools: Vec<ToolSpec>) -> ModelRequest {
+pub fn build_model_request_with_logging(
+    state: &ConversationState,
+    tools: Vec<ToolSpec>,
+    log_enabled: bool,
+) -> ModelRequest {
     let messages = sanitize_messages(state.messages().to_vec());
+    if log_enabled {
+        eprintln!(
+            "Model request: {} messages, {} tools",
+            messages.len(),
+            tools.len()
+        );
+        for (index, message) in messages.iter().enumerate() {
+            let label = match message {
+                Message::System { .. } => "system",
+                Message::User { .. } => "user",
+                Message::Assistant { .. } => "assistant",
+                Message::AssistantToolCalls { .. } => "assistant_tool_calls",
+                Message::Tool { .. } => "tool",
+            };
+            let preview = match message {
+                Message::System { content }
+                | Message::User { content }
+                | Message::Assistant { content }
+                | Message::Tool { content, .. } => content.chars().take(200).collect::<String>(),
+                Message::AssistantToolCalls { tool_calls } => {
+                    format!("tool_calls:{}", tool_calls.len())
+                }
+            };
+            eprintln!("  [{index}] {label}: {preview}");
+        }
+    }
     ModelRequest {
         messages,
         tools,
         max_tokens: None,
         temperature: None,
     }
+}
+
+pub fn build_model_request(state: &ConversationState, tools: Vec<ToolSpec>) -> ModelRequest {
+    build_model_request_with_logging(state, tools, false)
 }
 
 pub fn build_model_request_with_memory(
@@ -554,6 +600,32 @@ pub fn build_model_request_with_memory(
         messages = state.messages().to_vec();
     }
     messages = sanitize_messages(messages);
+    if ctx.log_model_requests {
+        eprintln!(
+            "Model request: {} messages, {} tools",
+            messages.len(),
+            tools.len()
+        );
+        for (index, message) in messages.iter().enumerate() {
+            let label = match message {
+                Message::System { .. } => "system",
+                Message::User { .. } => "user",
+                Message::Assistant { .. } => "assistant",
+                Message::AssistantToolCalls { .. } => "assistant_tool_calls",
+                Message::Tool { .. } => "tool",
+            };
+            let preview = match message {
+                Message::System { content }
+                | Message::User { content }
+                | Message::Assistant { content }
+                | Message::Tool { content, .. } => content.chars().take(200).collect::<String>(),
+                Message::AssistantToolCalls { tool_calls } => {
+                    format!("tool_calls:{}", tool_calls.len())
+                }
+            };
+            eprintln!("  [{index}] {label}: {preview}");
+        }
+    }
     ModelRequest {
         messages,
         tools,
@@ -566,11 +638,11 @@ fn sanitize_messages(messages: Vec<Message>) -> Vec<Message> {
     if messages.is_empty() {
         return messages;
     }
-    let last_role = messages.iter().rev().find_map(|message| match message {
-        Message::AssistantToolCalls { .. } => Some("assistant_tool_calls"),
-        Message::Tool { .. } => Some("tool"),
+    let last_role = match messages.last() {
+        Some(Message::AssistantToolCalls { .. }) => Some("assistant_tool_calls"),
+        Some(Message::Tool { .. }) => Some("tool"),
         _ => None,
-    });
+    };
     let mut sanitized = Vec::new();
     let mut in_tool_block = false;
     let mut iter = messages.into_iter().peekable();
@@ -679,6 +751,7 @@ mod tests {
             user_id: None,
             session_id: None,
             scheduler: std::sync::Arc::new(std::sync::RwLock::new(None)),
+            log_model_requests: false,
         };
         let request = build_model_request_with_memory(&state, Vec::new(), &memory, &ctx);
         assert_eq!(request.messages.len(), 2);

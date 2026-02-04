@@ -59,7 +59,7 @@ impl SqliteStore {
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-                message_type TEXT NOT NULL CHECK(message_type IN ('system', 'user', 'assistant', 'tool')),
+                message_type TEXT NOT NULL CHECK(message_type IN ('system', 'user', 'assistant', 'assistant_tool_calls', 'tool')),
                 content TEXT NOT NULL,
                 tool_call_id TEXT,
                 created_at TEXT NOT NULL,

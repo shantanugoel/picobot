@@ -182,7 +182,7 @@ impl Tui {
                 Ok(TuiEvent::None)
             }
             KeyCode::F(3) => {
-                self.push_system("Commands: /help /quit /exit /clear /permissions /models");
+                self.push_system("Commands: /help /quit /exit /clear /new /permissions /models");
                 Ok(TuiEvent::None)
             }
             KeyCode::Esc if self.pending_qr.is_some() => {

@@ -82,7 +82,7 @@ The session is stored at `store_path` and reused on restart.
 ## Usage
 
 - Type text to chat.
-- Built-in commands: `/help`, `/clear`, `/permissions`, `/models`, `/quit`.
+- Built-in commands: `/help`, `/clear`, `/new`, `/permissions`, `/models`, `/quit`.
 - Purge commands: `/purge_session`, `/purge_user`, `/purge_older <days>` (TUI confirmation required).
 - Permission prompts appear when a tool needs access outside the current capability set.
 
@@ -190,6 +190,7 @@ PicoBot is configured via `config.toml`. Key options include:
 
 - `logging.level`: Log level (e.g., `info`, `debug`).
 - `logging.audit_file`: Audit log file path.
+- `logging.log_model_requests`: Log model request payload summaries for debugging.
 
 ## Notes
 

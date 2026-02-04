@@ -98,6 +98,11 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn run_server(config: Config) -> anyhow::Result<()> {
+    let log_model_requests = config
+        .logging
+        .as_ref()
+        .and_then(|logging| logging.log_model_requests)
+        .unwrap_or(false);
     let registry = match ModelRegistry::from_config(&config) {
         Ok(registry) => registry,
         Err(err) => {
@@ -135,6 +140,9 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
     } else {
         Kernel::new(tool_registry, working_dir).with_capabilities(capabilities)
     };
+    if log_model_requests {
+        kernel.set_log_model_requests(true);
+    }
     kernel.set_scheduler(None);
     let kernel = Arc::new(kernel);
 
@@ -377,10 +385,20 @@ async fn run_tui(
                     ui.refresh().ok();
                     continue;
                 }
+                if line == "/new" {
+                    if let Ok(mut ui) = tui.try_borrow_mut() {
+                        ui.clear_output();
+                        ui.push_output("Started a fresh session.".to_string());
+                        ui.refresh().ok();
+                    }
+                    state = ConversationState::new();
+                    ws_session_id = None;
+                    continue;
+                }
                 if line == "/help" {
                     let mut ui = tui.borrow_mut();
                     ui.push_output(
-                        "Commands: /help /quit /exit /clear /permissions /models /purge_session /purge_user /purge_older <days>",
+                        "Commands: /help /quit /exit /clear /new /permissions /models /purge_session /purge_user /purge_older <days>",
                     );
                     ui.refresh().ok();
                     continue;

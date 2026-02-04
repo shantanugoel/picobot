@@ -247,6 +247,7 @@ async fn run_whatsapp_loop(
                             channel_id: "whatsapp".to_string(),
                             user_id: from,
                             text,
+                            message_id: Some(info.id.to_string()),
                         });
                     }
                     _ => {}
