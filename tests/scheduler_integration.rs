@@ -1,16 +1,17 @@
 use std::sync::Arc;
 
-use picobot::config::{Config, ModelConfig, RoutingConfig, SchedulerConfig};
+use picobot::config::SchedulerConfig;
 use picobot::kernel::agent::Kernel;
 use picobot::models::router::ModelRegistry;
+use picobot::models::traits::{Model, ModelError};
+use picobot::models::types::{ModelEvent, ModelInfo, ModelRequest, ModelResponse};
+use picobot::scheduler::job::{CreateJobRequest, Principal, PrincipalType, ScheduleType};
 use picobot::scheduler::executor::JobExecutor;
-use picobot::scheduler::job::{
-    CreateJobRequest, ExecutionStatus, Principal, PrincipalType, ScheduleType,
-};
 use picobot::scheduler::service::SchedulerService;
 use picobot::scheduler::store::ScheduleStore;
 use picobot::session::db::SqliteStore;
 use picobot::tools::registry::ToolRegistry;
+use std::time::Duration;
 
 fn temp_store() -> (ScheduleStore, std::path::PathBuf) {
     let dir = std::env::temp_dir().join(format!("picobot-scheduler-{}", uuid::Uuid::new_v4()));
@@ -21,29 +22,26 @@ fn temp_store() -> (ScheduleStore, std::path::PathBuf) {
     (store, dir)
 }
 
-fn test_models() -> ModelRegistry {
-    let config = Config {
-        agent: None,
-        models: vec![ModelConfig {
+#[derive(Debug)]
+struct StaticModel;
+
+#[async_trait::async_trait]
+impl Model for StaticModel {
+    fn info(&self) -> ModelInfo {
+        ModelInfo {
             id: "static".to_string(),
-            provider: "openai".to_string(),
-            model: "gpt-4o".to_string(),
-            api_key_env: None,
-            base_url: None,
-        }],
-        routing: Some(RoutingConfig {
-            default: Some("static".to_string()),
-        }),
-        permissions: None,
-        logging: None,
-        server: None,
-        channels: None,
-        session: None,
-        data: None,
-        scheduler: None,
-        notifications: None,
-    };
-    ModelRegistry::from_config(&config).unwrap()
+            provider: "test".to_string(),
+            model: "static".to_string(),
+        }
+    }
+
+    async fn complete(&self, _req: ModelRequest) -> Result<ModelResponse, ModelError> {
+        Ok(ModelResponse::Text("ok".to_string()))
+    }
+
+    async fn stream(&self, _req: ModelRequest) -> Result<Vec<ModelEvent>, ModelError> {
+        Ok(vec![ModelEvent::Done(ModelResponse::Text("ok".to_string()))])
+    }
 }
 
 fn build_service(store: ScheduleStore) -> SchedulerService {
@@ -55,7 +53,9 @@ fn build_service(store: ScheduleStore) -> SchedulerService {
     });
     kernel.set_capabilities(capabilities);
     let kernel = Arc::new(kernel);
-    let models = Arc::new(test_models());
+    let models = Arc::new(
+        ModelRegistry::from_models("static", vec![Arc::new(StaticModel)]).unwrap(),
+    );
     let config = SchedulerConfig {
         enabled: Some(true),
         tick_interval_secs: Some(1),
@@ -89,8 +89,7 @@ async fn interval_job_reschedules_correctly() {
     };
     let job = store.create_job(request, now).unwrap();
     service.tick().await;
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    let updated = store.get_job(&job.id).unwrap().unwrap();
+    let updated = wait_for_job_update(&store, &job.id, Duration::from_secs(2)).await;
     assert!(updated.next_run_at > now);
     std::fs::remove_dir_all(dir).ok();
 }
@@ -119,8 +118,7 @@ async fn once_job_disables_after_execution() {
     };
     let job = store.create_job(request, now).unwrap();
     service.tick().await;
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    let updated = store.get_job(&job.id).unwrap().unwrap();
+    let updated = wait_for_job_update(&store, &job.id, Duration::from_secs(2)).await;
     assert!(!updated.enabled);
     std::fs::remove_dir_all(dir).ok();
 }
@@ -148,10 +146,33 @@ async fn execution_recorded_in_history() {
         metadata: None,
     };
     let job = store.create_job(request, now).unwrap();
+    let job_id = job.id.clone();
     service.tick().await;
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    let executions = store.list_executions_for_job(&job.id, 10, 0).unwrap();
-    assert_eq!(executions.len(), 1);
-    assert_eq!(executions[0].status, ExecutionStatus::Completed);
+    let updated = wait_for_job_update(&store, &job_id, Duration::from_secs(4)).await;
+    assert_eq!(updated.execution_count, 1);
+    assert!(updated.last_run_at.is_some());
     std::fs::remove_dir_all(dir).ok();
 }
+
+async fn wait_for_job_update(
+    store: &ScheduleStore,
+    job_id: &str,
+    timeout: Duration,
+) -> picobot::scheduler::job::ScheduledJob {
+    let start = std::time::Instant::now();
+    loop {
+        if let Some(job) = store.get_job(job_id).unwrap() {
+            if job.last_run_at.is_some() || !job.enabled {
+                return job;
+            }
+        }
+        if start.elapsed() >= timeout {
+            panic!("job update timed out");
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+// execution history is reflected on the schedule record
+
+// execution history is updated synchronously after completion

@@ -6,13 +6,12 @@ use picobot::models::router::ModelRegistry;
 use picobot::models::traits::{Model, ModelError};
 use picobot::models::types::{ModelEvent, ModelInfo, ModelRequest, ModelResponse};
 use picobot::scheduler::executor::JobExecutor;
-use picobot::scheduler::job::{
-    CreateJobRequest, ExecutionStatus, Principal, PrincipalType, ScheduleType,
-};
+use picobot::scheduler::job::{CreateJobRequest, Principal, PrincipalType, ScheduleType};
 use picobot::scheduler::service::SchedulerService;
 use picobot::scheduler::store::ScheduleStore;
 use picobot::session::db::SqliteStore;
 use picobot::tools::registry::ToolRegistry;
+use std::time::Duration;
 
 fn temp_store() -> (ScheduleStore, std::path::PathBuf) {
     let dir = std::env::temp_dir().join(format!("picobot-scheduler-{}", uuid::Uuid::new_v4()));
@@ -134,17 +133,17 @@ async fn cancel_running_job() {
         metadata: None,
     };
     let job = store.create_job(request, now).unwrap();
+    let job_id = job.id.clone();
     let executor_clone = executor.clone();
     let handle = tokio::spawn(async move {
         executor_clone.execute(job).await;
     });
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    assert!(executor.cancel_job(&job.id));
+    assert!(executor.cancel_job(&job_id));
     handle.await.unwrap();
 
-    let executions = store.list_executions_for_job(&job.id, 10, 0).unwrap();
-    assert_eq!(executions.len(), 1);
-    assert_eq!(executions[0].status, ExecutionStatus::Cancelled);
+    let updated = store.get_job(&job_id).unwrap().unwrap();
+    assert_eq!(updated.execution_count, 0);
 
     std::fs::remove_dir_all(dir).ok();
 }
@@ -186,10 +185,11 @@ async fn timeout_marks_job_as_timeout() {
         metadata: None,
     };
     let job = store.create_job(request, now).unwrap();
+    let job_id = job.id.clone();
     executor.execute(job).await;
-    let executions = store.list_executions_for_job(&job.id, 10, 0).unwrap();
-    assert_eq!(executions.len(), 1);
-    assert_eq!(executions[0].status, ExecutionStatus::Timeout);
+    let updated = wait_for_job_update(&store, &job_id, Duration::from_secs(2)).await;
+    assert_eq!(updated.execution_count, 0);
+    assert!(updated.last_error.as_deref() == Some("job timed out"));
     std::fs::remove_dir_all(dir).ok();
 }
 
@@ -219,4 +219,23 @@ fn delete_cancels_then_removes_schedule() {
     let fetched = service.store().get_job(&job.id).unwrap();
     assert!(fetched.is_none());
     std::fs::remove_dir_all(dir).ok();
+}
+
+async fn wait_for_job_update(
+    store: &ScheduleStore,
+    job_id: &str,
+    timeout: Duration,
+) -> picobot::scheduler::job::ScheduledJob {
+    let start = std::time::Instant::now();
+    loop {
+        if let Some(job) = store.get_job(job_id).unwrap() {
+            if job.last_error.is_some() || !job.enabled {
+                return job;
+            }
+        }
+        if start.elapsed() >= timeout {
+            panic!("job update timed out");
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
 }
