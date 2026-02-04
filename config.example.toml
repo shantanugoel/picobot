@@ -32,7 +32,7 @@ api_key_env = "OPENAI_API_KEY"
 id = "local"
 provider = "ollama"
 model = "llama3.2"
-base_url = "http://localhost:11434/v1"
+base_url = "http://localhost:11434"
 
 [[models]]
 id = "anthropic"

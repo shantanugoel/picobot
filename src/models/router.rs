@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::config::{Config, ModelConfig};
-use crate::models::openai_compat::OpenAICompatModel;
+use crate::models::genai_adapter::{GenaiModel, build_client};
 use crate::models::traits::Model;
 use crate::models::types::{ModelId, ModelInfo, ModelRequest};
 
@@ -128,48 +128,23 @@ impl ModelRouter for SingleModelRouter {
     }
 }
 
-fn build_model(config: &ModelConfig) -> Result<OpenAICompatModel, ModelRegistryError> {
+fn build_model(config: &ModelConfig) -> Result<GenaiModel, ModelRegistryError> {
     let provider = config.provider.to_lowercase();
-    if provider != "openai"
-        && provider != "ollama"
-        && provider != "openrouter"
-        && provider != "google"
-        && provider != "gemini"
-    {
-        return Err(ModelRegistryError::UnsupportedProvider(
-            config.provider.clone(),
-        ));
-    }
-
-    let mut openai_config = async_openai::config::OpenAIConfig::new();
-    if let Some(base_url) = &config.base_url {
-        let trimmed = base_url.trim_end_matches('/');
-        openai_config = openai_config.with_api_base(trimmed);
-    }
-
-    if let Some(api_key_env) = &config.api_key_env {
-        match std::env::var(api_key_env) {
-            Ok(api_key) => {
-                openai_config = openai_config.with_api_key(api_key);
-            }
-            Err(_) => {
-                if provider == "google" || provider == "gemini" {
-                    return Err(ModelRegistryError::InitializationFailed(
-                        config.id.clone(),
-                        format!("missing api key env var '{api_key_env}'"),
-                    ));
-                }
-            }
-        }
-    }
-
-    let client = async_openai::Client::with_config(openai_config);
     let info = ModelInfo {
         id: config.id.clone(),
         provider: config.provider.clone(),
         model: config.model.clone(),
     };
-    Ok(OpenAICompatModel::new(info, client))
+    let (client, adapter_kind) = build_client(
+        &provider,
+        &config.model,
+        config.api_key_env.as_deref(),
+        config.base_url.as_deref(),
+    )
+    .map_err(|err: crate::models::traits::ModelError| {
+        ModelRegistryError::InitializationFailed(config.id.clone(), err.to_string())
+    })?;
+    Ok(GenaiModel::new(info, client, adapter_kind))
 }
 
 #[cfg(test)]

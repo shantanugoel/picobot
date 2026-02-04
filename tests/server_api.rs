@@ -23,7 +23,7 @@ fn build_test_state() -> AppState {
         models: vec![picobot::config::ModelConfig {
             id: "default".to_string(),
             provider: "openai".to_string(),
-            model: "gpt-4o".to_string(),
+            model: "stub".to_string(),
             api_key_env: None,
             base_url: None,
         }],

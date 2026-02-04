@@ -53,6 +53,9 @@ pub async fn run_adapter_loop(
         };
         let scoped_kernel =
             kernel.clone_with_context(Some(message.user_id.clone()), Some(session.id.clone()));
+        let mut on_debug = |line: &str| {
+            eprintln!("Adapter debug: {line}");
+        };
         let result = run_agent_loop_streamed_with_permissions_limit(
             &scoped_kernel,
             model.as_ref(),
@@ -60,22 +63,32 @@ pub async fn run_adapter_loop(
             message.text,
             &mut on_token,
             &mut on_permission,
-            &mut |_| {},
+            &mut on_debug,
             max_tool_rounds,
         )
         .await;
-        if let Ok(text) = result {
-            if response_text.is_empty() {
-                response_text = text;
+        match result {
+            Ok(text) => {
+                if response_text.is_empty() {
+                    response_text = text;
+                }
+                session_from_state(&mut session, &convo_state);
+                let _ = sessions.update_session(&session);
+                let outbound_message = OutboundMessage {
+                    channel_id: message.channel_id,
+                    user_id: message.user_id,
+                    text: response_text,
+                };
+                let _delivery_id = delivery_queue.enqueue(outbound_message).await;
             }
-            session_from_state(&mut session, &convo_state);
-            let _ = sessions.update_session(&session);
-            let outbound_message = OutboundMessage {
-                channel_id: message.channel_id,
-                user_id: message.user_id,
-                text: response_text,
-            };
-            let _delivery_id = delivery_queue.enqueue(outbound_message).await;
+            Err(err) => {
+                let outbound_message = OutboundMessage {
+                    channel_id: message.channel_id,
+                    user_id: message.user_id,
+                    text: format!("Sorry, I hit an upstream error. Please try again. ({err})"),
+                };
+                let _delivery_id = delivery_queue.enqueue(outbound_message).await;
+            }
         }
     }
 }

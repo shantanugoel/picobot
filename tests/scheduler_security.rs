@@ -46,7 +46,7 @@ fn test_models() -> picobot::models::router::ModelRegistry {
         models: vec![ModelConfig {
             id: "static".to_string(),
             provider: "openai".to_string(),
-            model: "gpt-4o".to_string(),
+            model: "stub".to_string(),
             api_key_env: None,
             base_url: None,
         }],

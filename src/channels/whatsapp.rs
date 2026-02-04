@@ -111,7 +111,8 @@ impl InboundAdapter for WhatsAppInboundAdapter {
                 let allowed = allowed.clone();
                 async move {
                     let user = message.user_id.clone();
-                    if allowed.iter().any(|sender| sender == &user) {
+                    if is_allowed_sender(&user, &allowed) {
+                        println!("WhatsApp received message from '{user}'");
                         Some(message)
                     } else {
                         println!("WhatsApp ignored message from '{user}' (not in allowlist)");
@@ -123,6 +124,23 @@ impl InboundAdapter for WhatsAppInboundAdapter {
         }
         self.backend.inbound_stream()
     }
+}
+
+fn is_allowed_sender(sender: &str, allowed: &[String]) -> bool {
+    if allowed
+        .iter()
+        .any(|allowed_sender| allowed_sender == sender)
+    {
+        return true;
+    }
+    let sender_id = normalize_whatsapp_id(sender);
+    allowed
+        .iter()
+        .any(|allowed_sender| normalize_whatsapp_id(allowed_sender) == sender_id)
+}
+
+fn normalize_whatsapp_id(sender: &str) -> &str {
+    sender.split_once('@').map(|(id, _)| id).unwrap_or(sender)
 }
 
 pub struct WhatsAppOutboundSender {
@@ -146,7 +164,13 @@ impl OutboundSender for WhatsAppOutboundSender {
     }
 
     async fn send(&self, msg: OutboundMessage) -> Result<DeliveryId, anyhow::Error> {
-        self.backend.send_text(&msg.user_id, &msg.text).await
+        match self.backend.send_text(&msg.user_id, &msg.text).await {
+            Ok(delivery_id) => Ok(delivery_id),
+            Err(err) => {
+                eprintln!("WhatsApp send failed to '{}': {err}", msg.user_id);
+                Err(err)
+            }
+        }
     }
 
     async fn stream_token(&self, _session_id: &str, _token: &str) -> Result<(), anyhow::Error> {

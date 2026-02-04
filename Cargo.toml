@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 async-trait = "0.1"
-async-openai = { version = "0.32.4", features = ["_api", "byot", "rustls", "chat-completion", "chat-completion-types"] }
+genai = "0.5.3"
 futures = "0.3"
 http = "1"
 serde = { version = "1", features = ["derive"] }

@@ -1,14 +1,15 @@
 # PicoBot
 
-PicoBot is a security-first AI agent with a kernel that enforces capability checks on every tool invocation. It ships with a TUI, OpenAI-compatible model providers, and a minimal toolset (filesystem, shell, HTTP fetch).
+PicoBot is a security-first AI agent with a kernel that enforces capability checks on every tool invocation. It ships with a TUI, multi-provider models (via `genai`), and a minimal toolset (filesystem, shell, HTTP fetch).
 
 ## Quick Start
 
 ### Standalone TUI
 
 ```bash
+# Copy example config and update values
 cp config.example.toml config.toml
-# Set API keys in your environment (e.g., OPENAI_API_KEY)
+# Set API keys in your environment (e.g., OPENAI_API_KEY, GEMINI_API_KEY)
 cargo run
 ```
 
@@ -151,8 +152,16 @@ PicoBot is configured via `config.toml`. Key options include:
 
 ### Models & Routing
 
-- `models`: List of model providers and IDs.
+- `models`: List of model providers and IDs (providers map to `genai` adapters).
 - `routing.default`: Default model ID.
+
+#### Provider notes
+
+- `openai`: OpenAI chat completions (uses `OPENAI_API_KEY` by default).
+- `openrouter`: OpenAI-compatible endpoint (uses `OPENROUTER_API_KEY` by default; set `base_url` if needed).
+- `anthropic`: Anthropic native API (uses `ANTHROPIC_API_KEY`).
+- `gemini` or `google`: Gemini native API (uses `GEMINI_API_KEY`).
+- `ollama`: Local Ollama (no API key required; default base URL `http://localhost:11434`).
 
 ### Sessions
 
