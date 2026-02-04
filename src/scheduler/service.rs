@@ -108,12 +108,40 @@ impl SchedulerService {
         self.store.create_job(request, next_run_at)
     }
 
+    pub fn delete_job_with_cancel(&self, job_id: &str) -> SchedulerResult<()> {
+        let _ = self.executor.cancel_job(job_id);
+        self.store.delete_job(job_id)
+    }
+
     pub fn list_jobs_by_user(&self, user_id: &str) -> SchedulerResult<Vec<ScheduledJob>> {
         self.store.list_jobs_by_user(user_id)
     }
 
+    pub fn get_job(&self, job_id: &str) -> SchedulerResult<ScheduledJob> {
+        self.store
+            .get_job(job_id)
+            .and_then(|job| job.ok_or(SchedulerError::NotFound))
+    }
+
+    pub fn update_job(&self, job: &ScheduledJob) -> SchedulerResult<()> {
+        self.store.update_job(job)
+    }
+
+    pub fn delete_job(&self, job_id: &str) -> SchedulerResult<()> {
+        self.store.delete_job(job_id)
+    }
+
     pub fn cancel_job(&self, job_id: &str) -> SchedulerResult<bool> {
         Ok(self.executor.cancel_job(job_id))
+    }
+
+    pub fn list_executions_for_job(
+        &self,
+        job_id: &str,
+        limit: usize,
+        offset: usize,
+    ) -> SchedulerResult<Vec<crate::scheduler::job::JobExecution>> {
+        self.store.list_executions_for_job(job_id, limit, offset)
     }
 
     pub fn store(&self) -> &ScheduleStore {
@@ -159,9 +187,16 @@ impl SchedulerService {
 fn compute_initial_run(
     request: &CreateJobRequest,
 ) -> SchedulerResult<chrono::DateTime<chrono::Utc>> {
-    match request.schedule_type {
+    compute_next_run_for(request.schedule_type, &request.schedule_expr)
+}
+
+pub fn compute_next_run_for(
+    schedule_type: ScheduleType,
+    schedule_expr: &str,
+) -> SchedulerResult<chrono::DateTime<chrono::Utc>> {
+    match schedule_type {
         ScheduleType::Interval => {
-            let secs = request.schedule_expr.parse::<u64>().map_err(|_| {
+            let secs = schedule_expr.parse::<u64>().map_err(|_| {
                 SchedulerError::InvalidSchedule(
                     "interval schedule_expr must be seconds".to_string(),
                 )
@@ -169,7 +204,7 @@ fn compute_initial_run(
             Ok(chrono::Utc::now() + chrono::Duration::seconds(secs as i64))
         }
         ScheduleType::Once => Ok(chrono::Utc::now()),
-        ScheduleType::Cron => compute_cron_initial_run(&request.schedule_expr),
+        ScheduleType::Cron => compute_cron_initial_run(schedule_expr),
     }
 }
 

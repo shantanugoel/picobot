@@ -63,15 +63,15 @@ P0: Capability snapshot security
 
 P1: Cancellation and lifecycle
 
-- cancel running job
-- timeout marks job as timeout
-- delete cancels then removes schedule
+- cancel running job (done)
+- timeout marks job as timeout (done)
+- delete cancels then removes schedule (done)
 
 P1: End-to-end execution
 
-- interval job reschedules correctly
-- once job disables after execution
-- execution recorded in history
+- interval job reschedules correctly (done)
+- once job disables after execution (done)
+- execution recorded in history (done)
 
 ## Part B: Phase 3.1
 
@@ -143,9 +143,9 @@ P0 (highest priority):
 
 P1:
 
-1. Complete API routes (CRUD + history + cancel).
-2. Cancellation and lifecycle tests.
-3. Async notifications with WhatsApp integration.
+1. Complete API routes (CRUD + history + cancel). (done)
+2. Cancellation and lifecycle tests. (done)
+3. Async notifications with WhatsApp integration. (done)
 
 P2:
 

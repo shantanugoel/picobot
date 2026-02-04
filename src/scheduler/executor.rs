@@ -19,6 +19,8 @@ pub struct JobExecutor {
     store: ScheduleStore,
     config: SchedulerConfig,
     running: Arc<DashMap<String, CancellationToken>>,
+    notifications:
+        Arc<tokio::sync::RwLock<Option<crate::notifications::service::NotificationService>>>,
 }
 
 impl JobExecutor {
@@ -34,7 +36,16 @@ impl JobExecutor {
             store,
             config,
             running: Arc::new(DashMap::new()),
+            notifications: Arc::new(tokio::sync::RwLock::new(None)),
         }
+    }
+
+    pub async fn set_notifications(
+        &self,
+        service: Option<crate::notifications::service::NotificationService>,
+    ) {
+        let mut guard = self.notifications.write().await;
+        *guard = service;
     }
 
     pub fn cancel_job(&self, job_id: &str) -> bool {
@@ -80,6 +91,13 @@ impl JobExecutor {
         let finished_at = chrono::Utc::now();
         execution.completed_at = Some(finished_at);
         execution.execution_time_ms = Some((finished_at - started_at).num_milliseconds());
+
+        let completion_message = match &outcome {
+            ExecutionOutcome::Completed { response } => response.clone(),
+            ExecutionOutcome::Failed { error } => Some(format!("Job failed: {error}")),
+            ExecutionOutcome::Timeout => Some("Job timed out".to_string()),
+            ExecutionOutcome::Cancelled => Some("Job cancelled".to_string()),
+        };
 
         match outcome {
             ExecutionOutcome::Completed { response } => {
@@ -134,6 +152,13 @@ impl JobExecutor {
 
         let _ = self.store.update_execution(&execution);
         let _ = self.store.update_job(&job);
+
+        if let Some(channel_id) = job.channel_id.clone() {
+            let notification_text =
+                completion_message.unwrap_or_else(|| "Job completed".to_string());
+            self.enqueue_notification(&job.user_id, &channel_id, notification_text)
+                .await;
+        }
     }
 
     async fn run_job(&self, job: &ScheduledJob) -> ExecutionOutcome {
@@ -164,6 +189,19 @@ impl JobExecutor {
                 error: err.to_string(),
             },
         }
+    }
+
+    async fn enqueue_notification(&self, user_id: &str, channel_id: &str, message: String) {
+        let service = self.notifications.read().await.clone();
+        let Some(service) = service else {
+            return;
+        };
+        let request = crate::notifications::channel::NotificationRequest {
+            user_id: user_id.to_string(),
+            channel_id: channel_id.to_string(),
+            message,
+        };
+        let _ = service.enqueue(request).await;
     }
 }
 

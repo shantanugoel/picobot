@@ -140,7 +140,9 @@ impl ScheduleStore {
         self.store
             .with_connection(|conn| {
                 conn.execute("BEGIN IMMEDIATE", [])
-                    .map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
+                    .map_err(|err| {
+                        crate::session::error::SessionDbError::QueryFailed(err.to_string())
+                    })?;
                 let mut stmt = conn
                     .prepare(
                         "SELECT id FROM schedules
@@ -152,13 +154,19 @@ impl ScheduleStore {
                          ORDER BY next_run_at ASC
                          LIMIT ?2",
                     )
-                    .map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
+                    .map_err(|err| {
+                        crate::session::error::SessionDbError::QueryFailed(err.to_string())
+                    })?;
                 let ids = stmt
                     .query_map(params![now_value, limit as i64], |row| row.get::<_, String>(0))
-                    .map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
+                    .map_err(|err| {
+                        crate::session::error::SessionDbError::QueryFailed(err.to_string())
+                    })?;
                 let mut claimed_ids = Vec::new();
                 for id in ids {
-                    let id = id.map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
+                    let id = id.map_err(|err| {
+                        crate::session::error::SessionDbError::QueryFailed(err.to_string())
+                    })?;
                     let updated = conn
                         .execute(
                             "UPDATE schedules
@@ -170,13 +178,17 @@ impl ScheduleStore {
                                AND enabled = 1",
                             params![now_value, claim_id, expires_at, now_value, id],
                         )
-                        .map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
+                        .map_err(|err| {
+                            crate::session::error::SessionDbError::QueryFailed(err.to_string())
+                        })?;
                     if updated == 1 {
                         claimed_ids.push(id);
                     }
                 }
                 conn.execute("COMMIT", [])
-                    .map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
+                    .map_err(|err| {
+                        crate::session::error::SessionDbError::QueryFailed(err.to_string())
+                    })?;
                 let mut jobs = Vec::new();
                 for id in claimed_ids {
                     if let Some(job) = load_job(conn, &id)? {
@@ -198,7 +210,9 @@ impl ScheduleStore {
                      WHERE id = ?2 AND claim_id = ?3",
                     params![now, id, claim_id],
                 )
-                .map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
+                .map_err(|err| {
+                    crate::session::error::SessionDbError::QueryFailed(err.to_string())
+                })?;
                 Ok(())
             })
             .map_err(|err| SchedulerError::Store(err.to_string()))
@@ -213,6 +227,17 @@ impl ScheduleStore {
     pub fn update_execution(&self, execution: &JobExecution) -> SchedulerResult<()> {
         self.store
             .with_connection(|conn| update_execution(conn, execution))
+            .map_err(|err| SchedulerError::Store(err.to_string()))
+    }
+
+    pub fn list_executions_for_job(
+        &self,
+        job_id: &str,
+        limit: usize,
+        offset: usize,
+    ) -> SchedulerResult<Vec<JobExecution>> {
+        self.store
+            .with_connection(|conn| load_executions_for_job(conn, job_id, limit, offset))
             .map_err(|err| SchedulerError::Store(err.to_string()))
     }
 }
@@ -473,6 +498,62 @@ fn update_execution(
     Ok(())
 }
 
+fn load_executions_for_job(
+    conn: &Connection,
+    job_id: &str,
+    limit: usize,
+    offset: usize,
+) -> crate::session::error::SessionDbResult<Vec<JobExecution>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, job_id, started_at, completed_at, status, result_summary, error, execution_time_ms
+             FROM schedule_executions
+             WHERE job_id = ?1
+             ORDER BY started_at DESC
+             LIMIT ?2 OFFSET ?3",
+        )
+        .map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
+    let rows = stmt
+        .query_map(params![job_id, limit as i64, offset as i64], |row| {
+            let status: String = row.get(4)?;
+            let status = parse_execution_status(&status).map_err(|err| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    4,
+                    rusqlite::types::Type::Text,
+                    Box::new(err),
+                )
+            })?;
+            let started_raw: String = row.get(2)?;
+            let started_at = parse_datetime(Some(started_raw)).ok_or_else(|| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    2,
+                    rusqlite::types::Type::Text,
+                    Box::new(crate::session::error::SessionDbError::QueryFailed(
+                        "invalid started_at".to_string(),
+                    )),
+                )
+            })?;
+            Ok(JobExecution {
+                id: row.get(0)?,
+                job_id: row.get(1)?,
+                started_at,
+                completed_at: parse_datetime(row.get(3)?),
+                status,
+                result_summary: row.get(5)?,
+                error: row.get(6)?,
+                execution_time_ms: row.get(7)?,
+            })
+        })
+        .map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
+    let mut executions = Vec::new();
+    for row in rows {
+        executions.push(
+            row.map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?,
+        );
+    }
+    Ok(executions)
+}
+
 fn parse_schedule_type(value: &str) -> crate::session::error::SessionDbResult<ScheduleType> {
     match value {
         "interval" => Ok(ScheduleType::Interval),
@@ -499,6 +580,19 @@ fn execution_status_to_str(value: ExecutionStatus) -> &'static str {
         ExecutionStatus::Failed => "failed",
         ExecutionStatus::Timeout => "timeout",
         ExecutionStatus::Cancelled => "cancelled",
+    }
+}
+
+fn parse_execution_status(value: &str) -> crate::session::error::SessionDbResult<ExecutionStatus> {
+    match value {
+        "running" => Ok(ExecutionStatus::Running),
+        "completed" => Ok(ExecutionStatus::Completed),
+        "failed" => Ok(ExecutionStatus::Failed),
+        "timeout" => Ok(ExecutionStatus::Timeout),
+        "cancelled" => Ok(ExecutionStatus::Cancelled),
+        other => Err(crate::session::error::SessionDbError::QueryFailed(format!(
+            "invalid execution status '{other}'",
+        ))),
     }
 }
 

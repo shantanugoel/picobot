@@ -4,6 +4,7 @@ pub mod config;
 pub mod delivery;
 pub mod kernel;
 pub mod models;
+pub mod notifications;
 pub mod scheduler;
 pub mod server;
 pub mod session;

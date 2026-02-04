@@ -50,6 +50,26 @@ impl ModelRegistry {
         Ok(Self { models, default_id })
     }
 
+    pub fn from_models(
+        default_id: &str,
+        models: Vec<Arc<dyn Model>>,
+    ) -> Result<Self, ModelRegistryError> {
+        if models.is_empty() {
+            return Err(ModelRegistryError::EmptyConfig);
+        }
+        let mut map = HashMap::new();
+        for model in models {
+            map.insert(model.info().id.clone(), model);
+        }
+        if !map.contains_key(default_id) {
+            return Err(ModelRegistryError::UnknownDefault(default_id.to_string()));
+        }
+        Ok(Self {
+            models: map,
+            default_id: default_id.to_string(),
+        })
+    }
+
     pub fn default_model(&self) -> &dyn Model {
         self.models
             .get(&self.default_id)
@@ -160,6 +180,7 @@ mod tests {
             session: None,
             data: None,
             scheduler: None,
+            notifications: None,
         };
 
         let result = ModelRegistry::from_config(&config);

@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
+use axum::routing::{delete, get, patch, post};
 use axum::Router;
-use axum::routing::{delete, get, post};
 use tower::ServiceBuilder;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
@@ -25,6 +25,26 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v1/permissions/grant", post(routes::grant_permissions))
         .route("/api/v1/schedules", get(scheduler_routes::list_schedules))
         .route("/api/v1/schedules", post(scheduler_routes::create_schedule))
+        .route(
+            "/api/v1/schedules/{id}",
+            get(scheduler_routes::get_schedule),
+        )
+        .route(
+            "/api/v1/schedules/{id}",
+            delete(scheduler_routes::delete_schedule),
+        )
+        .route(
+            "/api/v1/schedules/{id}",
+            patch(scheduler_routes::update_schedule),
+        )
+        .route(
+            "/api/v1/schedules/{id}/executions",
+            get(scheduler_routes::list_schedule_executions),
+        )
+        .route(
+            "/api/v1/schedules/{id}/cancel",
+            post(scheduler_routes::cancel_schedule),
+        )
         .route("/api/v1/chat", post(routes::chat))
         .route("/api/v1/chat/stream", post(routes::chat_stream))
         .route("/ws", get(ws::websocket_handler))

@@ -20,6 +20,9 @@ use picobot::kernel::agent_loop::{
 use picobot::kernel::permissions::CapabilitySet;
 use picobot::kernel::privacy::{PrivacyController, PurgeScope};
 use picobot::models::router::ModelRegistry;
+use picobot::notifications::queue::{NotificationQueue, NotificationQueueConfig};
+use picobot::notifications::service::NotificationService;
+use picobot::notifications::whatsapp::WhatsAppNotificationChannel;
 use picobot::scheduler::executor::JobExecutor;
 use picobot::scheduler::service::SchedulerService;
 use picobot::scheduler::store::ScheduleStore;
@@ -184,6 +187,33 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
             schedule_store.clone(),
             scheduler_config.clone(),
         );
+        if config
+            .notifications
+            .as_ref()
+            .map(|value| value.enabled())
+            .unwrap_or(false)
+            && let Some(backend) = whatsapp_backend.as_ref()
+        {
+            let queue_config = config
+                .notifications
+                .as_ref()
+                .map(|value| NotificationQueueConfig {
+                    max_attempts: value.max_attempts(),
+                    base_backoff: std::time::Duration::from_millis(value.base_backoff_ms()),
+                    max_backoff: std::time::Duration::from_millis(value.max_backoff_ms()),
+                })
+                .unwrap_or_default();
+            let queue = NotificationQueue::new(queue_config);
+            let channel = Arc::new(WhatsAppNotificationChannel::new(Arc::new(
+                WhatsAppOutboundSender::new(Arc::clone(backend)),
+            )));
+            let notifications = NotificationService::new(queue, channel);
+            let worker = notifications.clone();
+            tokio::spawn(async move {
+                worker.worker_loop().await;
+            });
+            executor.set_notifications(Some(notifications)).await;
+        }
         let service = Arc::new(SchedulerService::new(
             schedule_store,
             executor,

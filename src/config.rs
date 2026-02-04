@@ -20,6 +20,8 @@ pub struct Config {
     pub data: Option<DataConfig>,
     #[serde(default)]
     pub scheduler: Option<SchedulerConfig>,
+    #[serde(default)]
+    pub notifications: Option<NotificationsConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -166,6 +168,32 @@ pub struct SchedulerConfig {
     pub window_duration_secs: Option<u64>,
     pub job_timeout_secs: Option<u64>,
     pub max_backoff_secs: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct NotificationsConfig {
+    pub enabled: Option<bool>,
+    pub max_attempts: Option<usize>,
+    pub base_backoff_ms: Option<u64>,
+    pub max_backoff_ms: Option<u64>,
+}
+
+impl NotificationsConfig {
+    pub fn enabled(&self) -> bool {
+        self.enabled.unwrap_or(false)
+    }
+
+    pub fn max_attempts(&self) -> usize {
+        self.max_attempts.unwrap_or(3)
+    }
+
+    pub fn base_backoff_ms(&self) -> u64 {
+        self.base_backoff_ms.unwrap_or(200)
+    }
+
+    pub fn max_backoff_ms(&self) -> u64 {
+        self.max_backoff_ms.unwrap_or(5000)
+    }
 }
 
 impl SchedulerConfig {

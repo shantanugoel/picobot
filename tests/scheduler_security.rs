@@ -60,6 +60,7 @@ fn test_models() -> picobot::models::router::ModelRegistry {
         session: None,
         data: None,
         scheduler: None,
+        notifications: None,
     };
     picobot::models::router::ModelRegistry::from_config(&config).unwrap()
 }
