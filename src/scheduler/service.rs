@@ -240,9 +240,7 @@ pub fn next_cron_occurrence(
     next_cron_occurrence_with_schedule(&schedule, timezone, after)
 }
 
-fn parse_cron_schedule(
-    expr: &str,
-) -> SchedulerResult<(cron::Schedule, chrono_tz::Tz)> {
+fn parse_cron_schedule(expr: &str) -> SchedulerResult<(cron::Schedule, chrono_tz::Tz)> {
     let (timezone, raw_expr) = parse_cron_with_timezone(expr)?;
     let schedule = raw_expr
         .parse::<cron::Schedule>()

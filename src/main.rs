@@ -13,6 +13,7 @@ use picobot::cli::tui::{ModelChoice, PermissionChoice, Tui, TuiEvent};
 use picobot::config::Config;
 use picobot::delivery::queue::{DeliveryQueue, DeliveryQueueConfig};
 use picobot::delivery::tracking::DeliveryTracker;
+use picobot::heartbeats::register_heartbeats;
 use picobot::kernel::agent::Kernel;
 use picobot::kernel::agent_loop::{
     ConversationState, PermissionDecision, run_agent_loop_streamed_with_permissions_limit,
@@ -26,7 +27,6 @@ use picobot::notifications::whatsapp::WhatsAppNotificationChannel;
 use picobot::scheduler::executor::JobExecutor;
 use picobot::scheduler::service::SchedulerService;
 use picobot::scheduler::store::ScheduleStore;
-use picobot::heartbeats::register_heartbeats;
 use picobot::server::app::{bind_address, build_router, is_localhost_only};
 use picobot::server::rate_limit::RateLimiter;
 use picobot::server::snapshot::spawn_snapshot_task;

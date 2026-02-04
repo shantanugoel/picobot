@@ -67,9 +67,7 @@ fn no_duplicate_execution_on_restart() {
     let path = store.store().path().to_string();
     let restarted = ScheduleStore::new(SqliteStore::new(path));
     let later = now + chrono::Duration::seconds(1);
-    let second = restarted
-        .claim_due_jobs(later, 1, "claim-2", 30)
-        .unwrap();
+    let second = restarted.claim_due_jobs(later, 1, "claim-2", 30).unwrap();
     assert!(second.is_empty());
 
     std::fs::remove_dir_all(dir).ok();
@@ -90,9 +88,7 @@ async fn concurrent_workers_claim_disjoint_jobs() {
     let store_left = Arc::clone(&store);
     let store_right = Arc::clone(&store);
     let left = tokio::task::spawn_blocking(move || {
-        store_left
-            .claim_due_jobs(now, 1, "claim-left", 30)
-            .unwrap()
+        store_left.claim_due_jobs(now, 1, "claim-left", 30).unwrap()
     });
     let right = tokio::task::spawn_blocking(move || {
         store_right

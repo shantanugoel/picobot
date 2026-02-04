@@ -90,10 +90,11 @@ impl Model for SlowModel {
 
     async fn stream(&self, _req: ModelRequest) -> Result<Vec<ModelEvent>, ModelError> {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        Ok(vec![ModelEvent::Done(ModelResponse::Text("ok".to_string()))])
+        Ok(vec![ModelEvent::Done(ModelResponse::Text(
+            "ok".to_string(),
+        ))])
     }
 }
-
 
 #[tokio::test]
 async fn cancel_running_job() {
@@ -106,9 +107,7 @@ async fn cancel_running_job() {
     });
     kernel.set_capabilities(capabilities);
     let kernel = Arc::new(kernel);
-    let models = Arc::new(
-        ModelRegistry::from_models("slow", vec![Arc::new(SlowModel)]).unwrap(),
-    );
+    let models = Arc::new(ModelRegistry::from_models("slow", vec![Arc::new(SlowModel)]).unwrap());
     let config = SchedulerConfig {
         enabled: Some(true),
         job_timeout_secs: Some(5),

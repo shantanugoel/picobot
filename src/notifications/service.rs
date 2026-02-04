@@ -26,22 +26,12 @@ impl NotificationService {
         loop {
             let mut item = self.queue.pop().await;
             self.queue
-                .record_status(
-                    &item.id,
-                    NotificationStatus::Sending,
-                    item.attempts,
-                    None,
-                )
+                .record_status(&item.id, NotificationStatus::Sending, item.attempts, None)
                 .await;
             match self.channel.send(item.request.clone()).await {
                 Ok(_) => {
                     self.queue
-                        .record_status(
-                            &item.id,
-                            NotificationStatus::Sent,
-                            item.attempts + 1,
-                            None,
-                        )
+                        .record_status(&item.id, NotificationStatus::Sent, item.attempts + 1, None)
                         .await;
                 }
                 Err(err) => {

@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, params};
 
 use crate::session::error::{SessionDbError, SessionDbResult};
 
@@ -135,8 +135,7 @@ impl SqliteStore {
         if let Err(err) = conn.execute(
             "ALTER TABLE schedules ADD COLUMN created_by_system INTEGER NOT NULL DEFAULT 0",
             [],
-        )
-            && !err.to_string().contains("duplicate column")
+        ) && !err.to_string().contains("duplicate column")
         {
             return Err(SessionDbError::MigrationFailed(err.to_string()));
         }

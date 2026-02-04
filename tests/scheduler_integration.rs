@@ -5,8 +5,8 @@ use picobot::kernel::agent::Kernel;
 use picobot::models::router::ModelRegistry;
 use picobot::models::traits::{Model, ModelError};
 use picobot::models::types::{ModelEvent, ModelInfo, ModelRequest, ModelResponse};
-use picobot::scheduler::job::{CreateJobRequest, Principal, PrincipalType, ScheduleType};
 use picobot::scheduler::executor::JobExecutor;
+use picobot::scheduler::job::{CreateJobRequest, Principal, PrincipalType, ScheduleType};
 use picobot::scheduler::service::SchedulerService;
 use picobot::scheduler::store::ScheduleStore;
 use picobot::session::db::SqliteStore;
@@ -40,7 +40,9 @@ impl Model for StaticModel {
     }
 
     async fn stream(&self, _req: ModelRequest) -> Result<Vec<ModelEvent>, ModelError> {
-        Ok(vec![ModelEvent::Done(ModelResponse::Text("ok".to_string()))])
+        Ok(vec![ModelEvent::Done(ModelResponse::Text(
+            "ok".to_string(),
+        ))])
     }
 }
 
@@ -53,9 +55,8 @@ fn build_service(store: ScheduleStore) -> SchedulerService {
     });
     kernel.set_capabilities(capabilities);
     let kernel = Arc::new(kernel);
-    let models = Arc::new(
-        ModelRegistry::from_models("static", vec![Arc::new(StaticModel)]).unwrap(),
-    );
+    let models =
+        Arc::new(ModelRegistry::from_models("static", vec![Arc::new(StaticModel)]).unwrap());
     let config = SchedulerConfig {
         enabled: Some(true),
         tick_interval_secs: Some(1),

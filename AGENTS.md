@@ -4,23 +4,32 @@ This file is a concise, project-specific guide for AI agents working in this rep
 
 ## Working Guidelines
 - Always use latest versions of any rust crates
-- Whenever you make any changes, make sure there are no errors or warnings by running `cargo check` and `cargo clippy`
+- Whenever you make any changes, make sure there are no errors or warnings by running `cargo check` and `cargo clippy` and that all tests pass by running `cargo tests`
 
 ## Architecture Summary
 
-- **Kernel**: Single enforcement point for permissions and tool invocation (`Kernel::invoke_tool*`).
+- **Kernel**: Single enforcement point for permissions, scheduling, and tool invocation (`Kernel::invoke_tool*`).
 - **Tools**: Declare schema and required permissions; never self-authorize.
-- **Models**: OpenAI-compatible provider adapter; tool calls and streaming supported.
+- **Models**: OpenAI-compatible provider adapter with routing and streaming.
+- **Channels**: API, WebSocket, and WhatsApp adapters normalize inbound/outbound messages.
+- **Sessions**: Persistent storage, retention, and memory summarization.
+- **Scheduler**: Schedule store, executor, quotas, and heartbeats registration.
+- **Notifications/Delivery**: Async queues and outbound delivery tracking.
 - **CLI**: Ratatui TUI with permission prompt flow and streaming output.
 
 ```
-User -> TUI -> Kernel -> Model
-                 |         |
-                 v         v
-               Tools <-> Tool Output (wrapped)
-                 |
-                 v
-                TUI
+User/Client
+  |\
+  | \-> TUI --------> Kernel ----> Model Router ---> Provider
+  |                          |\
+  |                          | \-> Tools (schema + permissions)
+  |                          | \-> Scheduler -> Store/Executions
+  |                          | \-> Sessions/Memory -> SQLite
+  |                          | \-> Notifications/Delivery
+  |\
+  | \-> API/WS/WhatsApp -> Adapters -> Kernel
+  |
+  \-> /metrics, /status -> Server
 ```
 
 ## Core Invariants (Do Not Break)
