@@ -30,6 +30,9 @@ pub enum Message {
     Assistant {
         content: String,
     },
+    AssistantToolCalls {
+        tool_calls: Vec<ToolInvocation>,
+    },
     Tool {
         tool_call_id: String,
         content: String,
@@ -53,6 +56,10 @@ impl Message {
         Self::Assistant {
             content: content.into(),
         }
+    }
+
+    pub fn assistant_tool_calls(tool_calls: Vec<ToolInvocation>) -> Self {
+        Self::AssistantToolCalls { tool_calls }
     }
 
     pub fn tool<S: Into<String>, T: Into<String>>(tool_call_id: T, content: S) -> Self {

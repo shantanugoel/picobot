@@ -68,6 +68,7 @@ pub async fn handle_model_response(
             Ok(Some(text))
         }
         ModelResponse::ToolCalls(calls) => {
+            state.push(Message::assistant_tool_calls(calls.clone()));
             for call in calls {
                 let content = if let Some(tool) = kernel.tool_registry().get(&call.name) {
                     match kernel.invoke_tool(tool, call.arguments).await {
@@ -107,6 +108,7 @@ pub async fn handle_model_response_with_permissions(
             Ok(Some(text))
         }
         ModelResponse::ToolCalls(calls) => {
+            state.push(Message::assistant_tool_calls(calls.clone()));
             for call in calls {
                 let content = if let Some(tool) = kernel.tool_registry().get(&call.name) {
                     let input = call.arguments.clone();
@@ -532,8 +534,9 @@ pub async fn run_agent_loop_streamed_with_permissions_step(
 }
 
 pub fn build_model_request(state: &ConversationState, tools: Vec<ToolSpec>) -> ModelRequest {
+    let messages = sanitize_messages(state.messages().to_vec());
     ModelRequest {
-        messages: state.messages().to_vec(),
+        messages,
         tools,
         max_tokens: None,
         temperature: None,
@@ -550,12 +553,42 @@ pub fn build_model_request_with_memory(
     if messages.is_empty() {
         messages = state.messages().to_vec();
     }
+    messages = sanitize_messages(messages);
     ModelRequest {
         messages,
         tools,
         max_tokens: None,
         temperature: None,
     }
+}
+
+fn sanitize_messages(messages: Vec<Message>) -> Vec<Message> {
+    let mut sanitized = Vec::new();
+    let mut in_tool_block = false;
+    let mut iter = messages.into_iter().peekable();
+    while let Some(message) = iter.next() {
+        match &message {
+            Message::AssistantToolCalls { .. } => {
+                let next_is_tool = matches!(iter.peek(), Some(Message::Tool { .. }));
+                if next_is_tool {
+                    in_tool_block = true;
+                    sanitized.push(message);
+                } else {
+                    in_tool_block = false;
+                }
+            }
+            Message::Tool { .. } => {
+                if in_tool_block {
+                    sanitized.push(message);
+                }
+            }
+            _ => {
+                in_tool_block = false;
+                sanitized.push(message);
+            }
+        }
+    }
+    sanitized
 }
 
 #[cfg(test)]

@@ -202,13 +202,19 @@ pub(crate) fn insert_session(conn: &Connection, session: &Session) -> SessionDbR
     let now = chrono::Utc::now().to_rfc3339();
     for (idx, message) in session.conversation.iter().enumerate() {
         let (message_type, content, tool_call_id) = match message {
-            Message::System { content } => ("system", content, None),
-            Message::User { content } => ("user", content, None),
-            Message::Assistant { content } => ("assistant", content, None),
+            Message::System { content } => ("system", content.clone(), None),
+            Message::User { content } => ("user", content.clone(), None),
+            Message::Assistant { content } => ("assistant", content.clone(), None),
+            Message::AssistantToolCalls { tool_calls } => (
+                "assistant",
+                serde_json::to_string(tool_calls)
+                    .map_err(|err| SessionDbError::QueryFailed(err.to_string()))?,
+                None,
+            ),
             Message::Tool {
                 tool_call_id,
                 content,
-            } => ("tool", content, Some(tool_call_id)),
+            } => ("tool", content.clone(), Some(tool_call_id.clone())),
         };
         tx.execute(
             "INSERT INTO messages
@@ -323,7 +329,12 @@ fn message_from_row(
     match message_type {
         "system" => Ok(Message::system(content)),
         "user" => Ok(Message::user(content)),
-        "assistant" => Ok(Message::assistant(content)),
+        "assistant" => {
+            match serde_json::from_str::<Vec<crate::models::types::ToolInvocation>>(&content) {
+                Ok(tool_calls) => Ok(Message::assistant_tool_calls(tool_calls)),
+                Err(_) => Ok(Message::assistant(content)),
+            }
+        }
         "tool" => Ok(Message::tool(
             tool_call_id.unwrap_or_else(|| "unknown".to_string()),
             content,

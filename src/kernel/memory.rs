@@ -104,6 +104,13 @@ fn estimate_tokens(messages: &[Message]) -> usize {
             | Message::User { content }
             | Message::Assistant { content }
             | Message::Tool { content, .. } => content.len().div_ceil(4),
+            Message::AssistantToolCalls { tool_calls } => {
+                let size = tool_calls
+                    .iter()
+                    .map(|call| call.id.len() + call.name.len() + call.arguments.to_string().len())
+                    .sum::<usize>();
+                size.div_ceil(4)
+            }
         })
         .sum()
 }

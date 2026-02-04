@@ -69,7 +69,14 @@ fn load_session_messages(
             let message = match message_type.as_str() {
                 "system" => Message::system(content),
                 "user" => Message::user(content),
-                "assistant" => Message::assistant(content),
+                "assistant" => {
+                    match serde_json::from_str::<Vec<crate::models::types::ToolInvocation>>(
+                        &content,
+                    ) {
+                        Ok(tool_calls) => Message::assistant_tool_calls(tool_calls),
+                        Err(_) => Message::assistant(content),
+                    }
+                }
                 "tool" => Message::tool(
                     tool_call_id.unwrap_or_else(|| "unknown".to_string()),
                     content,
@@ -106,14 +113,22 @@ fn render_messages(messages: &[Message]) -> String {
     let mut output = String::new();
     for message in messages {
         let (label, content) = match message {
-            Message::System { content } => ("System", content.as_str()),
-            Message::User { content } => ("User", content.as_str()),
-            Message::Assistant { content } => ("Assistant", content.as_str()),
-            Message::Tool { content, .. } => ("Tool", content.as_str()),
+            Message::System { content } => ("System", content.clone()),
+            Message::User { content } => ("User", content.clone()),
+            Message::Assistant { content } => ("Assistant", content.clone()),
+            Message::AssistantToolCalls { tool_calls } => {
+                let names = tool_calls
+                    .iter()
+                    .map(|call| call.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                ("Assistant", format!("tool calls: {names}"))
+            }
+            Message::Tool { content, .. } => ("Tool", content.clone()),
         };
         output.push_str(label);
         output.push_str(": ");
-        output.push_str(content);
+        output.push_str(&content);
         output.push('\n');
     }
     output

@@ -235,6 +235,17 @@ fn to_chat_message(message: &Message) -> ChatMessage {
         Message::System { content } => ChatMessage::system(content.clone()),
         Message::User { content } => ChatMessage::user(content.clone()),
         Message::Assistant { content } => ChatMessage::assistant(content.clone()),
+        Message::AssistantToolCalls { tool_calls } => ChatMessage::from(
+            tool_calls
+                .iter()
+                .map(|call| ToolCall {
+                    call_id: call.id.clone(),
+                    fn_name: call.name.clone(),
+                    fn_arguments: call.arguments.clone(),
+                    thought_signatures: None,
+                })
+                .collect::<Vec<_>>(),
+        ),
         Message::Tool {
             tool_call_id,
             content,
