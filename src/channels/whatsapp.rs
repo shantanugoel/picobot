@@ -114,6 +114,7 @@ impl InboundAdapter for WhatsAppInboundAdapter {
                     if allowed.iter().any(|sender| sender == &user) {
                         Some(message)
                     } else {
+                        println!("WhatsApp ignored message from '{user}' (not in allowlist)");
                         None
                     }
                 }
