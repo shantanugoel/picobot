@@ -23,6 +23,7 @@
 ## Phase 4: Security Hardening
 
 - Audit log writer + rotation
+- A configurable response checker module with sane defaults that can detect if some sensitive data (e.g. keys etc) is being exfiltrated and block it.
 - Sandboxed shell execution
 - Resource limits (CPU, memory, wall time)
 - Capability grants lifecycle (expiry + revocation)
