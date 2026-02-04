@@ -114,7 +114,8 @@ fn create_job(
     let channel_id = input
         .get("channel_id")
         .and_then(Value::as_str)
-        .map(|value| value.to_string());
+        .map(|value| value.to_string())
+        .or_else(|| channel_id_from_session(ctx.session_id.as_deref()));
     let enabled = input
         .get("enabled")
         .and_then(Value::as_bool)
@@ -160,6 +161,13 @@ fn create_job(
             })
         })
         .map_err(map_scheduler_error)
+}
+
+fn channel_id_from_session(session_id: Option<&str>) -> Option<String> {
+    let session_id = session_id?;
+    session_id
+        .split_once(':')
+        .map(|(channel, _)| channel.to_string())
 }
 
 fn list_jobs(scheduler: &SchedulerService, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
