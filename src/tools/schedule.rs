@@ -92,11 +92,12 @@ fn create_job(
         .get("schedule_type")
         .and_then(Value::as_str)
         .ok_or_else(|| ToolError::InvalidInput("missing schedule_type".to_string()))?;
-    let schedule_type = parse_schedule_type(schedule_type)?;
+    let mut schedule_type = parse_schedule_type(schedule_type)?;
     let schedule_expr = input
         .get("schedule_expr")
         .and_then(Value::as_str)
         .ok_or_else(|| ToolError::InvalidInput("missing schedule_expr".to_string()))?;
+    let mut schedule_expr = schedule_expr.to_string();
     let task_prompt = input
         .get("task_prompt")
         .and_then(Value::as_str)
@@ -120,10 +121,39 @@ fn create_job(
         .get("enabled")
         .and_then(Value::as_bool)
         .unwrap_or(true);
-    let max_executions = input
+    let mut max_executions = input
         .get("max_executions")
         .and_then(Value::as_u64)
         .map(|value| value as u32);
+    if let Some(secs) = parse_relative_duration(&schedule_expr) {
+        match schedule_type {
+            ScheduleType::Once => {
+                schedule_type = ScheduleType::Interval;
+                schedule_expr = secs.to_string();
+                if max_executions.is_none() {
+                    max_executions = Some(1);
+                }
+            }
+            ScheduleType::Interval => {
+                schedule_expr = secs.to_string();
+            }
+            ScheduleType::Cron => {}
+        }
+    }
+    if let Some(duplicate) = find_duplicate_job(
+        scheduler,
+        &user_id,
+        &schedule_type,
+        &schedule_expr,
+        task_prompt,
+        channel_id.as_deref(),
+    )? {
+        return Ok(json!({
+            "status": "existing",
+            "job_id": duplicate.id,
+            "next_run_at": duplicate.next_run_at,
+        }));
+    }
     let metadata = input.get("metadata").cloned();
     let requested = input
         .get("capabilities")
@@ -136,7 +166,7 @@ fn create_job(
     let request = CreateJobRequest {
         name: name.to_string(),
         schedule_type,
-        schedule_expr: schedule_expr.to_string(),
+        schedule_expr,
         task_prompt: task_prompt.to_string(),
         session_id,
         user_id: user_id.clone(),
@@ -168,6 +198,45 @@ fn channel_id_from_session(session_id: Option<&str>) -> Option<String> {
     session_id
         .split_once(':')
         .map(|(channel, _)| channel.to_string())
+}
+
+fn parse_relative_duration(value: &str) -> Option<u64> {
+    let trimmed = value.trim().to_ascii_lowercase();
+    let trimmed = trimmed.strip_prefix("in ").unwrap_or(&trimmed);
+    let mut parts = trimmed.split_whitespace();
+    let amount = parts.next()?.parse::<u64>().ok()?;
+    let unit = parts.next()?;
+    match unit {
+        "sec" | "secs" | "second" | "seconds" => Some(amount),
+        "min" | "mins" | "minute" | "minutes" => Some(amount.saturating_mul(60)),
+        "hour" | "hours" => Some(amount.saturating_mul(60 * 60)),
+        "day" | "days" => Some(amount.saturating_mul(60 * 60 * 24)),
+        _ => None,
+    }
+}
+
+fn find_duplicate_job(
+    scheduler: &SchedulerService,
+    user_id: &str,
+    schedule_type: &ScheduleType,
+    schedule_expr: &str,
+    task_prompt: &str,
+    channel_id: Option<&str>,
+) -> Result<Option<crate::scheduler::job::ScheduledJob>, ToolError> {
+    let jobs = scheduler
+        .list_jobs_by_user(user_id)
+        .map_err(map_scheduler_error)?;
+    let now = chrono::Utc::now();
+    let window = chrono::Duration::seconds(120);
+    let matching = jobs.into_iter().find(|job| {
+        job.enabled
+            && job.schedule_type == *schedule_type
+            && job.schedule_expr == schedule_expr
+            && job.task_prompt == task_prompt
+            && job.channel_id.as_deref() == channel_id
+            && (now - job.created_at) <= window
+    });
+    Ok(matching)
 }
 
 fn list_jobs(scheduler: &SchedulerService, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {

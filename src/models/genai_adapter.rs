@@ -83,7 +83,19 @@ impl Model for GenaiModel {
         }
 
         if !tool_calls.is_empty() {
-            let invocations = tool_calls
+            let mut seen = std::collections::HashSet::new();
+            let mut deduped = Vec::new();
+            for call in tool_calls {
+                let key = (
+                    call.call_id.clone(),
+                    call.fn_name.clone(),
+                    call.fn_arguments.to_string(),
+                );
+                if seen.insert(key) {
+                    deduped.push(call);
+                }
+            }
+            let invocations = deduped
                 .into_iter()
                 .map(tool_call_to_invocation)
                 .collect::<Result<Vec<_>, ModelError>>()?;

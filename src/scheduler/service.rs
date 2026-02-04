@@ -60,7 +60,12 @@ impl SchedulerService {
             Ok(jobs) => jobs,
             Err(_) => return,
         };
+        let mut seen_jobs = std::collections::HashSet::new();
         for job in jobs {
+            if !seen_jobs.insert(job.id.clone()) {
+                let _ = self.store.release_claim(&job.id, &claim_id);
+                continue;
+            }
             if self.global_semaphore.available_permits() == 0 {
                 let _ = self.store.release_claim(&job.id, &claim_id);
                 continue;
@@ -211,8 +216,28 @@ pub fn compute_next_run_for(
             })?;
             Ok(chrono::Utc::now() + chrono::Duration::seconds(secs as i64))
         }
-        ScheduleType::Once => Ok(chrono::Utc::now()),
+        ScheduleType::Once => {
+            if let Some(secs) = parse_relative_duration(schedule_expr) {
+                return Ok(chrono::Utc::now() + chrono::Duration::seconds(secs as i64));
+            }
+            Ok(chrono::Utc::now())
+        }
         ScheduleType::Cron => compute_cron_initial_run(schedule_expr),
+    }
+}
+
+fn parse_relative_duration(value: &str) -> Option<u64> {
+    let trimmed = value.trim().to_ascii_lowercase();
+    let trimmed = trimmed.strip_prefix("in ").unwrap_or(&trimmed);
+    let mut parts = trimmed.split_whitespace();
+    let amount = parts.next()?.parse::<u64>().ok()?;
+    let unit = parts.next()?;
+    match unit {
+        "sec" | "secs" | "second" | "seconds" => Some(amount),
+        "min" | "mins" | "minute" | "minutes" => Some(amount.saturating_mul(60)),
+        "hour" | "hours" => Some(amount.saturating_mul(60 * 60)),
+        "day" | "days" => Some(amount.saturating_mul(60 * 60 * 24)),
+        _ => None,
     }
 }
 

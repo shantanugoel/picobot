@@ -563,6 +563,14 @@ pub fn build_model_request_with_memory(
 }
 
 fn sanitize_messages(messages: Vec<Message>) -> Vec<Message> {
+    if messages.is_empty() {
+        return messages;
+    }
+    let last_role = messages.iter().rev().find_map(|message| match message {
+        Message::AssistantToolCalls { .. } => Some("assistant_tool_calls"),
+        Message::Tool { .. } => Some("tool"),
+        _ => None,
+    });
     let mut sanitized = Vec::new();
     let mut in_tool_block = false;
     let mut iter = messages.into_iter().peekable();
@@ -570,7 +578,11 @@ fn sanitize_messages(messages: Vec<Message>) -> Vec<Message> {
         match &message {
             Message::AssistantToolCalls { .. } => {
                 let next_is_tool = matches!(iter.peek(), Some(Message::Tool { .. }));
-                if next_is_tool {
+                let prev_allows_tool_call = matches!(
+                    sanitized.last(),
+                    Some(Message::User { .. } | Message::Tool { .. })
+                );
+                if next_is_tool && prev_allows_tool_call {
                     in_tool_block = true;
                     sanitized.push(message);
                 } else {
@@ -587,6 +599,18 @@ fn sanitize_messages(messages: Vec<Message>) -> Vec<Message> {
                 sanitized.push(message);
             }
         }
+    }
+    if matches!(last_role, Some("assistant_tool_calls")) {
+        while matches!(sanitized.last(), Some(Message::Tool { .. })) {
+            sanitized.pop();
+        }
+    }
+    if matches!(last_role, Some("tool"))
+        && let Some(index) = sanitized
+            .iter()
+            .rposition(|message| matches!(message, Message::AssistantToolCalls { .. }))
+    {
+        sanitized.truncate(index);
     }
     sanitized
 }
