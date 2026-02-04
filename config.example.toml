@@ -99,6 +99,9 @@ max_allowed = ["filesystem:read:/tmp/**"]
 snapshot_interval_secs = 300
 snapshot_path = "./data/sessions.json"
 
+[session.memory]
+include_tool_messages = false
+
 [scheduler]
 enabled = false
 tick_interval_secs = 1

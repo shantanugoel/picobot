@@ -130,6 +130,7 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
             .to_string_lossy()
             .to_string(),
     );
+    let include_tool_messages = memory_config.include_tool_messages.unwrap_or(false);
     let mut kernel = if memory_config.enable_user_memories.unwrap_or(true) {
         Kernel::new(tool_registry, working_dir)
             .with_capabilities(capabilities)
@@ -143,6 +144,7 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
     if log_model_requests {
         kernel.set_log_model_requests(true);
     }
+    kernel.set_include_tool_messages(include_tool_messages);
     kernel.set_scheduler(None);
     let kernel = Arc::new(kernel);
 

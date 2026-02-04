@@ -181,6 +181,7 @@ mod tests {
             session_id: None,
             scheduler: std::sync::Arc::new(std::sync::RwLock::new(None)),
             log_model_requests: false,
+            include_tool_messages: true,
         };
 
         let read = tool

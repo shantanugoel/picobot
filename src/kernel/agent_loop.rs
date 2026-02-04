@@ -263,6 +263,7 @@ pub async fn run_agent_step(
             state,
             kernel.tool_registry().tool_specs(),
             kernel.context().log_model_requests,
+            kernel.context().include_tool_messages,
         ),
     };
     let response = model
@@ -427,6 +428,7 @@ pub async fn run_agent_loop_streamed_with_permissions_limit(
                 state,
                 kernel.tool_registry().tool_specs(),
                 kernel.context().log_model_requests,
+                kernel.context().include_tool_messages,
             ),
         };
         let events = model
@@ -500,6 +502,7 @@ pub async fn run_agent_loop_streamed_with_permissions_step(
                 state,
                 kernel.tool_registry().tool_specs(),
                 kernel.context().log_model_requests,
+                kernel.context().include_tool_messages,
             ),
         };
         let events = model
@@ -549,8 +552,17 @@ pub fn build_model_request_with_logging(
     state: &ConversationState,
     tools: Vec<ToolSpec>,
     log_enabled: bool,
+    include_tool_messages: bool,
 ) -> ModelRequest {
-    let messages = sanitize_messages(state.messages().to_vec());
+    let mut messages = sanitize_messages(state.messages().to_vec());
+    if !include_tool_messages {
+        messages.retain(|message| {
+            matches!(
+                message,
+                Message::System { .. } | Message::User { .. } | Message::Assistant { .. }
+            )
+        });
+    }
     if log_enabled {
         eprintln!(
             "Model request: {} messages, {} tools",
@@ -586,7 +598,7 @@ pub fn build_model_request_with_logging(
 }
 
 pub fn build_model_request(state: &ConversationState, tools: Vec<ToolSpec>) -> ModelRequest {
-    build_model_request_with_logging(state, tools, false)
+    build_model_request_with_logging(state, tools, false, true)
 }
 
 pub fn build_model_request_with_memory(
@@ -752,6 +764,7 @@ mod tests {
             session_id: None,
             scheduler: std::sync::Arc::new(std::sync::RwLock::new(None)),
             log_model_requests: false,
+            include_tool_messages: true,
         };
         let request = build_model_request_with_memory(&state, Vec::new(), &memory, &ctx);
         assert_eq!(request.messages.len(), 2);

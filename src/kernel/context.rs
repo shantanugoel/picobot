@@ -11,6 +11,7 @@ pub struct ToolContext {
     pub session_id: Option<String>,
     pub scheduler: Arc<RwLock<Option<Arc<crate::scheduler::service::SchedulerService>>>>,
     pub log_model_requests: bool,
+    pub include_tool_messages: bool,
 }
 
 impl ToolContext {

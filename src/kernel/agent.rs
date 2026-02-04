@@ -24,6 +24,7 @@ impl Kernel {
                 session_id: None,
                 scheduler: Arc::new(std::sync::RwLock::new(None)),
                 log_model_requests: false,
+                include_tool_messages: false,
             },
             memory_retriever: None,
         }
@@ -81,6 +82,10 @@ impl Kernel {
 
     pub fn set_log_model_requests(&mut self, enabled: bool) {
         self.context.log_model_requests = enabled;
+    }
+
+    pub fn set_include_tool_messages(&mut self, enabled: bool) {
+        self.context.include_tool_messages = enabled;
     }
 
     pub fn scheduler(&self) -> Option<Arc<crate::scheduler::service::SchedulerService>> {

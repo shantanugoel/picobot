@@ -127,6 +127,7 @@ mod tests {
             session_id: Some("session-1".to_string()),
             scheduler: Arc::new(std::sync::RwLock::new(None)),
             log_model_requests: false,
+            include_tool_messages: true,
         };
         controller.purge(&ctx, PurgeScope::Session, None).unwrap();
         assert!(manager.get_session("session-1").unwrap().is_none());
@@ -173,6 +174,7 @@ mod tests {
             session_id: None,
             scheduler: Arc::new(std::sync::RwLock::new(None)),
             log_model_requests: false,
+            include_tool_messages: true,
         };
         controller.purge(&ctx, PurgeScope::User, None).unwrap();
         assert!(manager.get_session("session-2").unwrap().is_none());
@@ -232,6 +234,7 @@ mod tests {
             session_id: Some("session-3".to_string()),
             scheduler: Arc::new(std::sync::RwLock::new(None)),
             log_model_requests: false,
+            include_tool_messages: true,
         };
         controller
             .purge(&ctx, PurgeScope::OlderThanDays, Some(1))

@@ -158,6 +158,7 @@ pub struct MemoryConfig {
     pub enable_summarization: Option<bool>,
     pub include_summary_on_truncation: Option<bool>,
     pub summarization_trigger_tokens: Option<u32>,
+    pub include_tool_messages: Option<bool>,
 }
 
 impl MemoryConfig {

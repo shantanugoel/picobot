@@ -176,6 +176,7 @@ PicoBot is configured via `config.toml`. Key options include:
 - `session.memory.enable_summarization`: Toggle summarization task.
 - `session.memory.include_summary_on_truncation`: Inject summaries when truncating.
 - `session.memory.summarization_trigger_tokens`: Threshold for summarization.
+- `session.memory.include_tool_messages`: Include tool calls and outputs in context (default false).
 
 ### Data
 
