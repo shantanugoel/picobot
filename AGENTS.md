@@ -38,6 +38,7 @@ User -> TUI -> Kernel -> Model
 - **Model adapters**: `src/models/openai_compat.rs`
 - **Routing**: `src/models/router.rs`
 - **TUI command surface**: `src/cli/tui.rs`, `src/main.rs`
+- **Heartbeats**: `src/heartbeats/mod.rs`, `src/config.rs`, `src/main.rs`
 
 ## Permission Flow (End-to-End)
 

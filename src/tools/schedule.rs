@@ -149,6 +149,7 @@ fn create_job(
         },
         enabled,
         max_executions,
+        created_by_system: false,
         metadata,
     };
     scheduler

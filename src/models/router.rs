@@ -181,6 +181,7 @@ mod tests {
             data: None,
             scheduler: None,
             notifications: None,
+            heartbeats: None,
         };
 
         let result = ModelRegistry::from_config(&config);

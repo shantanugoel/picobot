@@ -59,6 +59,8 @@ impl JobExecutor {
 
     pub async fn execute(&self, mut job: ScheduledJob) {
         let execution_id = uuid::Uuid::new_v4().to_string();
+        let job_id = job.id.clone();
+        let user_id = job.user_id.clone();
         let started_at = chrono::Utc::now();
         let mut execution = JobExecution {
             id: execution_id,
@@ -76,6 +78,7 @@ impl JobExecutor {
         self.running.insert(job.id.clone(), token.clone());
 
         let timeout = Duration::from_secs(self.config.job_timeout_secs());
+        println!("scheduler: executing job_id={job_id} user_id={user_id}");
         let outcome = tokio::select! {
             _ = token.cancelled() => ExecutionOutcome::Cancelled,
             result = tokio::time::timeout(timeout, self.run_job(&job)) => {
@@ -144,6 +147,11 @@ impl JobExecutor {
                 execution.error = Some("job cancelled".to_string());
             }
         }
+
+        println!(
+            "scheduler: finished job_id={job_id} user_id={user_id} status={:?}",
+            execution.status
+        );
 
         job.claimed_at = None;
         job.claim_id = None;
@@ -289,6 +297,7 @@ mod tests {
             },
             enabled: true,
             max_executions: None,
+            created_by_system: false,
             execution_count: 0,
             claimed_at: None,
             claim_id: None,

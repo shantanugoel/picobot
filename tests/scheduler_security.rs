@@ -61,6 +61,7 @@ fn test_models() -> picobot::models::router::ModelRegistry {
         data: None,
         scheduler: None,
         notifications: None,
+        heartbeats: None,
     };
     picobot::models::router::ModelRegistry::from_config(&config).unwrap()
 }
@@ -122,6 +123,7 @@ async fn job_cannot_exceed_snapshot_capabilities() {
         },
         enabled: true,
         max_executions: Some(1),
+        created_by_system: false,
         metadata: None,
     };
     let mut scoped = kernel.clone_with_context(Some(job.user_id.clone()), None);
@@ -149,6 +151,7 @@ fn schedule_creation_requires_permission() {
         },
         enabled: true,
         max_executions: None,
+        created_by_system: false,
         metadata: None,
     };
 

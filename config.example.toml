@@ -97,3 +97,35 @@ max_allowed = ["filesystem:read:/tmp/**"]
 [session]
 snapshot_interval_secs = 300
 snapshot_path = "./data/sessions.json"
+
+[scheduler]
+enabled = false
+tick_interval_secs = 1
+max_concurrent_jobs = 4
+max_concurrent_per_user = 2
+max_jobs_per_user = 50
+max_jobs_per_window = 100
+window_duration_secs = 3600
+job_timeout_secs = 300
+max_backoff_secs = 3600
+
+[notifications]
+enabled = false
+max_attempts = 3
+base_backoff_ms = 200
+max_backoff_ms = 5000
+
+[heartbeats]
+enabled = false
+default_interval_secs = 300
+
+[[heartbeats.prompts]]
+name = "health_check"
+prompt = "Check system health and report issues"
+interval_secs = 60
+
+[[heartbeats.prompts]]
+name = "daily_summary"
+prompt = "Generate daily summary"
+cron = "0 0 18 * * *"
+timezone = "America/New_York"

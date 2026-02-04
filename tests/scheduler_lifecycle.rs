@@ -65,6 +65,7 @@ fn test_models() -> ModelRegistry {
         data: None,
         scheduler: None,
         notifications: None,
+        heartbeats: None,
     };
     ModelRegistry::from_config(&config).unwrap()
 }
@@ -130,6 +131,7 @@ async fn cancel_running_job() {
         },
         enabled: true,
         max_executions: None,
+        created_by_system: false,
         metadata: None,
     };
     let job = store.create_job(request, now).unwrap();
@@ -182,6 +184,7 @@ async fn timeout_marks_job_as_timeout() {
         },
         enabled: true,
         max_executions: None,
+        created_by_system: false,
         metadata: None,
     };
     let job = store.create_job(request, now).unwrap();
@@ -212,6 +215,7 @@ fn delete_cancels_then_removes_schedule() {
         },
         enabled: true,
         max_executions: None,
+        created_by_system: false,
         metadata: None,
     };
     let job = service.store().create_job(request, now).unwrap();

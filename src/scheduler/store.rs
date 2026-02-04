@@ -2,7 +2,8 @@ use rusqlite::{params, Connection};
 
 use crate::scheduler::error::{SchedulerError, SchedulerResult};
 use crate::scheduler::job::{
-    CreateJobRequest, ExecutionStatus, JobExecution, Principal, ScheduleType, ScheduledJob,
+    CreateJobRequest, ExecutionStatus, JobExecution, Principal, PrincipalType, ScheduleType,
+    ScheduledJob,
 };
 use crate::session::db::SqliteStore;
 
@@ -25,6 +26,7 @@ impl ScheduleStore {
         request: CreateJobRequest,
         next_run_at: chrono::DateTime<chrono::Utc>,
     ) -> SchedulerResult<ScheduledJob> {
+        let created_by_system = matches!(request.creator.principal_type, PrincipalType::System);
         let job = ScheduledJob {
             id: uuid::Uuid::new_v4().to_string(),
             name: request.name,
@@ -38,6 +40,7 @@ impl ScheduleStore {
             creator: request.creator,
             enabled: request.enabled,
             max_executions: request.max_executions,
+            created_by_system,
             execution_count: 0,
             claimed_at: None,
             claim_id: None,
@@ -60,6 +63,12 @@ impl ScheduleStore {
     pub fn list_jobs_by_user(&self, user_id: &str) -> SchedulerResult<Vec<ScheduledJob>> {
         self.store
             .with_connection(|conn| load_jobs_by_user(conn, user_id))
+            .map_err(|err| SchedulerError::Store(err.to_string()))
+    }
+
+    pub fn list_jobs(&self) -> SchedulerResult<Vec<ScheduledJob>> {
+        self.store
+            .with_connection(load_jobs)
             .map_err(|err| SchedulerError::Store(err.to_string()))
     }
 
@@ -240,6 +249,12 @@ impl ScheduleStore {
             .with_connection(|conn| load_executions_for_job(conn, job_id, limit, offset))
             .map_err(|err| SchedulerError::Store(err.to_string()))
     }
+
+    pub fn list_all_executions(&self) -> SchedulerResult<Vec<JobExecution>> {
+        self.store
+            .with_connection(load_all_executions)
+            .map_err(|err| SchedulerError::Store(err.to_string()))
+    }
 }
 
 fn insert_job(conn: &Connection, job: &ScheduledJob) -> crate::session::error::SessionDbResult<()> {
@@ -258,11 +273,11 @@ fn insert_job(conn: &Connection, job: &ScheduledJob) -> crate::session::error::S
          (id, name, schedule_type, schedule_expr, task_prompt, session_id, user_id, channel_id,
           capabilities_json, creator_principal, enabled, max_executions, execution_count,
           claimed_at, claim_id, claim_expires_at, last_run_at, next_run_at, created_at, updated_at,
-          consecutive_failures, last_error, backoff_until, metadata_json)
+          consecutive_failures, last_error, backoff_until, metadata_json, created_by_system)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
                  ?9, ?10, ?11, ?12, ?13,
                  ?14, ?15, ?16, ?17, ?18, ?19, ?20,
-                 ?21, ?22, ?23, ?24)",
+                 ?21, ?22, ?23, ?24, ?25)",
         params![
             job.id,
             job.name,
@@ -288,6 +303,7 @@ fn insert_job(conn: &Connection, job: &ScheduledJob) -> crate::session::error::S
             job.last_error,
             job.backoff_until.map(|value| value.to_rfc3339()),
             metadata_json,
+            if job.created_by_system { 1 } else { 0 },
         ],
     )
     .map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
@@ -315,6 +331,24 @@ fn load_jobs_by_user(
     Ok(jobs)
 }
 
+fn load_jobs(conn: &Connection) -> crate::session::error::SessionDbResult<Vec<ScheduledJob>> {
+    let mut stmt = conn
+        .prepare("SELECT id FROM schedules ORDER BY created_at DESC")
+        .map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
+    let mut jobs = Vec::new();
+    for row in rows {
+        let id =
+            row.map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
+        if let Some(job) = load_job(conn, &id)? {
+            jobs.push(job);
+        }
+    }
+    Ok(jobs)
+}
+
 fn load_job(
     conn: &Connection,
     id: &str,
@@ -324,7 +358,7 @@ fn load_job(
             "SELECT id, name, schedule_type, schedule_expr, task_prompt, session_id, user_id, channel_id,
                     capabilities_json, creator_principal, enabled, max_executions, execution_count,
                     claimed_at, claim_id, claim_expires_at, last_run_at, next_run_at, created_at, updated_at,
-                    consecutive_failures, last_error, backoff_until, metadata_json
+                    consecutive_failures, last_error, backoff_until, metadata_json, created_by_system
              FROM schedules WHERE id = ?1",
         )
         .map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
@@ -354,6 +388,9 @@ fn load_job(
         .map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
     let metadata_json: Option<String> = row
         .get(23)
+        .map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
+    let created_by_system: i64 = row
+        .get(24)
         .map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
     let metadata = metadata_json
         .map(|value| serde_json::from_str(&value))
@@ -451,6 +488,7 @@ fn load_job(
             })?,
         ),
         metadata,
+        created_by_system: created_by_system != 0,
     }))
 }
 
@@ -515,6 +553,57 @@ fn load_executions_for_job(
         .map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
     let rows = stmt
         .query_map(params![job_id, limit as i64, offset as i64], |row| {
+            let status: String = row.get(4)?;
+            let status = parse_execution_status(&status).map_err(|err| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    4,
+                    rusqlite::types::Type::Text,
+                    Box::new(err),
+                )
+            })?;
+            let started_raw: String = row.get(2)?;
+            let started_at = parse_datetime(Some(started_raw)).ok_or_else(|| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    2,
+                    rusqlite::types::Type::Text,
+                    Box::new(crate::session::error::SessionDbError::QueryFailed(
+                        "invalid started_at".to_string(),
+                    )),
+                )
+            })?;
+            Ok(JobExecution {
+                id: row.get(0)?,
+                job_id: row.get(1)?,
+                started_at,
+                completed_at: parse_datetime(row.get(3)?),
+                status,
+                result_summary: row.get(5)?,
+                error: row.get(6)?,
+                execution_time_ms: row.get(7)?,
+            })
+        })
+        .map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
+    let mut executions = Vec::new();
+    for row in rows {
+        executions.push(
+            row.map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?,
+        );
+    }
+    Ok(executions)
+}
+
+fn load_all_executions(
+    conn: &Connection,
+) -> crate::session::error::SessionDbResult<Vec<JobExecution>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, job_id, started_at, completed_at, status, result_summary, error, execution_time_ms
+             FROM schedule_executions
+             ORDER BY started_at DESC",
+        )
+        .map_err(|err| crate::session::error::SessionDbError::QueryFailed(err.to_string()))?;
+    let rows = stmt
+        .query_map([], |row| {
             let status: String = row.get(4)?;
             let status = parse_execution_status(&status).map_err(|err| {
                 rusqlite::Error::FromSqlConversionFailure(
@@ -631,6 +720,7 @@ mod tests {
             },
             enabled: true,
             max_executions: None,
+            created_by_system: false,
             metadata: None,
         };
         let job = store.create_job(request, now).unwrap();

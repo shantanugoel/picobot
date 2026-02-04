@@ -26,6 +26,7 @@ use picobot::notifications::whatsapp::WhatsAppNotificationChannel;
 use picobot::scheduler::executor::JobExecutor;
 use picobot::scheduler::service::SchedulerService;
 use picobot::scheduler::store::ScheduleStore;
+use picobot::heartbeats::register_heartbeats;
 use picobot::server::app::{bind_address, build_router, is_localhost_only};
 use picobot::server::rate_limit::RateLimiter;
 use picobot::server::snapshot::spawn_snapshot_task;
@@ -219,6 +220,15 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
             executor,
             scheduler_config.clone(),
         ));
+        if let Some(heartbeats) = config.heartbeats.as_ref() {
+            let summary = register_heartbeats(&service, heartbeats);
+            if summary.created > 0 || summary.skipped_existing > 0 {
+                println!(
+                    "Heartbeats: {} created, {} existing, {} skipped",
+                    summary.created, summary.skipped_existing, summary.skipped_disabled
+                );
+            }
+        }
         let service_clone = Arc::clone(&service);
         tokio::spawn(async move {
             service_clone.run_loop().await;

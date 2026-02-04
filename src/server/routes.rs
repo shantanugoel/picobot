@@ -96,7 +96,7 @@ pub async fn health() -> &'static str {
 }
 
 pub async fn status(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let snapshot = collect_metrics(&state.sessions, &state.deliveries);
+    let snapshot = collect_metrics(&state.sessions, &state.deliveries, state.scheduler());
     Json(serde_json::json!({
         "sessions": snapshot.sessions_total,
         "active_sessions": snapshot.sessions_active,
@@ -108,12 +108,22 @@ pub async fn status(State(state): State<AppState>) -> Json<serde_json::Value> {
         "sending_deliveries": snapshot.deliveries_sending,
         "sent_deliveries": snapshot.deliveries_sent,
         "failed_deliveries": snapshot.deliveries_failed,
+        "schedules": snapshot.schedules_total,
+        "enabled_schedules": snapshot.schedules_enabled,
+        "disabled_schedules": snapshot.schedules_disabled,
+        "system_schedules": snapshot.schedules_system,
+        "executions": snapshot.executions_total,
+        "executions_running": snapshot.executions_running,
+        "executions_completed": snapshot.executions_completed,
+        "executions_failed": snapshot.executions_failed,
+        "executions_timeout": snapshot.executions_timeout,
+        "executions_cancelled": snapshot.executions_cancelled,
         "channel": "api",
     }))
 }
 
 pub async fn metrics(State(state): State<AppState>) -> Response {
-    let output = render_metrics(&state.sessions, &state.deliveries);
+    let output = render_metrics(&state.sessions, &state.deliveries, state.scheduler());
     (StatusCode::OK, output).into_response()
 }
 

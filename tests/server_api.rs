@@ -38,6 +38,7 @@ fn build_test_state() -> AppState {
         data: None,
         scheduler: None,
         notifications: None,
+        heartbeats: None,
     };
 
     let registry = ModelRegistry::from_config(&config).expect("registry");

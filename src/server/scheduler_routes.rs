@@ -159,6 +159,7 @@ pub async fn create_schedule(
         },
         enabled: payload.enabled.unwrap_or(true),
         max_executions: payload.max_executions,
+        created_by_system: false,
         metadata: payload.metadata,
     };
     match scheduler.create_job(request) {

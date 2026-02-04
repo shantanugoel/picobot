@@ -85,6 +85,7 @@ async fn interval_job_reschedules_correctly() {
         },
         enabled: true,
         max_executions: Some(2),
+        created_by_system: false,
         metadata: None,
     };
     let job = store.create_job(request, now).unwrap();
@@ -114,6 +115,7 @@ async fn once_job_disables_after_execution() {
         },
         enabled: true,
         max_executions: None,
+        created_by_system: false,
         metadata: None,
     };
     let job = store.create_job(request, now).unwrap();
@@ -143,6 +145,7 @@ async fn execution_recorded_in_history() {
         },
         enabled: true,
         max_executions: None,
+        created_by_system: false,
         metadata: None,
     };
     let job = store.create_job(request, now).unwrap();

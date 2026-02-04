@@ -107,6 +107,36 @@ PicoBot is configured via `config.toml`. Key options include:
 - `pre_authorized`: Capabilities granted by default.
 - `max_allowed`: Hard limit on capabilities this channel can ever access.
 
+### Scheduler (`[scheduler]`)
+
+- `enabled`: Enable the scheduler loop (default false).
+- `tick_interval_secs`: Poll cadence for due jobs.
+- `max_concurrent_jobs`: Global in-flight job limit.
+- `max_concurrent_per_user`: Per-user in-flight job limit.
+- `max_jobs_per_user`: Max schedules per user.
+- `max_jobs_per_window`: Max schedule creations per user within window.
+- `window_duration_secs`: Quota window length in seconds.
+- `job_timeout_secs`: Per-job execution timeout.
+- `max_backoff_secs`: Max exponential backoff between retries.
+
+### Notifications (`[notifications]`)
+
+- `enabled`: Enable async notifications.
+- `max_attempts`: Max delivery attempts per notification.
+- `base_backoff_ms`: Initial retry backoff.
+- `max_backoff_ms`: Max retry backoff.
+
+### Heartbeats (`[heartbeats]`)
+
+- `enabled`: Enable startup heartbeats registration.
+- `default_interval_secs`: Default interval for heartbeat prompts.
+- `heartbeats.prompts`: List of heartbeat definitions.
+- `heartbeats.prompts.name`: Unique name for the heartbeat.
+- `heartbeats.prompts.prompt`: Prompt executed on each run.
+- `heartbeats.prompts.interval_secs`: Interval schedule in seconds.
+- `heartbeats.prompts.cron`: Cron schedule expression.
+- `heartbeats.prompts.timezone`: Timezone for cron schedules (defaults to UTC).
+
 ### Permissions (`[permissions]`)
 
 - `filesystem.read_paths`: Globbed paths the filesystem tool can read.
@@ -114,6 +144,10 @@ PicoBot is configured via `config.toml`. Key options include:
 - `network.allowed_domains`: Domains allowed for HTTP fetch.
 - `shell.allowed_commands`: Shell commands allowed for execution.
 - `shell.working_directory`: Default working directory for shell tool.
+
+### Metrics
+
+- `/metrics`: Prometheus-style metrics for sessions, deliveries, and scheduler jobs.
 
 ### Models & Routing
 
@@ -152,6 +186,7 @@ PicoBot is configured via `config.toml`. Key options include:
 
 - The kernel enforces permissions; tools only declare requirements.
 - Tool output is treated as untrusted data and wrapped before re-entering the model.
+- Scheduler metrics are exposed on `/metrics` along with session and delivery metrics.
 
 ## Development
 

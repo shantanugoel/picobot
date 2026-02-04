@@ -149,8 +149,8 @@ P1:
 
 P2:
 
-1. Heartbeat config.
-2. Metrics and tracing.
+1. Heartbeat config. (done)
+2. Metrics and tracing. (done)
 
 ## Files to Create or Modify
 

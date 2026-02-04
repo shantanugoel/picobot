@@ -48,6 +48,8 @@ pub struct ScheduledJob {
     pub creator: Principal,
     pub enabled: bool,
     pub max_executions: Option<u32>,
+    #[serde(default)]
+    pub created_by_system: bool,
     pub execution_count: u32,
     pub claimed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub claim_id: Option<String>,
@@ -87,6 +89,7 @@ pub struct CreateJobRequest {
     pub creator: Principal,
     pub enabled: bool,
     pub max_executions: Option<u32>,
+    pub created_by_system: bool,
     pub metadata: Option<serde_json::Value>,
 }
 

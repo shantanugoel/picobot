@@ -117,6 +117,10 @@ impl SchedulerService {
         self.store.list_jobs_by_user(user_id)
     }
 
+    pub fn list_jobs(&self) -> SchedulerResult<Vec<ScheduledJob>> {
+        self.store.list_jobs()
+    }
+
     pub fn get_job(&self, job_id: &str) -> SchedulerResult<ScheduledJob> {
         self.store
             .get_job(job_id)
@@ -142,6 +146,10 @@ impl SchedulerService {
         offset: usize,
     ) -> SchedulerResult<Vec<crate::scheduler::job::JobExecution>> {
         self.store.list_executions_for_job(job_id, limit, offset)
+    }
+
+    pub fn list_all_executions(&self) -> SchedulerResult<Vec<crate::scheduler::job::JobExecution>> {
+        self.store.list_all_executions()
     }
 
     pub fn store(&self) -> &ScheduleStore {
@@ -299,6 +307,7 @@ mod tests {
             },
             enabled: true,
             max_executions: None,
+            created_by_system: false,
             metadata: None,
         };
         let next = compute_initial_run(&request).unwrap();
@@ -322,6 +331,7 @@ mod tests {
             },
             enabled: true,
             max_executions: None,
+            created_by_system: false,
             metadata: None,
         };
         let err = compute_initial_run(&request).unwrap_err();

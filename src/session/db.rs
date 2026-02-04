@@ -103,6 +103,7 @@ impl SqliteStore {
                 enabled INTEGER NOT NULL DEFAULT 1,
                 max_executions INTEGER,
                 execution_count INTEGER NOT NULL DEFAULT 0,
+                created_by_system INTEGER NOT NULL DEFAULT 0,
                 claimed_at TEXT,
                 claim_id TEXT,
                 claim_expires_at TEXT,
@@ -131,6 +132,14 @@ impl SqliteStore {
             CREATE INDEX IF NOT EXISTS idx_schedule_executions_job ON schedule_executions(job_id, started_at);",
         )
         .map_err(|err| SessionDbError::MigrationFailed(err.to_string()))?;
+        if let Err(err) = conn.execute(
+            "ALTER TABLE schedules ADD COLUMN created_by_system INTEGER NOT NULL DEFAULT 0",
+            [],
+        )
+            && !err.to_string().contains("duplicate column")
+        {
+            return Err(SessionDbError::MigrationFailed(err.to_string()));
+        }
         Ok(())
     }
 

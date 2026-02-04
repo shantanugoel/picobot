@@ -22,6 +22,8 @@ pub struct Config {
     pub scheduler: Option<SchedulerConfig>,
     #[serde(default)]
     pub notifications: Option<NotificationsConfig>,
+    #[serde(default)]
+    pub heartbeats: Option<HeartbeatsConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -178,6 +180,23 @@ pub struct NotificationsConfig {
     pub max_backoff_ms: Option<u64>,
 }
 
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct HeartbeatsConfig {
+    pub enabled: Option<bool>,
+    pub default_interval_secs: Option<u64>,
+    #[serde(default)]
+    pub prompts: Vec<HeartbeatPromptConfig>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct HeartbeatPromptConfig {
+    pub name: String,
+    pub prompt: String,
+    pub interval_secs: Option<u64>,
+    pub cron: Option<String>,
+    pub timezone: Option<String>,
+}
+
 impl NotificationsConfig {
     pub fn enabled(&self) -> bool {
         self.enabled.unwrap_or(false)
@@ -193,6 +212,16 @@ impl NotificationsConfig {
 
     pub fn max_backoff_ms(&self) -> u64 {
         self.max_backoff_ms.unwrap_or(5000)
+    }
+}
+
+impl HeartbeatsConfig {
+    pub fn enabled(&self) -> bool {
+        self.enabled.unwrap_or(false)
+    }
+
+    pub fn default_interval_secs(&self) -> u64 {
+        self.default_interval_secs.unwrap_or(300)
     }
 }
 

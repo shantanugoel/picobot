@@ -31,6 +31,12 @@ pub struct AppState {
     pub scheduler: Option<Arc<SchedulerService>>,
 }
 
+impl AppState {
+    pub fn scheduler(&self) -> Option<&Arc<SchedulerService>> {
+        self.scheduler.as_ref()
+    }
+}
+
 pub fn maybe_start_retention(config: &crate::config::Config, models: &Arc<ModelRegistry>) {
     let retention = config
         .session

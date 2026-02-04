@@ -29,6 +29,7 @@ fn create_job_request(user_id: &str, schedule_type: ScheduleType, expr: &str) ->
         },
         enabled: true,
         max_executions: None,
+        created_by_system: false,
         metadata: None,
     }
 }
