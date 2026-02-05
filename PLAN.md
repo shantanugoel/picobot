@@ -135,12 +135,12 @@ The previous implementation is preserved in `reference/` for guidance:
 2. **Complete Tool Set**
     - [x] Port `shell.rs` (command execution)
     - [x] Port `http.rs` (HTTP fetch)
-    - [~] Port `schedule.rs` (scheduling - stub implemented so far)
+    - [x] Port `schedule.rs` (scheduling)
     - [x] Require allowlisted commands for shell tool
 
 3. **Streaming Support**
-   - [ ] Implement streaming output to CLI
-   - [ ] Handle tool call events during stream
+   - [x] Implement streaming output to CLI
+   - [x] Handle tool call events during stream
 
 4. **Session & Memory**
     - [ ] Port SQLite session storage
