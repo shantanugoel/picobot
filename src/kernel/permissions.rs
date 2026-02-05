@@ -77,17 +77,22 @@ impl CapabilitySet {
     }
 
     pub fn from_config(config: &PermissionsConfig) -> Self {
+        let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        Self::from_config_with_base(config, &base_dir)
+    }
+
+    pub fn from_config_with_base(config: &PermissionsConfig, base_dir: &Path) -> Self {
         let mut set = CapabilitySet::empty();
 
         if let Some(filesystem) = &config.filesystem {
             for path in &filesystem.read_paths {
                 set.insert(Permission::FileRead {
-                    path: PathPattern(path.clone()),
+                    path: PathPattern(resolve_permission_path(base_dir, path)),
                 });
             }
             for path in &filesystem.write_paths {
                 set.insert(Permission::FileWrite {
-                    path: PathPattern(path.clone()),
+                    path: PathPattern(resolve_permission_path(base_dir, path)),
                 });
             }
         }
@@ -153,6 +158,42 @@ fn expand_tilde(value: &str) -> String {
             .to_string();
     }
     value.to_string()
+}
+
+fn resolve_permission_path(base_dir: &Path, raw: &str) -> String {
+    let expanded = if (raw == "~" || raw.starts_with("~/"))
+        && let Some(home) = dirs::home_dir()
+    {
+        let trimmed = raw.trim_start_matches('~');
+        home.join(trimmed.trim_start_matches('/'))
+            .to_string_lossy()
+            .to_string()
+    } else {
+        raw.to_string()
+    };
+
+    let path = Path::new(&expanded);
+    let resolved = if path.is_absolute() {
+        Path::new(&expanded).to_path_buf()
+    } else {
+        base_dir.join(path)
+    };
+
+    normalize_path(&resolved).to_string_lossy().to_string()
+}
+
+fn normalize_path(path: &Path) -> std::path::PathBuf {
+    let mut normalized = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
 }
 
 impl Permission {
@@ -289,6 +330,8 @@ impl MemoryScope {
 #[cfg(test)]
 mod tests {
     use super::{CapabilitySet, DomainPattern, MemoryScope, PathPattern, Permission};
+    use crate::config::{FilesystemPermissions, PermissionsConfig};
+    use std::path::PathBuf;
     use std::str::FromStr;
 
     #[test]
@@ -407,5 +450,23 @@ mod tests {
             scope: MemoryScope::Session,
         };
         assert!(user.covers(&needed));
+    }
+
+    #[test]
+    fn from_config_with_base_resolves_relative_paths() {
+        let config = PermissionsConfig {
+            filesystem: Some(FilesystemPermissions {
+                read_paths: vec!["data/**".to_string()],
+                write_paths: vec![],
+                jail_root: None,
+            }),
+            network: None,
+            shell: None,
+        };
+        let base = PathBuf::from("/tmp/picobot");
+        let set = CapabilitySet::from_config_with_base(&config, &base);
+        assert!(set.allows(&Permission::FileRead {
+            path: PathPattern("/tmp/picobot/data/**".to_string())
+        }));
     }
 }

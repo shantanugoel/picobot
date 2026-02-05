@@ -16,35 +16,40 @@ use crate::tools::registry::ToolRegistry;
 fn build_kernel(config: &Config) -> Result<Kernel> {
     let mut registry = ToolRegistry::new();
     registry.register(std::sync::Arc::new(FilesystemTool::new()))?;
-    let capabilities = CapabilitySet::from_config(&config.permissions());
+    let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let capabilities = CapabilitySet::from_config_with_base(&config.permissions(), &base_dir);
     let jail_root = config
         .permissions()
         .filesystem
         .and_then(|filesystem| filesystem.jail_root)
-        .map(|path| {
-            let expanded = if path.starts_with('~') {
-                if path == "~" || path.starts_with("~/") {
-                    if let Some(home) = dirs::home_dir() {
-                        let trimmed = path.trim_start_matches('~');
-                        home.join(trimmed.trim_start_matches('/'))
-                            .to_string_lossy()
-                            .to_string()
-                    } else {
-                        path
-                    }
-                } else {
-                    path
-                }
-            } else {
-                path
-            };
-            std::path::PathBuf::from(expanded)
-        });
+        .map(|path| resolve_working_path(&base_dir, &path));
     let kernel = Kernel::new(registry)
         .with_capabilities(capabilities)
-        .with_working_dir(config.data_dir())
+        .with_working_dir(resolve_working_path(
+            &base_dir,
+            &config.data_dir().to_string_lossy(),
+        ))
         .with_jail_root(jail_root);
     Ok(kernel)
+}
+
+fn resolve_working_path(base_dir: &std::path::Path, raw: &str) -> std::path::PathBuf {
+    let expanded = if raw == "~" || raw.starts_with("~/") {
+        if let Some(home) = dirs::home_dir() {
+            let trimmed = raw.trim_start_matches('~');
+            home.join(trimmed.trim_start_matches('/'))
+        } else {
+            std::path::PathBuf::from(raw)
+        }
+    } else {
+        std::path::PathBuf::from(raw)
+    };
+
+    if expanded.is_absolute() {
+        expanded
+    } else {
+        base_dir.join(expanded)
+    }
 }
 
 #[tokio::main]

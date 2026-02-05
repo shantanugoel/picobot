@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::kernel::permissions::{PathPattern, Permission};
 use crate::tools::traits::{ToolContext, ToolError, ToolExecutor, ToolOutput, ToolSpec};
@@ -183,7 +183,7 @@ fn normalize_path(path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_path, resolve_path, FilesystemTool};
+    use super::{FilesystemTool, normalize_path, resolve_path};
     use crate::kernel::permissions::{CapabilitySet, Permission};
     use crate::tools::traits::{ToolContext, ToolExecutor};
     use serde_json::json;

@@ -48,7 +48,10 @@ impl ProviderFactory {
     }
 
     pub fn build_openrouter_client(config: &Config) -> Result<openrouter::Client> {
-        let api_key_env = config.api_key_env.as_deref().unwrap_or("OPENROUTER_API_KEY");
+        let api_key_env = config
+            .api_key_env
+            .as_deref()
+            .unwrap_or("OPENROUTER_API_KEY");
         let api_key = env::var(api_key_env)
             .with_context(|| format!("missing API key in env '{api_key_env}'"))?;
         Ok(openrouter::Client::new(api_key)?)
@@ -72,7 +75,9 @@ impl ProviderFactory {
             ProviderKind::OpenAI => {
                 let client = Self::build_openai_client(config)?;
                 let agent = build_agent_with_tools(
-                    client.agent(config.model()).preamble(config.system_prompt()),
+                    client
+                        .agent(config.model())
+                        .preamble(config.system_prompt()),
                     tool_registry,
                     kernel,
                     config.max_turns(),
@@ -82,7 +87,9 @@ impl ProviderFactory {
             ProviderKind::OpenRouter => {
                 let client = Self::build_openrouter_client(config)?;
                 let agent = build_agent_with_tools(
-                    client.agent(config.model()).preamble(config.system_prompt()),
+                    client
+                        .agent(config.model())
+                        .preamble(config.system_prompt()),
                     tool_registry,
                     kernel,
                     config.max_turns(),
@@ -92,7 +99,9 @@ impl ProviderFactory {
             ProviderKind::Gemini => {
                 let client = Self::build_gemini_client(config)?;
                 let agent = build_agent_with_tools(
-                    client.agent(config.model()).preamble(config.system_prompt()),
+                    client
+                        .agent(config.model())
+                        .preamble(config.system_prompt()),
                     tool_registry,
                     kernel,
                     config.max_turns(),
@@ -143,6 +152,21 @@ impl ProviderAgent {
             ProviderAgent::OpenAI(agent) => Ok(agent.prompt(&prompt).await?),
             ProviderAgent::OpenRouter(agent) => Ok(agent.prompt(&prompt).await?),
             ProviderAgent::Gemini(agent) => Ok(agent.prompt(&prompt).await?),
+        }
+    }
+
+    pub async fn prompt_with_turns(
+        &self,
+        prompt: impl Into<String>,
+        max_turns: usize,
+    ) -> anyhow::Result<String> {
+        let prompt = prompt.into();
+        match self {
+            ProviderAgent::OpenAI(agent) => Ok(agent.prompt(&prompt).max_turns(max_turns).await?),
+            ProviderAgent::OpenRouter(agent) => {
+                Ok(agent.prompt(&prompt).max_turns(max_turns).await?)
+            }
+            ProviderAgent::Gemini(agent) => Ok(agent.prompt(&prompt).max_turns(max_turns).await?),
         }
     }
 }

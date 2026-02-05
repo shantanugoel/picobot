@@ -1,10 +1,10 @@
 use std::io::{self, Write};
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
 use crate::config::Config;
 use crate::kernel::kernel::Kernel;
 use crate::providers::factory::ProviderFactory;
+use anyhow::{Context, Result};
 
 pub async fn run(config: Config, kernel: Kernel) -> Result<()> {
     let kernel = Arc::new(kernel);
@@ -31,7 +31,10 @@ pub async fn run(config: Config, kernel: Kernel) -> Result<()> {
             break;
         }
 
-        let response = agent.prompt(prompt).await.context("prompt failed")?;
+        let response = agent
+            .prompt_with_turns(prompt, config.max_turns())
+            .await
+            .context("prompt failed")?;
         println!("{response}");
     }
 
