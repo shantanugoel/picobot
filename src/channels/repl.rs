@@ -2,7 +2,9 @@ use std::io::{self, Write};
 use std::sync::Arc;
 
 use crate::config::Config;
+use crate::channels::permissions::channel_profile;
 use crate::kernel::core::Kernel;
+use crate::kernel::permissions::{Permission, PermissionPrompter, PromptDecision};
 use crate::providers::factory::ProviderAgentBuilder;
 use anyhow::{Context, Result};
 use futures::StreamExt;
@@ -14,6 +16,7 @@ use rig::wasm_compat::WasmCompatSend;
 use crate::session::manager::SessionManager;
 use crate::session::memory::MemoryRetriever;
 use crate::session::types::{MessageType, StoredMessage};
+use async_trait::async_trait;
 
 async fn stream_prompt_to_stdout<M>(
     agent: &Agent<M>,
@@ -69,6 +72,35 @@ where
     Ok(acc)
 }
 
+struct ReplPrompter;
+
+#[async_trait]
+impl PermissionPrompter for ReplPrompter {
+    async fn prompt(
+        &self,
+        tool_name: &str,
+        permissions: &[Permission],
+        timeout_secs: u64,
+    ) -> Option<PromptDecision> {
+        println!("\nPermission required for tool '{tool_name}':");
+        for permission in permissions {
+            println!("- {permission}");
+        }
+        print!("Allow? [o]nce / [s]ession / [n]o (timeout {timeout_secs}s): ");
+        let _ = io::stdout().flush();
+        let mut input = String::new();
+        if io::stdin().read_line(&mut input).is_err() {
+            return None;
+        }
+        match input.trim().to_ascii_lowercase().as_str() {
+            "o" | "once" => Some(PromptDecision::AllowOnce),
+            "s" | "session" => Some(PromptDecision::AllowSession),
+            "n" | "no" => Some(PromptDecision::Deny),
+            _ => None,
+        }
+    }
+}
+
 pub async fn run(
     config: Config,
     kernel: Kernel,
@@ -80,7 +112,16 @@ pub async fn run(
     let session_id = std::env::var("PICOBOT_SESSION_ID")
         .ok()
         .unwrap_or_else(|| "repl:local".to_string());
-    let kernel = Arc::new(kernel.clone_with_context(Some(user_id), Some(session_id)));
+    let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let channel_id = "repl".to_string();
+    let profile = channel_profile(&config.channels(), &channel_id, &base_dir);
+    let kernel = Arc::new(
+        kernel
+            .clone_with_context(Some(user_id), Some(session_id))
+            .with_channel_id(Some(channel_id))
+            .with_prompt_profile(profile)
+            .with_prompter(Some(Arc::new(ReplPrompter))),
+    );
     let session_store = crate::session::db::SqliteStore::new(
         config
             .data_dir()
@@ -92,7 +133,13 @@ pub async fn run(
     let memory_config = config.memory();
     let session_manager = SessionManager::new(session_store.clone());
     let memory_retriever = MemoryRetriever::new(memory_config.clone(), session_store);
-    let agent = agent_builder.build(kernel.tool_registry(), kernel.clone(), config.max_turns());
+    let agent = if let Ok(router) = crate::providers::factory::ProviderFactory::build_agent_router(&config)
+        && !router.is_empty()
+    {
+        router.build_default(&config, kernel.tool_registry(), kernel.clone(), config.max_turns())?
+    } else {
+        agent_builder.build(kernel.tool_registry(), kernel.clone(), config.max_turns())
+    };
 
     println!("picobot repl (type 'exit' to quit)");
 

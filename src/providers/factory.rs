@@ -8,7 +8,7 @@ use rig::completion::Prompt;
 use rig::providers::{gemini, openai, openrouter};
 use rig::tool::ToolDyn;
 
-use crate::config::Config;
+use crate::config::{Config, ModelConfig};
 use crate::kernel::core::Kernel;
 use crate::tools::registry::ToolRegistry;
 use crate::tools::rig_wrapper::KernelBackedTool;
@@ -73,12 +73,16 @@ impl ProviderFactory {
         tool_registry: &ToolRegistry,
         kernel: Arc<Kernel>,
     ) -> Result<ProviderAgent> {
-        let builder = Self::build_agent_builder(config)?;
-        Ok(builder.build(tool_registry, kernel, config.max_turns()))
+        let router = Self::build_agent_router(config)?;
+        Ok(router.build_default(config, tool_registry, kernel, config.max_turns())?)
     }
 
     pub fn build_agent_builder(config: &Config) -> Result<ProviderAgentBuilder> {
         ProviderAgentBuilder::new(config)
+    }
+
+    pub fn build_agent_router(config: &Config) -> Result<ModelRouter> {
+        ModelRouter::new(config)
     }
 }
 
@@ -128,6 +132,26 @@ impl ProviderAgentBuilder {
         })
     }
 
+    pub fn from_model_config(model: &ModelConfig, fallback: &Config) -> Result<Self> {
+        let provider = model
+            .provider
+            .as_deref()
+            .unwrap_or_else(|| fallback.provider());
+        Ok(Self {
+            provider: ProviderKind::from_str(provider)?,
+            model: model.model.clone(),
+            system_prompt: model
+                .system_prompt
+                .clone()
+                .unwrap_or_else(|| fallback.system_prompt().to_string()),
+            base_url: model.base_url.clone().or_else(|| fallback.base_url.clone()),
+            api_key_env: model
+                .api_key_env
+                .clone()
+                .or_else(|| fallback.api_key_env.clone()),
+        })
+    }
+
     #[allow(dead_code)]
     pub fn from_parts(
         provider: ProviderKind,
@@ -143,6 +167,85 @@ impl ProviderAgentBuilder {
             base_url,
             api_key_env,
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct ModelRouter {
+    models: Vec<ModelConfig>,
+    default_id: Option<String>,
+}
+
+impl ModelRouter {
+    pub fn new(config: &Config) -> Result<Self> {
+        let models = config.models.clone().unwrap_or_default();
+        if models.is_empty() {
+            return Ok(Self {
+                models: Vec::new(),
+                default_id: None,
+            });
+        }
+        let mut seen = std::collections::HashSet::new();
+        for model in &models {
+            if model.id.trim().is_empty() {
+                return Err(anyhow::anyhow!("model id cannot be empty"));
+            }
+            if !seen.insert(model.id.clone()) {
+                return Err(anyhow::anyhow!("duplicate model id '{}'", model.id));
+            }
+        }
+        let default_id = match config.default_model_id() {
+            Some(id) if models.iter().any(|model| model.id == id) => Some(id.to_string()),
+            Some(_) => Some(models[0].id.clone()),
+            None => Some(models[0].id.clone()),
+        };
+        Ok(Self { models, default_id })
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.models.is_empty()
+    }
+
+    pub fn build_default(
+        &self,
+        fallback: &Config,
+        tool_registry: &ToolRegistry,
+        kernel: Arc<Kernel>,
+        max_turns: usize,
+    ) -> Result<ProviderAgent> {
+        if self.models.is_empty() {
+            let fallback = ProviderAgentBuilder::new(fallback)?;
+            return Ok(fallback.build(tool_registry, kernel, max_turns));
+        }
+        let model = if let Some(default_id) = &self.default_id {
+            self.models
+                .iter()
+                .find(|model| model.id == *default_id)
+                .unwrap_or(&self.models[0])
+        } else {
+            &self.models[0]
+        };
+        let max_turns = model.max_turns.unwrap_or(max_turns);
+        let builder = ProviderAgentBuilder::from_model_config(model, fallback)?;
+        Ok(builder.build(tool_registry, kernel, max_turns))
+    }
+
+    pub fn build_for_id(
+        &self,
+        model_id: &str,
+        fallback: &Config,
+        tool_registry: &ToolRegistry,
+        kernel: Arc<Kernel>,
+        max_turns: usize,
+    ) -> Result<ProviderAgent> {
+        let model = self
+            .models
+            .iter()
+            .find(|model| model.id == model_id)
+            .ok_or_else(|| anyhow::anyhow!("model id '{model_id}' not found"))?;
+        let max_turns = model.max_turns.unwrap_or(max_turns);
+        let builder = ProviderAgentBuilder::from_model_config(model, fallback)?;
+        Ok(builder.build(tool_registry, kernel, max_turns))
     }
 }
 

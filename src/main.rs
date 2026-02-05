@@ -81,6 +81,7 @@ fn resolve_working_path(base_dir: &std::path::Path, raw: &str) -> std::path::Pat
 async fn main() -> Result<()> {
     let config = Config::load()?;
     let agent_builder = ProviderFactory::build_agent_builder(&config)?;
+    let agent_router = ProviderFactory::build_agent_router(&config).ok();
     let kernel = build_kernel(&config, agent_builder.clone(), None)?;
     let scheduler = if config.scheduler().enabled() {
         let store = crate::session::db::SqliteStore::new(
@@ -97,6 +98,8 @@ async fn main() -> Result<()> {
             schedule_store.clone(),
             config.scheduler(),
             agent_builder.clone(),
+            agent_router.clone(),
+            config.clone(),
         );
         let scheduler = crate::scheduler::service::SchedulerService::new(
             schedule_store,

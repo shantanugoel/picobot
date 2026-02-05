@@ -31,11 +31,26 @@ pub struct ToolContext {
 #[derive(Debug, Clone)]
 pub struct ToolError {
     message: String,
+    required: Option<Vec<Permission>>,
 }
 
 impl ToolError {
     pub fn new(message: String) -> Self {
-        Self { message }
+        Self {
+            message,
+            required: None,
+        }
+    }
+
+    pub fn permission_denied(message: String, required: Vec<Permission>) -> Self {
+        Self {
+            message,
+            required: Some(required),
+        }
+    }
+
+    pub fn required_permissions(&self) -> Option<&[Permission]> {
+        self.required.as_deref()
     }
 }
 

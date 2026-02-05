@@ -32,6 +32,8 @@ fn scheduler_list_by_session_filters_results() {
         schedule_store.clone(),
         scheduler_config.clone(),
         agent_builder,
+        None,
+        picobot::config::Config::default(),
     );
     let scheduler = SchedulerService::new(schedule_store.clone(), executor, scheduler_config);
 

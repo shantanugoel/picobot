@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::channels::permissions::channel_profile;
 use crate::providers::factory::ProviderAgentBuilder;
 use anyhow::{Context, Result};
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
@@ -41,8 +42,16 @@ pub async fn serve(
     kernel: Kernel,
     agent_builder: ProviderAgentBuilder,
 ) -> Result<()> {
-    let kernel = Arc::new(kernel);
-    let agent = agent_builder.build(kernel.tool_registry(), kernel.clone(), config.max_turns());
+    let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let profile = channel_profile(&config.channels(), "api", &base_dir);
+    let kernel = Arc::new(kernel.with_prompt_profile(profile));
+    let agent = if let Ok(router) = crate::providers::factory::ProviderFactory::build_agent_router(&config)
+        && !router.is_empty()
+    {
+        router.build_default(&config, kernel.tool_registry(), kernel.clone(), config.max_turns())?
+    } else {
+        agent_builder.build(kernel.tool_registry(), kernel.clone(), config.max_turns())
+    };
     let state = AppState {
         agent: Arc::new(agent),
         max_turns: config.max_turns(),

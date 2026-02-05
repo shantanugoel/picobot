@@ -148,9 +148,9 @@ The previous implementation is preserved in `reference/` for guidance:
     - [x] Port memory retrieval for context
 
 5. **Configuration Expansion**
-   - [ ] Add multi-model configuration
-   - [ ] Add channel permissions (pre_authorized, max_allowed)
-   - [ ] Ask user (if allowed for channel via config, default enabled) for expanding permission 
+    - [x] Add multi-model configuration
+    - [x] Add channel permissions (pre_authorized, max_allowed)
+    - [x] Ask user (if allowed for channel via config, default enabled) for expanding permission 
 
 #### Milestone: Switch between providers, all tools working, streaming output.
 

@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::config::PermissionsConfig;
@@ -47,6 +48,42 @@ pub enum MemoryScope {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct CapabilitySet {
     permissions: HashSet<Permission>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChannelPermissionProfile {
+    pub pre_authorized: CapabilitySet,
+    pub max_allowed: CapabilitySet,
+    pub allow_user_prompts: bool,
+    pub prompt_timeout_secs: u64,
+}
+
+impl Default for ChannelPermissionProfile {
+    fn default() -> Self {
+        Self {
+            pre_authorized: CapabilitySet::empty(),
+            max_allowed: CapabilitySet::empty(),
+            allow_user_prompts: true,
+            prompt_timeout_secs: 30,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromptDecision {
+    AllowOnce,
+    AllowSession,
+    Deny,
+}
+
+#[async_trait]
+pub trait PermissionPrompter: Send + Sync {
+    async fn prompt(
+        &self,
+        tool_name: &str,
+        permissions: &[Permission],
+        timeout_secs: u64,
+    ) -> Option<PromptDecision>;
 }
 
 impl CapabilitySet {
@@ -132,6 +169,17 @@ impl CapabilitySet {
     }
 }
 
+pub fn parse_permission_with_base(value: &str, base_dir: &Path) -> Result<Permission, String> {
+    let mut permission = value.trim().parse::<Permission>()?;
+    match &mut permission {
+        Permission::FileRead { path } | Permission::FileWrite { path } => {
+            path.0 = resolve_permission_path(base_dir, &path.0);
+        }
+        _ => {}
+    }
+    Ok(permission)
+}
+
 impl PathPattern {
     pub fn matches(&self, path: &Path) -> bool {
         let value = path.to_string_lossy();
@@ -163,7 +211,7 @@ fn expand_tilde(value: &str) -> String {
     value.to_string()
 }
 
-fn resolve_permission_path(base_dir: &Path, raw: &str) -> String {
+pub(crate) fn resolve_permission_path(base_dir: &Path, raw: &str) -> String {
     let expanded = if (raw == "~" || raw.starts_with("~/"))
         && let Some(home) = dirs::home_dir()
     {
@@ -183,6 +231,27 @@ fn resolve_permission_path(base_dir: &Path, raw: &str) -> String {
     };
 
     normalize_path(&resolved).to_string_lossy().to_string()
+}
+
+impl std::fmt::Display for Permission {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Permission::FileRead { path } => write!(f, "filesystem:read:{}", path.0),
+            Permission::FileWrite { path } => write!(f, "filesystem:write:{}", path.0),
+            Permission::NetAccess { domain } => write!(f, "net:{}", domain.0),
+            Permission::ShellExec { allowed_commands } => match allowed_commands {
+                None => write!(f, "shell:*"),
+                Some(commands) => write!(f, "shell:{}", commands.join(",")),
+            },
+            Permission::MemoryRead { scope } => {
+                write!(f, "memory:read:{}", memory_scope_label(*scope))
+            }
+            Permission::MemoryWrite { scope } => {
+                write!(f, "memory:write:{}", memory_scope_label(*scope))
+            }
+            Permission::Schedule { action } => write!(f, "schedule:{}", action),
+        }
+    }
 }
 
 fn normalize_path(path: &Path) -> std::path::PathBuf {
@@ -316,6 +385,14 @@ fn parse_memory_scope(value: &str) -> Result<MemoryScope, String> {
         "user" => Ok(MemoryScope::User),
         "global" => Ok(MemoryScope::Global),
         _ => Err(format!("invalid memory scope '{value}'")),
+    }
+}
+
+fn memory_scope_label(scope: MemoryScope) -> &'static str {
+    match scope {
+        MemoryScope::Session => "session",
+        MemoryScope::User => "user",
+        MemoryScope::Global => "global",
     }
 }
 

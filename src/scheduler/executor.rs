@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::SchedulerConfig;
 use crate::kernel::core::Kernel;
-use crate::providers::factory::ProviderAgentBuilder;
+use crate::providers::factory::{ModelRouter, ProviderAgentBuilder};
 use crate::scheduler::job::{ExecutionStatus, JobExecution, ScheduledJob};
 use crate::scheduler::service::next_cron_occurrence;
 use crate::scheduler::store::ScheduleStore;
@@ -18,6 +18,8 @@ pub struct JobExecutor {
     config: SchedulerConfig,
     running: Arc<DashMap<String, CancellationToken>>,
     agent_builder: ProviderAgentBuilder,
+    router: Option<ModelRouter>,
+    fallback_config: crate::config::Config,
 }
 
 impl JobExecutor {
@@ -26,6 +28,8 @@ impl JobExecutor {
         store: ScheduleStore,
         config: SchedulerConfig,
         agent_builder: ProviderAgentBuilder,
+        router: Option<ModelRouter>,
+        fallback_config: crate::config::Config,
     ) -> Self {
         Self {
             kernel,
@@ -33,6 +37,8 @@ impl JobExecutor {
             config,
             running: Arc::new(DashMap::new()),
             agent_builder,
+            router,
+            fallback_config,
         }
     }
 
@@ -156,13 +162,41 @@ impl JobExecutor {
             .with_capabilities(job.capabilities.clone())
             .with_scheduled_job_mode(true)
             .with_channel_id(job.channel_id.clone());
-
-        let agent = self.agent_builder.clone().build_with_env(
-            scoped_kernel.tool_registry(),
-            Arc::new(scoped_kernel.clone()),
-            8,
-            |key| std::env::var(key).ok(),
+        let channel_id = job.channel_id.clone().unwrap_or_else(|| "scheduler".to_string());
+        let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let profile = crate::channels::permissions::channel_profile(
+            &self.fallback_config.channels(),
+            &channel_id,
+            &base_dir,
         );
+        let scoped_kernel = scoped_kernel.with_prompt_profile(profile);
+
+        let agent = if let Some(router) = self.router.as_ref()
+            && !router.is_empty()
+        {
+            router
+                .build_default(
+                    &self.fallback_config,
+                    scoped_kernel.tool_registry(),
+                    Arc::new(scoped_kernel.clone()),
+                    8,
+                )
+                .unwrap_or_else(|_| {
+                    self.agent_builder.clone().build_with_env(
+                        scoped_kernel.tool_registry(),
+                        Arc::new(scoped_kernel.clone()),
+                        8,
+                        |key| std::env::var(key).ok(),
+                    )
+                })
+        } else {
+            self.agent_builder.clone().build_with_env(
+                scoped_kernel.tool_registry(),
+                Arc::new(scoped_kernel.clone()),
+                8,
+                |key| std::env::var(key).ok(),
+            )
+        };
         let response = agent.prompt_with_turns(job.task_prompt.clone(), 8).await;
 
         match response {

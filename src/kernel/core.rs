@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use crate::kernel::permissions::CapabilitySet;
+use crate::kernel::permissions::{CapabilitySet, ChannelPermissionProfile, PermissionPrompter};
 use crate::scheduler::service::SchedulerService;
 use crate::tools::registry::ToolRegistry;
 use crate::tools::traits::{ToolContext, ToolError, ToolExecutor, ToolOutput};
@@ -11,6 +11,9 @@ use crate::tools::traits::{ToolContext, ToolError, ToolExecutor, ToolOutput};
 pub struct Kernel {
     tool_registry: Arc<ToolRegistry>,
     context: ToolContext,
+    prompt_profile: ChannelPermissionProfile,
+    prompter: Option<Arc<dyn PermissionPrompter>>,
+    session_grants: Arc<std::sync::RwLock<CapabilitySet>>,
 }
 
 impl Kernel {
@@ -30,11 +33,28 @@ impl Kernel {
                 timezone_offset: "+00:00".to_string(),
                 timezone_name: "UTC".to_string(),
             },
+            prompt_profile: ChannelPermissionProfile::default(),
+            prompter: None,
+            session_grants: Arc::new(std::sync::RwLock::new(CapabilitySet::empty())),
         }
     }
 
     pub fn with_capabilities(mut self, capabilities: CapabilitySet) -> Self {
         self.context.capabilities = Arc::new(capabilities);
+        self
+    }
+
+    pub fn with_prompt_profile(mut self, profile: ChannelPermissionProfile) -> Self {
+        self.prompt_profile = profile;
+        self
+    }
+
+    pub fn prompt_profile(&self) -> &ChannelPermissionProfile {
+        &self.prompt_profile
+    }
+
+    pub fn with_prompter(mut self, prompter: Option<Arc<dyn PermissionPrompter>>) -> Self {
+        self.prompter = prompter;
         self
     }
 
@@ -77,6 +97,9 @@ impl Kernel {
         Self {
             tool_registry: Arc::clone(&self.tool_registry),
             context,
+            prompt_profile: self.prompt_profile.clone(),
+            prompter: self.prompter.clone(),
+            session_grants: Arc::clone(&self.session_grants),
         }
     }
 
@@ -108,6 +131,18 @@ impl Kernel {
         self.invoke_tool(tool.as_ref(), input).await
     }
 
+    pub async fn invoke_tool_with_prompt_by_name(
+        &self,
+        name: &str,
+        input: Value,
+    ) -> Result<ToolOutput, ToolError> {
+        let tool = self
+            .tool_registry
+            .get(name)
+            .ok_or_else(|| ToolError::new(format!("unknown tool '{name}'")))?;
+        self.invoke_tool_with_prompt(tool.as_ref(), input).await
+    }
+
     pub async fn invoke_tool_with_grants(
         &self,
         tool: &dyn ToolExecutor,
@@ -125,10 +160,22 @@ impl Kernel {
                     || extra_grants
                         .map(|grants| grants.allows_any(&required))
                         .unwrap_or(false)
+                    || self.prompt_profile.pre_authorized.allows_any(&required)
+                    || self
+                        .session_grants
+                        .read()
+                        .map(|grants| grants.allows_any(&required))
+                        .unwrap_or(false)
             }
             _ => {
                 self.context.capabilities.allows_all(&required)
                     || extra_grants
+                        .map(|grants| grants.allows_all(&required))
+                        .unwrap_or(false)
+                    || self.prompt_profile.pre_authorized.allows_all(&required)
+                    || self
+                        .session_grants
+                        .read()
                         .map(|grants| grants.allows_all(&required))
                         .unwrap_or(false)
             }
@@ -136,10 +183,10 @@ impl Kernel {
             .iter()
             .all(|permission| permission.is_auto_granted(&self.context));
         if !allowed {
-            return Err(ToolError::new(format!(
-                "permission denied for tool '{}'",
-                tool.spec().name
-            )));
+            return Err(ToolError::permission_denied(
+                format!("permission denied for tool '{}'", tool.spec().name),
+                required,
+            ));
         }
         if let Some(grants) = extra_grants {
             let mut merged = self.context.capabilities.as_ref().clone();
@@ -151,6 +198,64 @@ impl Kernel {
             tool.execute(&scoped, input).await
         } else {
             tool.execute(&self.context, input).await
+        }
+    }
+
+    pub async fn invoke_tool_with_prompt(
+        &self,
+        tool: &dyn ToolExecutor,
+        input: Value,
+    ) -> Result<ToolOutput, ToolError> {
+        match self.invoke_tool(tool, input.clone()).await {
+            Ok(output) => Ok(output),
+            Err(err) => {
+                let required = match err.required_permissions() {
+                    Some(required) => required,
+                    None => return Err(err),
+                };
+                if !self.prompt_profile.allow_user_prompts
+                    || self.context.scheduled_job
+                    || required.iter().all(|permission| permission.is_auto_granted(&self.context))
+                {
+                    return Err(err);
+                }
+                let promptable = match tool.spec().name.as_str() {
+                    "schedule" => self.prompt_profile.max_allowed.allows_any(required),
+                    _ => self.prompt_profile.max_allowed.allows_all(required),
+                };
+                if !promptable {
+                    return Err(err);
+                }
+                let prompter = match self.prompter.as_ref() {
+                    Some(prompter) => prompter.clone(),
+                    None => return Err(err),
+                };
+                let decision = prompter
+                    .prompt(
+                        tool.spec().name.as_str(),
+                        required,
+                        self.prompt_profile.prompt_timeout_secs,
+                    )
+                    .await;
+                match decision {
+                    Some(crate::kernel::permissions::PromptDecision::AllowOnce) => {
+                        let mut grants = CapabilitySet::from_permissions(required);
+                        for permission in self.prompt_profile.pre_authorized.permissions() {
+                            grants.insert(permission.clone());
+                        }
+                        self.invoke_tool_with_grants(tool, input, Some(&grants)).await
+                    }
+                    Some(crate::kernel::permissions::PromptDecision::AllowSession) => {
+                        if let Ok(mut session_grants) = self.session_grants.write() {
+                            for permission in required {
+                                session_grants.insert(permission.clone());
+                            }
+                        }
+                        self.invoke_tool(tool, input).await
+                    }
+                    _ => Err(err),
+                }
+            }
         }
     }
 }

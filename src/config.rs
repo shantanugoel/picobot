@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -16,6 +17,9 @@ pub struct Config {
     pub permissions: Option<PermissionsConfig>,
     pub scheduler: Option<SchedulerConfig>,
     pub memory: Option<MemoryConfig>,
+    pub models: Option<Vec<ModelConfig>>,
+    pub routing: Option<RoutingConfig>,
+    pub channels: Option<ChannelsConfig>,
 }
 
 impl Config {
@@ -77,6 +81,16 @@ impl Config {
     pub fn memory(&self) -> MemoryConfig {
         self.memory.clone().unwrap_or_default()
     }
+
+    pub fn channels(&self) -> ChannelsConfig {
+        self.channels.clone().unwrap_or_default()
+    }
+
+    pub fn default_model_id(&self) -> Option<&str> {
+        self.routing
+            .as_ref()
+            .and_then(|routing| routing.default_model.as_deref())
+    }
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -130,6 +144,45 @@ pub struct MemoryConfig {
     pub max_user_memories: Option<usize>,
     pub include_summary_on_truncation: Option<bool>,
     pub include_tool_messages: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct ModelConfig {
+    pub id: String,
+    pub provider: Option<String>,
+    pub model: String,
+    pub base_url: Option<String>,
+    pub api_key_env: Option<String>,
+    pub system_prompt: Option<String>,
+    pub max_turns: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct RoutingConfig {
+    pub default_model: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct ChannelsConfig {
+    pub profiles: HashMap<String, ChannelConfig>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct ChannelConfig {
+    pub pre_authorized: Option<Vec<String>>,
+    pub max_allowed: Option<Vec<String>>,
+    pub allow_user_prompts: Option<bool>,
+    pub prompt_timeout_secs: Option<u64>,
+}
+
+impl ChannelConfig {
+    pub fn allow_user_prompts(&self) -> bool {
+        self.allow_user_prompts.unwrap_or(true)
+    }
+
+    pub fn prompt_timeout_secs(&self) -> u64 {
+        self.prompt_timeout_secs.unwrap_or(30)
+    }
 }
 
 impl MemoryConfig {

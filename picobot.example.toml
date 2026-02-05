@@ -5,8 +5,24 @@ max_turns = 5
 bind = "127.0.0.1:8080"
 data_dir = "./data"
 
+# Optional multi-model configuration
+# [[models]]
+# id = "fast"
+# provider = "openai"
+# model = "gpt-4o-mini"
+# max_turns = 8
+#
+# [[models]]
+# id = "router"
+# provider = "openrouter"
+# model = "openai/gpt-4o-mini"
+# api_key_env = "OPENROUTER_API_KEY"
+#
+# [routing]
+# default_model = "fast"
+
 [permissions.filesystem]
-read_paths = ["./data/**", "./config.example.toml"]
+read_paths = ["./data/**", "./picobot.example.toml"]
 write_paths = ["./data/**"]
 jail_root = "./data"
 
@@ -21,6 +37,22 @@ allowed_actions = ["create", "list", "cancel"]
 
 [scheduler]
 enabled = true
+
+# Optional channel-specific permissions and prompts
+[channels.profiles.repl]
+pre_authorized = ["memory:read:session", "memory:write:session"]
+max_allowed = [
+  "filesystem:read:./data/**",
+  "filesystem:write:./data/**",
+  "shell:git,rg",
+  "schedule:*"
+]
+allow_user_prompts = true
+prompt_timeout_secs = 60
+
+[channels.profiles.api]
+pre_authorized = ["memory:read:session", "memory:write:session"]
+allow_user_prompts = false
 
 # OpenRouter example
 # provider = "openrouter"

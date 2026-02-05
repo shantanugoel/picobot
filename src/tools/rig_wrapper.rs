@@ -49,7 +49,7 @@ impl ToolDyn for KernelBackedTool {
                 serde_json::from_str(&args).map_err(rig::tool::ToolError::JsonError)?;
             let output = self
                 .kernel
-                .invoke_tool_by_name(&self.spec.name, parsed)
+                .invoke_tool_with_prompt_by_name(&self.spec.name, parsed)
                 .await
                 .map_err(|err| rig::tool::ToolError::ToolCallError(Box::new(err)))?;
             serde_json::to_string(&output).map_err(rig::tool::ToolError::JsonError)
