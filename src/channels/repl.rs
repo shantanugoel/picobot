@@ -2,8 +2,6 @@ use std::io::{self, Write};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use rig::completion::Prompt;
-
 use crate::config::Config;
 use crate::kernel::kernel::Kernel;
 use crate::providers::factory::ProviderFactory;
@@ -33,11 +31,7 @@ pub async fn run(config: Config, kernel: Kernel) -> Result<()> {
             break;
         }
 
-        let response = agent
-            .prompt(prompt)
-            .max_turns(config.max_turns())
-            .await
-            .context("prompt failed")?;
+        let response = agent.prompt(prompt).await.context("prompt failed")?;
         println!("{response}");
     }
 

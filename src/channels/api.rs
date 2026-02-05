@@ -2,9 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
-use rig::agent::Agent;
-use rig::completion::Prompt;
-use rig::providers::openai;
+use crate::providers::factory::ProviderAgent;
 use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
@@ -23,8 +21,7 @@ struct PromptResponse {
 
 #[derive(Clone)]
 struct AppState {
-    agent: Arc<Agent<openai::responses_api::ResponsesCompletionModel>>,
-    max_turns: usize,
+    agent: Arc<ProviderAgent>,
 }
 
 async fn prompt_handler(
@@ -34,7 +31,6 @@ async fn prompt_handler(
     let response = state
         .agent
         .prompt(payload.prompt)
-        .max_turns(state.max_turns)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
     Ok(Json(PromptResponse { response }))
@@ -45,7 +41,6 @@ pub async fn serve(config: Config, kernel: Kernel) -> Result<()> {
     let agent = ProviderFactory::build_agent(&config, kernel.tool_registry(), kernel.clone())?;
     let state = AppState {
         agent: Arc::new(agent),
-        max_turns: config.max_turns(),
     };
 
     let app = Router::new()

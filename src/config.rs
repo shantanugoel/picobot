@@ -80,6 +80,7 @@ pub struct PermissionsConfig {
 pub struct FilesystemPermissions {
     pub read_paths: Vec<String>,
     pub write_paths: Vec<String>,
+    pub jail_root: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]

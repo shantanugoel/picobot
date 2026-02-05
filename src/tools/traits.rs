@@ -17,6 +17,7 @@ pub struct ToolContext {
     pub user_id: Option<String>,
     pub session_id: Option<String>,
     pub working_dir: std::path::PathBuf,
+    pub jail_root: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone)]

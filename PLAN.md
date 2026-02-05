@@ -108,7 +108,7 @@ The previous implementation is preserved in `reference/` for guidance:
 4. **Provider Setup** (`src/providers/`)
     - [x] Create `factory.rs` for building rig-core clients
     - [x] Support OpenAI provider with configurable base_url
-    - [ ] Support OpenRouter provider (OpenAI-compatible)
+    - [x] Support OpenRouter provider (OpenAI-compatible)
     - [x] Create agent builder function
 
 5. **Initial Interface** (`src/channels/`)
@@ -118,7 +118,7 @@ The previous implementation is preserved in `reference/` for guidance:
 
 6. **Configuration** (`src/config.rs`)
     - [x] Port minimal config (model, permissions, data dir)
-    - [ ] Add optional `jail_root` for filesystem tools
+    - [x] Add optional `jail_root` for filesystem tools
 
 #### Milestone: Run `cargo run`, chat with agent, execute filesystem tool
 
@@ -129,8 +129,8 @@ The previous implementation is preserved in `reference/` for guidance:
 #### Tasks
 
 1. **Additional Providers**
-    - [ ] Add Gemini client
-    - [ ] Create provider routing based on config
+    - [x] Add Gemini client
+    - [x] Create provider routing based on config
 
 2. **Complete Tool Set**
     - [ ] Port `shell.rs` (command execution)

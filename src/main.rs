@@ -17,9 +17,33 @@ fn build_kernel(config: &Config) -> Result<Kernel> {
     let mut registry = ToolRegistry::new();
     registry.register(std::sync::Arc::new(FilesystemTool::new()))?;
     let capabilities = CapabilitySet::from_config(&config.permissions());
+    let jail_root = config
+        .permissions()
+        .filesystem
+        .and_then(|filesystem| filesystem.jail_root)
+        .map(|path| {
+            let expanded = if path.starts_with('~') {
+                if path == "~" || path.starts_with("~/") {
+                    if let Some(home) = dirs::home_dir() {
+                        let trimmed = path.trim_start_matches('~');
+                        home.join(trimmed.trim_start_matches('/'))
+                            .to_string_lossy()
+                            .to_string()
+                    } else {
+                        path
+                    }
+                } else {
+                    path
+                }
+            } else {
+                path
+            };
+            std::path::PathBuf::from(expanded)
+        });
     let kernel = Kernel::new(registry)
         .with_capabilities(capabilities)
-        .with_working_dir(config.data_dir());
+        .with_working_dir(config.data_dir())
+        .with_jail_root(jail_root);
     Ok(kernel)
 }
 

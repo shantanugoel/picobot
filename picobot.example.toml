@@ -1,0 +1,27 @@
+provider = "openai"
+model = "gpt-4o-mini"
+system_prompt = "You are PicoBot, a helpful assistant."
+max_turns = 5
+bind = "127.0.0.1:8080"
+data_dir = "./data"
+
+[permissions.filesystem]
+read_paths = ["./data/**", "./config.example.toml"]
+write_paths = ["./data/**"]
+jail_root = "./data"
+
+[permissions.network]
+allowed_domains = ["api.github.com"]
+
+[permissions.shell]
+allowed_commands = ["git", "rg"]
+
+# OpenRouter example
+# provider = "openrouter"
+# model = "openai/gpt-4o-mini"
+# api_key_env = "OPENROUTER_API_KEY"
+
+# Gemini example
+# provider = "gemini"
+# model = "gemini-1.5-flash"
+# api_key_env = "GEMINI_API_KEY"

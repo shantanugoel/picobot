@@ -21,6 +21,7 @@ impl Kernel {
                 session_id: None,
                 working_dir: std::env::current_dir()
                     .unwrap_or_else(|_| std::path::PathBuf::from(".")),
+                jail_root: None,
             },
         }
     }
@@ -32,6 +33,11 @@ impl Kernel {
 
     pub fn with_working_dir(mut self, working_dir: std::path::PathBuf) -> Self {
         self.context.working_dir = working_dir;
+        self
+    }
+
+    pub fn with_jail_root(mut self, jail_root: Option<std::path::PathBuf>) -> Self {
+        self.context.jail_root = jail_root;
         self
     }
 
@@ -48,6 +54,15 @@ impl Kernel {
     pub fn clone_with_working_dir(&self, working_dir: std::path::PathBuf) -> Self {
         let mut context = self.context.clone();
         context.working_dir = working_dir;
+        Self {
+            tool_registry: Arc::clone(&self.tool_registry),
+            context,
+        }
+    }
+
+    pub fn clone_with_jail_root(&self, jail_root: Option<std::path::PathBuf>) -> Self {
+        let mut context = self.context.clone();
+        context.jail_root = jail_root;
         Self {
             tool_registry: Arc::clone(&self.tool_registry),
             context,

@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use crate::kernel::permissions::{PathPattern, Permission};
 use crate::tools::traits::{ToolContext, ToolError, ToolExecutor, ToolOutput, ToolSpec};
@@ -58,7 +58,7 @@ impl ToolExecutor for FilesystemTool {
             .and_then(Value::as_str)
             .ok_or_else(|| ToolError::new("missing path".to_string()))?;
 
-        let resolved = resolve_path(&ctx.working_dir, path)?;
+        let resolved = resolve_path(&ctx.working_dir, ctx.jail_root.as_deref(), path)?;
         let canonical = if resolved.exists() {
             resolved
                 .canonicalize()
@@ -85,7 +85,7 @@ impl ToolExecutor for FilesystemTool {
             .and_then(Value::as_str)
             .ok_or_else(|| ToolError::new("missing path".to_string()))?;
 
-        let resolved = resolve_path(&ctx.working_dir, path)?;
+        let resolved = resolve_path(&ctx.working_dir, ctx.jail_root.as_deref(), path)?;
         match operation {
             "read" => {
                 let data = std::fs::read_to_string(&resolved)
@@ -110,7 +110,11 @@ impl ToolExecutor for FilesystemTool {
     }
 }
 
-fn resolve_path(working_dir: &Path, raw: &str) -> Result<PathBuf, ToolError> {
+fn resolve_path(
+    working_dir: &Path,
+    jail_root: Option<&Path>,
+    raw: &str,
+) -> Result<PathBuf, ToolError> {
     let expanded = if raw.starts_with('~') {
         if raw == "~" || raw.starts_with("~/") {
             if let Some(home) = dirs::home_dir() {
@@ -132,7 +136,35 @@ fn resolve_path(working_dir: &Path, raw: &str) -> Result<PathBuf, ToolError> {
         working_dir.join(expanded)
     };
 
-    Ok(normalize_path(&resolved))
+    let resolved = normalize_path(&resolved);
+    if let Some(jail_root) = jail_root {
+        let jail_root = jail_root
+            .canonicalize()
+            .map_err(|err| ToolError::new(format!("invalid jail_root: {err}")))?;
+        let candidate = if resolved.exists() {
+            resolved
+                .canonicalize()
+                .map_err(|err| ToolError::new(err.to_string()))?
+        } else if let Some(parent) = resolved.parent() {
+            let parent = parent
+                .canonicalize()
+                .map_err(|err| ToolError::new(err.to_string()))?;
+            match resolved.file_name() {
+                Some(name) => parent.join(name),
+                None => parent,
+            }
+        } else {
+            resolved.clone()
+        };
+        if !candidate.starts_with(&jail_root) {
+            return Err(ToolError::new(format!(
+                "path escapes jail_root: {}",
+                candidate.display()
+            )));
+        }
+    }
+
+    Ok(resolved)
 }
 
 fn normalize_path(path: &Path) -> PathBuf {
@@ -151,7 +183,7 @@ fn normalize_path(path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{FilesystemTool, normalize_path, resolve_path};
+    use super::{normalize_path, resolve_path, FilesystemTool};
     use crate::kernel::permissions::{CapabilitySet, Permission};
     use crate::tools::traits::{ToolContext, ToolExecutor};
     use serde_json::json;
@@ -165,8 +197,34 @@ mod tests {
 
     #[test]
     fn resolve_path_expands_relative() {
-        let resolved = resolve_path(std::path::Path::new("/tmp"), "nested/file.txt").unwrap();
+        let resolved = resolve_path(std::path::Path::new("/tmp"), None, "nested/file.txt").unwrap();
         assert_eq!(resolved.to_string_lossy(), "/tmp/nested/file.txt");
+    }
+
+    #[test]
+    fn resolve_path_enforces_jail_root() {
+        let jail_root = std::env::temp_dir().join(format!("picobot-jail-{}", uuid::Uuid::new_v4()));
+        let inside = jail_root.join("inside");
+        let outside =
+            std::env::temp_dir().join(format!("picobot-outside-{}", uuid::Uuid::new_v4()));
+
+        std::fs::create_dir_all(&inside).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+
+        let jail_root = jail_root.canonicalize().unwrap();
+        let allowed = resolve_path(&inside, Some(&jail_root), "file.txt").unwrap();
+        let allowed_parent = allowed.parent().unwrap().canonicalize().unwrap();
+        assert!(allowed_parent.starts_with(&jail_root));
+
+        let denied = resolve_path(
+            &inside,
+            Some(&jail_root),
+            outside.to_string_lossy().as_ref(),
+        );
+        assert!(denied.is_err());
+
+        let _ = std::fs::remove_dir_all(&jail_root);
+        let _ = std::fs::remove_dir_all(&outside);
     }
 
     #[test]
@@ -177,6 +235,7 @@ mod tests {
             capabilities: std::sync::Arc::new(CapabilitySet::empty()),
             user_id: None,
             session_id: None,
+            jail_root: None,
         };
 
         let read = tool
