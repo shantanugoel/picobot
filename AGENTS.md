@@ -6,21 +6,13 @@ This file provides guidance for AI agents working on the PicoBot rewrite. Read `
 
 **This is a ground-up rewrite.** The previous implementation is in `reference/` for guidance only.
 
+### Guidelines
+- While porting any changes from reference, remember that we should not port them as is. Many of the hacks/workarounds etc might be taken care of by rig-core so we need to think through thoroughly and then write the code.
+- Whenever you make a change, make sure to check for warnings/errors/tests by running `cargo check`, `cargo clippy`, `cargo test`
+- Always use latest versions of any rust crates
+
+
 ## Quick Reference
-
-```bash
-# Check code compiles
-cargo check
-
-# Lint (must pass with no warnings)
-cargo clippy -- -D warnings
-
-# Run tests
-cargo test
-
-# Run the application
-cargo run
-```
 
 ## Core Principles
 

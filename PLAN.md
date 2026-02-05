@@ -136,7 +136,7 @@ The previous implementation is preserved in `reference/` for guidance:
 2. **Complete Tool Set**
    - [ ] Port `shell.rs` (command execution)
    - [ ] Port `http.rs` (HTTP fetch)
-   - [ ] Port `schedule.rs` (scheduling - if needed)
+   - [ ] Port `schedule.rs` (scheduling)
 
 3. **Streaming Support**
    - [ ] Implement streaming output to CLI
@@ -349,15 +349,6 @@ uuid = { version = "1", features = ["v4"] }
 | Permission bypass | Kernel-only execution, thorough testing |
 | Missing features | Check reference before implementing |
 | Performance regression | Benchmark streaming paths |
-
-## Open Questions
-
-1. Should we support the server/API mode in initial rewrite, or focus on TUI first?
-Answer: Focus on server first with whatsapp integration
-2. Is WhatsApp integration needed immediately, or can it wait?
-Answer: Immediately
-3. Do we need the scheduler/heartbeats functionality?
-Answer: Scheduler is needed but explore if there's a better way than rolling our own. If not then we can do our own
 
 ## Getting Started
 
