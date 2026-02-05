@@ -154,33 +154,29 @@ The previous implementation is preserved in `reference/` for guidance:
 
 #### Milestone: Switch between providers, all tools working, streaming output.
 
-### Phase 3: Server Channels & Integration (Week 5-6)
+### Phase 3: WhatsApp & Robustness (Week 5-6)
 
-**Goal**: Robust server-based interaction and production readiness.
+**Goal**: Production-ready WhatsApp channel and core reliability.
 
 #### Tasks
 
-1. **Server Core** (`src/channels/`)
-   - [ ] Implement Axum-based REST API
-   - [ ] WebSocket server for real-time streaming tokens
-
-2. **WhatsApp Integration**
+1. **WhatsApp Integration**
    - [ ] Implement WhatsApp adapter (using whatsapp-rust. Take hint from reference)
    - [ ] Handle media/document processing for tools
    - [ ] Session management for concurrent users
 
-3. **Robustness**
+2. **Robustness**
    - [ ] Error handling and recovery
    - [ ] Gracefully recover from upstream errors instead of crashing out
    - [ ] Logging and audit trail
    - [ ] Configuration validation
 
-4. **Testing**
+3. **Testing**
    - [ ] Unit tests for Kernel
    - [ ] Unit tests for permissions
    - [ ] Integration tests for tool execution
 
-5. **Documentation**
+4. **Documentation**
    - [ ] Update README.md
    - [ ] Configuration reference
 
@@ -212,13 +208,17 @@ The previous implementation is preserved in `reference/` for guidance:
    - [ ] Log approval decisions with context
    - [ ] Security-focused documentation updates
 
-### Phase 5: Advanced Tools (Future)
+### Phase 5: Server Channels & Advanced Tools (Future)
 
-**Goal**: Add higher-complexity tools behind hardened boundaries.
+**Goal**: Add REST/WS channels and higher-complexity tools behind hardened boundaries.
 
 #### Tasks
 
-1. **Remote Browser Tool**
+1. **Server Core** (`src/channels/`)
+   - [ ] Implement Axum-based REST API
+   - [ ] WebSocket server for real-time streaming tokens
+
+2. **Remote Browser Tool**
    - [ ] Containerized headless Chrome/Chromium
    - [ ] WebSocket control interface for browser actions
    - [ ] Screenshot and DOM extraction support
