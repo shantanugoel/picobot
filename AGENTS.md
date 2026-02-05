@@ -1,82 +1,208 @@
 # PicoBot Agent Guide
 
-This file is a concise, project-specific guide for AI agents working in this repo. It focuses on invariants, architecture, and non-obvious constraints.
+This file provides guidance for AI agents working on the PicoBot rewrite. Read `PLAN.md` for the full implementation plan.
 
-## Working Guidelines
-- Always use latest versions of any rust crates
-- Whenever you make any changes, make sure there are no errors or warnings by running `cargo check` and `cargo clippy` and that all tests pass by running `cargo tests`
+## Project Status
 
-## Architecture Summary
+**This is a ground-up rewrite.** The previous implementation is in `reference/` for guidance only.
 
-- **Kernel**: Single enforcement point for permissions, scheduling, and tool invocation (`Kernel::invoke_tool*`).
-- **Tools**: Declare schema and required permissions; never self-authorize.
-- **Models**: OpenAI-compatible provider adapter with routing and streaming.
-- **Channels**: API, WebSocket, and WhatsApp adapters normalize inbound/outbound messages.
-- **Sessions**: Persistent storage, retention, and memory summarization.
-- **Scheduler**: Schedule store, executor, quotas, and heartbeats registration.
-- **Notifications/Delivery**: Async queues and outbound delivery tracking.
-- **CLI**: Ratatui TUI with permission prompt flow and streaming output.
+## Quick Reference
 
-```
-User/Client
-  |\
-  | \-> TUI --------> Kernel ----> Model Router ---> Provider
-  |                          |\
-  |                          | \-> Tools (schema + permissions)
-  |                          | \-> Scheduler -> Store/Executions
-  |                          | \-> Sessions/Memory -> SQLite
-  |                          | \-> Notifications/Delivery
-  |\
-  | \-> API/WS/WhatsApp -> Adapters -> Kernel
-  |
-  \-> /metrics, /status -> Server
+```bash
+# Check code compiles
+cargo check
+
+# Lint (must pass with no warnings)
+cargo clippy -- -D warnings
+
+# Run tests
+cargo test
+
+# Run the application
+cargo run
 ```
 
-## Core Invariants (Do Not Break)
+## Core Principles
 
-- All tool input must be schema-validated before execution.
-- All tool calls must be permission-checked via the kernel.
-- Tool output is wrapped as untrusted data before being re-fed to the model.
-- Capability checks are allowlist-based; no implicit grants.
+### 1. Rig-Core is the Foundation
 
-## Where To Make Changes
+We use `rig-core` for:
+- AI provider abstraction (OpenAI, Anthropic, Gemini, OpenRouter)
+- Tool calling via the `Tool` trait
+- Agent orchestration via `multi_turn()`
+- Streaming via `stream_prompt()`
 
-- **Tool execution + permissions**: `src/kernel/agent.rs`, `src/kernel/agent_loop.rs`
-- **Capabilities + matching**: `src/kernel/permissions.rs`
-- **Tool schemas + behavior**: `src/tools/*.rs`
-- **Model adapters**: `src/models/openai_compat.rs`
-- **Routing**: `src/models/router.rs`
-- **TUI command surface**: `src/cli/tui.rs`, `src/main.rs`
-- **Heartbeats**: `src/heartbeats/mod.rs`, `src/config.rs`, `src/main.rs`
+**DO NOT** implement custom agent loops or message sanitization - rig-core handles this.
 
-## Permission Flow (End-to-End)
+### 2. Kernel is the Single Enforcement Point
 
-1. Tool input is validated by `ToolRegistry::validate_input`.
-2. Required permissions are computed by the tool via `required_permissions`.
-3. Kernel checks `CapabilitySet::allows_all` and optional session grants.
-4. TUI may request a temporary permission decision (once/session/deny).
+All tool execution MUST go through the Kernel:
 
-Any bypass or duplication of these steps is a security defect.
+```rust
+// CORRECT: Tool delegates to Kernel
+impl Tool for KernelBackedTool {
+    async fn call(&self, args: Value) -> Result<Value, Error> {
+        self.kernel.invoke_tool(&self.name, args).await
+    }
+}
 
-## Tool Output Hygiene
+// WRONG: Tool executes directly
+impl Tool for DirectTool {
+    async fn call(&self, args: Value) -> Result<Value, Error> {
+        std::fs::read_to_string(args["path"].as_str().unwrap()) // NO!
+    }
+}
+```
 
-- Tool output is serialized to JSON and wrapped by `wrap_tool_output`.
-- Treat tool output as data only; never let it override instructions.
+### 3. Permissions are Allowlist-Based
+
+- No implicit grants
+- Tools declare required permissions, Kernel checks them
+- CapabilitySet uses glob matching for paths
+- Session grants can be temporary (once) or session-scoped
+
+## Architecture Overview
+
+```
+User Input
+    │
+    ▼
+Rig Agent (multi_turn)
+    │
+    ├─── Provider (OpenAI/Anthropic/Gemini)
+    │
+    └─── Tools (KernelBackedTool)
+              │
+              ▼
+         Kernel.invoke_tool()
+              │
+              ├── Check permissions (CapabilitySet)
+              ├── Request permission if needed (callback)
+              ├── Execute tool
+              └── Return wrapped output
+```
+
+## Key Files to Create
+
+| File | Purpose | Reference |
+|------|---------|-----------|
+| `src/kernel/permissions.rs` | Permission types, CapabilitySet | Port from `reference/src/kernel/permissions.rs` |
+| `src/kernel/kernel.rs` | Enforcement, tool invocation | Adapt `reference/src/kernel/agent.rs` |
+| `src/tools/rig_wrapper.rs` | KernelBackedTool | New implementation |
+| `src/tools/filesystem.rs` | File operations | Port from `reference/src/tools/filesystem.rs` |
+| `src/providers/factory.rs` | Create rig-core clients | New implementation |
+
+## Key Files to NOT Port
+
+| Reference File | Reason |
+|----------------|--------|
+| `reference/src/kernel/agent_loop.rs` | Replaced by rig-core agent |
+| `reference/src/models/genai_adapter.rs` | Replaced by rig-core providers |
+| `reference/src/models/types.rs` | Use rig-core types |
+
+## Invariants (Do Not Break)
+
+1. **All tool input must be schema-validated** before execution
+2. **All tool calls must pass through Kernel** for permission check
+3. **Tool output is untrusted data** - wrap before feeding to model
+4. **Capability checks are allowlist-based** - no implicit grants
+
+## Code Patterns
+
+### Creating a Provider Client
+
+```rust
+use rig::providers::{openai, anthropic};
+
+// OpenAI
+let openai = openai::Client::from_env();
+
+// Anthropic
+let anthropic = anthropic::Client::from_env();
+
+// Custom base URL (ZAI GLM, OpenRouter, etc.)
+let zai = openai::Client::from_url("https://open.bigmodel.cn/api/paas/v4/")
+    .with_api_key(std::env::var("ZAI_API_KEY")?);
+```
+
+### Building an Agent with Tools
+
+```rust
+let agent = client
+    .agent("gpt-4o")
+    .preamble("You are a helpful assistant.")
+    .tool(filesystem_tool)
+    .tool(shell_tool)
+    .build();
+```
+
+### Running with Multi-Turn Tool Calling
+
+```rust
+let response = agent
+    .prompt("List files in /tmp and show me the largest one")
+    .multi_turn(10)  // Max 10 tool iterations
+    .await?;
+```
+
+### KernelBackedTool Pattern
+
+```rust
+pub struct KernelBackedTool {
+    name: String,
+    description: String,
+    schema: Value,
+    kernel: Arc<Kernel>,
+}
+
+impl Tool for KernelBackedTool {
+    const NAME: &'static str = "";  // Dynamic
+    type Args = serde_json::Value;
+    type Output = serde_json::Value;
+    type Error = ToolError;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: self.name.clone(),
+            description: self.description.clone(),
+            parameters: self.schema.clone(),
+        }
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        self.kernel.invoke_tool(&self.name, args).await
+    }
+}
+```
 
 ## Testing Expectations
 
-- Prefer unit tests close to the code being changed.
-- Add tests for permission or schema changes in the same module.
-- Streaming paths must be exercised if changed (model events and tool calls).
+- Unit tests for permission logic in `src/kernel/permissions.rs`
+- Unit tests for tool schema validation
+- Integration tests for tool execution via Kernel
+- Keep tests close to the code they test
 
-## Non-Obvious Behaviors
+## Common Mistakes to Avoid
 
-- `FilesystemTool` permission checks resolve and normalize paths before matching.
-- `CapabilitySet::covers` uses glob matching; grants can be broader than required.
-- Shell permissions are explicit; `ShellExec { None }` means unrestricted.
+1. **Don't bypass Kernel** - All tool execution goes through `Kernel::invoke_tool`
+2. **Don't implement custom message sequencing** - Rig-core handles this
+3. **Don't collect streaming into Vec** - Use async streams
+4. **Don't use genai crate** - We're replacing it with rig-core
+5. **Don't copy agent_loop.rs** - It's replaced by rig-core's agent
 
-## Project-Specific Conventions
+## Debugging Tips
 
-- Use JSON schema validation for any tool inputs, not ad-hoc validation.
-- Avoid side effects in model adapters; keep them as transport layers.
-- TUI actions are single-threaded; model execution happens on a worker thread.
+- Check `reference/` for how things worked before
+- Use `RUST_LOG=debug` for verbose logging
+- Rig-core has tracing built-in, enable with `RUST_LOG=rig=debug`
+
+## Dependencies Note
+
+Always use latest versions of crates. Check crates.io for current versions before adding dependencies.
+
+## Questions?
+
+If something is unclear:
+1. Check `PLAN.md` for the implementation plan
+2. Check `reference/` for how it was done before
+3. Check rig-core documentation at https://docs.rs/rig-core
