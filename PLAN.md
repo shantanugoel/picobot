@@ -89,20 +89,20 @@ The previous implementation is preserved in `reference/` for guidance:
 #### Tasks
 
 1. **Project Setup**
-   - [ ] Create `Cargo.toml` with rig-core and essential dependencies
-   - [ ] Create `src/main.rs` with basic structure
-   - [ ] Create `rust-toolchain.toml` (use stable, not nightly if possible)
+   - [x] Create `Cargo.toml` with rig-core and essential dependencies
+   - [x] Create `src/main.rs` with basic structure
+   - [x] Create `rust-toolchain.toml` (use stable, not nightly if possible)
 
 2. **Kernel Core** (`src/kernel/`)
-   - [ ] Port `permissions.rs` (CapabilitySet, Permission, Scope types)
-   - [ ] Create `kernel.rs` with permission checking and tool invocation
-   - [ ] Create `session.rs` for session context (user/session IDs)
+   - [x] Port `permissions.rs` (CapabilitySet, Permission, Scope types)
+   - [x] Create `kernel.rs` with permission checking and tool invocation
+   - [x] Create `session.rs` for session context (user/session IDs)
 
 3. **Tool Infrastructure** (`src/tools/`)
-   - [ ] Create `traits.rs` with ToolSpec definition
-   - [ ] Create `rig_wrapper.rs` with KernelBackedTool implementation
-   - [ ] Port `filesystem.rs` as first tool (read/write/list)
-   - [ ] Create `registry.rs` for tool collection
+   - [x] Create `traits.rs` with ToolSpec definition
+   - [x] Create `rig_wrapper.rs` with KernelBackedTool implementation
+   - [x] Port `filesystem.rs` as first tool (read/write/list)
+   - [x] Create `registry.rs` for tool collection
 
 4. **Provider Setup** (`src/providers/`)
    - [ ] Create `factory.rs` for building rig-core clients

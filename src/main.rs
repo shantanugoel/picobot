@@ -1,5 +1,6 @@
 mod config;
 mod kernel;
+mod tools;
 
 use anyhow::Result;
 

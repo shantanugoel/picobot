@@ -4,7 +4,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::config::PermissionsConfig;
-use crate::kernel::kernel::ToolContext;
+use crate::tools::traits::ToolContext;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Permission {
