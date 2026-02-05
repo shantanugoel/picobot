@@ -110,7 +110,12 @@ mod tests {
             capabilities: std::sync::Arc::new(CapabilitySet::empty()),
             user_id: None,
             session_id: None,
+            channel_id: None,
             jail_root: None,
+            scheduler: None,
+            scheduled_job: false,
+            timezone_offset: "+00:00".to_string(),
+            timezone_name: "UTC".to_string(),
         };
         let required = tool
             .required_permissions(&ctx, &json!({"command": "ls"}))

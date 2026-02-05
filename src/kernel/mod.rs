@@ -1,3 +1,3 @@
-pub mod kernel;
+pub mod core;
 pub mod permissions;
-pub mod session;
+// pub mod session;

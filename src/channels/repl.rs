@@ -2,13 +2,17 @@ use std::io::{self, Write};
 use std::sync::Arc;
 
 use crate::config::Config;
-use crate::kernel::kernel::Kernel;
-use crate::providers::factory::ProviderFactory;
+use crate::kernel::core::Kernel;
+use crate::providers::factory::ProviderAgentBuilder;
 use anyhow::{Context, Result};
 
-pub async fn run(config: Config, kernel: Kernel) -> Result<()> {
+pub async fn run(
+    config: Config,
+    kernel: Kernel,
+    agent_builder: ProviderAgentBuilder,
+) -> Result<()> {
     let kernel = Arc::new(kernel);
-    let agent = ProviderFactory::build_agent(&config, kernel.tool_registry(), kernel.clone())?;
+    let agent = agent_builder.build(kernel.tool_registry(), kernel.clone(), config.max_turns());
 
     println!("picobot repl (type 'exit' to quit)");
 

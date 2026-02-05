@@ -38,12 +38,6 @@ pub struct PathPattern(pub String);
 pub struct DomainPattern(pub String);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum PermissionTier {
-    UserGrantable,
-    AdminOnly,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MemoryScope {
     Session,
     User,
@@ -76,9 +70,8 @@ impl CapabilitySet {
         required.iter().all(|permission| self.allows(permission))
     }
 
-    pub fn from_config(config: &PermissionsConfig) -> Self {
-        let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        Self::from_config_with_base(config, &base_dir)
+    pub fn allows_any(&self, required: &[Permission]) -> bool {
+        required.iter().any(|permission| self.allows(permission))
     }
 
     pub fn from_config_with_base(config: &PermissionsConfig, base_dir: &Path) -> Self {
@@ -111,6 +104,16 @@ impl CapabilitySet {
             set.insert(Permission::ShellExec {
                 allowed_commands: Some(shell.allowed_commands.clone()),
             });
+        }
+
+        if let Some(schedule) = &config.schedule
+            && !schedule.allowed_actions.is_empty()
+        {
+            for action in &schedule.allowed_actions {
+                set.insert(Permission::Schedule {
+                    action: action.clone(),
+                });
+            }
         }
 
         set
@@ -462,6 +465,7 @@ mod tests {
             }),
             network: None,
             shell: None,
+            schedule: None,
         };
         let base = PathBuf::from("/tmp/picobot");
         let set = CapabilitySet::from_config_with_base(&config, &base);

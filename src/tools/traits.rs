@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::kernel::permissions::{CapabilitySet, Permission};
+use crate::scheduler::service::SchedulerService;
 
 #[derive(Debug, Default, Clone)]
 pub struct ToolSpec {
@@ -12,13 +13,19 @@ pub struct ToolSpec {
     pub schema: Value,
 }
 
-#[derive(Debug, Clone)]
+#[allow(dead_code)]
+#[derive(Clone)]
 pub struct ToolContext {
     pub capabilities: Arc<CapabilitySet>,
     pub user_id: Option<String>,
     pub session_id: Option<String>,
+    pub channel_id: Option<String>,
     pub working_dir: std::path::PathBuf,
     pub jail_root: Option<std::path::PathBuf>,
+    pub scheduler: Option<Arc<SchedulerService>>,
+    pub scheduled_job: bool,
+    pub timezone_offset: String,
+    pub timezone_name: String,
 }
 
 #[derive(Debug, Clone)]

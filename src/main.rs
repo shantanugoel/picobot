@@ -2,26 +2,34 @@ mod channels;
 mod config;
 mod kernel;
 mod providers;
+mod scheduler;
+mod session;
 mod tools;
 
 use anyhow::Result;
 
 use crate::channels::{api, repl};
 use crate::config::Config;
-use crate::kernel::kernel::Kernel;
+use crate::kernel::core::Kernel;
 use crate::kernel::permissions::CapabilitySet;
+use crate::providers::factory::{ProviderAgentBuilder, ProviderFactory};
 use crate::tools::filesystem::FilesystemTool;
 use crate::tools::http::HttpTool;
+use crate::tools::registry::ToolRegistry;
 use crate::tools::schedule::ScheduleTool;
 use crate::tools::shell::ShellTool;
-use crate::tools::registry::ToolRegistry;
 
-fn build_kernel(config: &Config) -> Result<Kernel> {
+fn build_kernel(
+    config: &Config,
+    _agent_builder: ProviderAgentBuilder,
+    scheduler: Option<std::sync::Arc<crate::scheduler::service::SchedulerService>>,
+) -> Result<Kernel> {
     let mut registry = ToolRegistry::new();
     registry.register(std::sync::Arc::new(FilesystemTool::new()))?;
     registry.register(std::sync::Arc::new(ShellTool::new()))?;
     registry.register(std::sync::Arc::new(HttpTool::new()?))?;
     registry.register(std::sync::Arc::new(ScheduleTool::new()))?;
+    let registry = std::sync::Arc::new(registry);
     let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let capabilities = CapabilitySet::from_config_with_base(&config.permissions(), &base_dir);
     let jail_root = config
@@ -29,13 +37,14 @@ fn build_kernel(config: &Config) -> Result<Kernel> {
         .filesystem
         .and_then(|filesystem| filesystem.jail_root)
         .map(|path| resolve_working_path(&base_dir, &path));
-    let kernel = Kernel::new(registry)
+    let kernel = Kernel::new(std::sync::Arc::clone(&registry))
         .with_capabilities(capabilities)
         .with_working_dir(resolve_working_path(
             &base_dir,
             &config.data_dir().to_string_lossy(),
         ))
-        .with_jail_root(jail_root);
+        .with_jail_root(jail_root)
+        .with_scheduler(scheduler);
     Ok(kernel)
 }
 
@@ -61,16 +70,90 @@ fn resolve_working_path(base_dir: &std::path::Path, raw: &str) -> std::path::Pat
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = Config::load()?;
-    let kernel = build_kernel(&config)?;
+    let agent_builder = ProviderFactory::build_agent_builder(&config)?;
+    let kernel = build_kernel(&config, agent_builder.clone(), None)?;
+    let scheduler = if config.scheduler().enabled() {
+        let store = crate::session::db::SqliteStore::new(
+            config
+                .data_dir()
+                .join("scheduler.db")
+                .to_string_lossy()
+                .to_string(),
+        );
+        store.touch()?;
+        let schedule_store = crate::scheduler::store::ScheduleStore::new(store.clone());
+        let executor = crate::scheduler::executor::JobExecutor::new(
+            std::sync::Arc::new(kernel.clone()),
+            schedule_store.clone(),
+            config.scheduler(),
+            agent_builder.clone(),
+        );
+        let scheduler = crate::scheduler::service::SchedulerService::new(
+            schedule_store,
+            executor,
+            config.scheduler(),
+        );
+        Some(std::sync::Arc::new(scheduler))
+    } else {
+        None
+    };
+    let kernel = kernel.with_scheduler(scheduler);
 
     let args: Vec<String> = std::env::args().collect();
     let mode = args.get(1).map(|arg| arg.as_str()).unwrap_or("repl");
 
+    if let Some(scheduler) = kernel.context().scheduler.clone() {
+        let runner = scheduler.clone();
+        tokio::spawn(async move {
+            runner.run_loop().await;
+        });
+    }
+
     match mode {
-        "api" => api::serve(config, kernel).await,
-        "repl" => repl::run(config, kernel).await,
+        "api" => api::serve(config, kernel, agent_builder.clone()).await,
+        "repl" => repl::run(config, kernel, agent_builder.clone()).await,
+        "schedules" => run_schedules_cli(&config, kernel, &args[2..]),
         other => {
-            eprintln!("unknown mode '{other}', use 'repl' or 'api'");
+            eprintln!("unknown mode '{other}', use 'repl', 'api', or 'schedules'");
+            Ok(())
+        }
+    }
+}
+
+fn run_schedules_cli(_config: &Config, kernel: Kernel, args: &[String]) -> Result<()> {
+    let Some(scheduler) = kernel.context().scheduler.clone() else {
+        anyhow::bail!("scheduler is disabled; enable [scheduler].enabled = true in config");
+    };
+    match args.first().map(|value| value.as_str()).unwrap_or("help") {
+        "list" => {
+            let user_id = args
+                .get(1)
+                .cloned()
+                .unwrap_or_else(|| "default-user".to_string());
+            let jobs = if let Some(session_id) = args.get(2) {
+                scheduler
+                    .store()
+                    .list_jobs_by_user_with_session(&user_id, session_id)?
+            } else {
+                scheduler.list_jobs_by_user(&user_id)?
+            };
+            if jobs.is_empty() {
+                println!("no schedules for user '{user_id}'");
+                return Ok(());
+            }
+            for job in jobs {
+                println!("{} {} {:?} {}", job.id, job.name, job.schedule_type, job.schedule_expr);
+            }
+            Ok(())
+        }
+        "cancel" => {
+            let job_id = args.get(1).ok_or_else(|| anyhow::anyhow!("missing job_id"))?;
+            let cancelled = scheduler.cancel_job(job_id)?;
+            println!("cancelled={cancelled}");
+            Ok(())
+        }
+        _ => {
+            println!("usage: cargo run -- schedules list <user_id> [session_id] | cancel <job_id>");
             Ok(())
         }
     }

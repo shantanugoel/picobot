@@ -14,6 +14,7 @@ pub struct Config {
     pub bind: Option<String>,
     pub data_dir: Option<String>,
     pub permissions: Option<PermissionsConfig>,
+    pub scheduler: Option<SchedulerConfig>,
 }
 
 impl Config {
@@ -67,6 +68,10 @@ impl Config {
     pub fn permissions(&self) -> PermissionsConfig {
         self.permissions.clone().unwrap_or_default()
     }
+
+    pub fn scheduler(&self) -> SchedulerConfig {
+        self.scheduler.clone().unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -74,6 +79,7 @@ pub struct PermissionsConfig {
     pub filesystem: Option<FilesystemPermissions>,
     pub network: Option<NetworkPermissions>,
     pub shell: Option<ShellPermissions>,
+    pub schedule: Option<SchedulePermissions>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -91,4 +97,60 @@ pub struct NetworkPermissions {
 #[derive(Debug, Deserialize, Default, Clone)]
 pub struct ShellPermissions {
     pub allowed_commands: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct SchedulePermissions {
+    pub allowed_actions: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct SchedulerConfig {
+    pub enabled: Option<bool>,
+    pub tick_interval_secs: Option<u64>,
+    pub max_concurrent_jobs: Option<usize>,
+    pub max_concurrent_per_user: Option<usize>,
+    pub max_jobs_per_user: Option<u32>,
+    pub max_jobs_per_window: Option<u32>,
+    pub window_duration_secs: Option<u64>,
+    pub job_timeout_secs: Option<u64>,
+    pub max_backoff_secs: Option<u64>,
+}
+
+impl SchedulerConfig {
+    pub fn enabled(&self) -> bool {
+        self.enabled.unwrap_or(false)
+    }
+
+    pub fn tick_interval_secs(&self) -> u64 {
+        self.tick_interval_secs.unwrap_or(1)
+    }
+
+    pub fn max_concurrent_jobs(&self) -> usize {
+        self.max_concurrent_jobs.unwrap_or(4)
+    }
+
+    pub fn max_concurrent_per_user(&self) -> usize {
+        self.max_concurrent_per_user.unwrap_or(2)
+    }
+
+    pub fn max_jobs_per_user(&self) -> u32 {
+        self.max_jobs_per_user.unwrap_or(50)
+    }
+
+    pub fn max_jobs_per_window(&self) -> u32 {
+        self.max_jobs_per_window.unwrap_or(100)
+    }
+
+    pub fn window_duration_secs(&self) -> u64 {
+        self.window_duration_secs.unwrap_or(3600)
+    }
+
+    pub fn job_timeout_secs(&self) -> u64 {
+        self.job_timeout_secs.unwrap_or(300)
+    }
+
+    pub fn max_backoff_secs(&self) -> u64 {
+        self.max_backoff_secs.unwrap_or(3600)
+    }
 }

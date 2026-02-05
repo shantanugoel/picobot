@@ -16,6 +16,12 @@ allowed_domains = ["api.github.com"]
 [permissions.shell]
 allowed_commands = ["git", "rg"]
 
+[permissions.schedule]
+allowed_actions = ["create", "list", "cancel"]
+
+[scheduler]
+enabled = true
+
 # OpenRouter example
 # provider = "openrouter"
 # model = "openai/gpt-4o-mini"

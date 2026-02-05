@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -17,6 +18,7 @@ impl HttpTool {
     pub fn new() -> Result<Self, ToolError> {
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|err| ToolError::new(err.to_string()))?;
         Ok(Self {
@@ -71,7 +73,8 @@ impl ToolExecutor for HttpTool {
         let headers = input.get("headers").and_then(Value::as_object);
         let body = input.get("body").and_then(Value::as_str);
 
-        let _host = parse_host(url)?;
+        let host = parse_host(url)?;
+        ensure_allowed_url(url, &host).await?;
 
         let mut request = match method {
             "GET" => self.client.get(url),
@@ -95,6 +98,9 @@ impl ToolExecutor for HttpTool {
             .send()
             .await
             .map_err(|err| ToolError::new(err.to_string()))?;
+        if response.status().is_redirection() {
+            return Err(ToolError::new("redirects are not allowed".to_string()));
+        }
 
         let status = response.status().as_u16();
         let text = response
@@ -110,12 +116,51 @@ impl ToolExecutor for HttpTool {
 }
 
 fn parse_host(url: &str) -> Result<String, ToolError> {
-    let parsed =
-        reqwest::Url::parse(url).map_err(|err| ToolError::new(err.to_string()))?;
+    let parsed = reqwest::Url::parse(url).map_err(|err| ToolError::new(err.to_string()))?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        _ => return Err(ToolError::new("unsupported URL scheme".to_string())),
+    }
     parsed
         .host_str()
         .map(|host| host.to_string())
         .ok_or_else(|| ToolError::new("missing host".to_string()))
+}
+
+async fn ensure_allowed_url(url: &str, host: &str) -> Result<(), ToolError> {
+    let parsed = reqwest::Url::parse(url).map_err(|err| ToolError::new(err.to_string()))?;
+    if parsed.username() != "" || parsed.password().is_some() {
+        return Err(ToolError::new(
+            "credentials in URL are not allowed".to_string(),
+        ));
+    }
+    let port = parsed.port_or_known_default().unwrap_or(80);
+    let addrs = tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|err| ToolError::new(err.to_string()))?;
+    for addr in addrs {
+        if is_private_ip(addr.ip()) {
+            return Err(ToolError::new(format!(
+                "SSRF blocked: {host} resolves to private IP {}",
+                addr.ip()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn is_private_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_unspecified()
+                || v4.octets()[0] == 169
+        }
+        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
+    }
 }
 
 #[cfg(test)]

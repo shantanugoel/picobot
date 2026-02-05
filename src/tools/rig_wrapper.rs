@@ -5,7 +5,7 @@ use rig::tool::ToolDyn;
 use rig::wasm_compat::WasmBoxedFuture;
 use serde_json::Value;
 
-use crate::kernel::kernel::Kernel;
+use crate::kernel::core::Kernel;
 use crate::tools::traits::ToolSpec;
 
 #[derive(Clone)]
@@ -20,6 +20,7 @@ impl KernelBackedTool {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
 pub struct KernelToolError(String);

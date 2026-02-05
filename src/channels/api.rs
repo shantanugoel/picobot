@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
-use crate::providers::factory::ProviderAgent;
+use crate::providers::factory::ProviderAgentBuilder;
 use anyhow::{Context, Result};
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
-use crate::kernel::kernel::Kernel;
-use crate::providers::factory::ProviderFactory;
+use crate::kernel::core::Kernel;
 
 #[derive(Debug, Deserialize)]
 struct PromptRequest {
@@ -21,7 +20,7 @@ struct PromptResponse {
 
 #[derive(Clone)]
 struct AppState {
-    agent: Arc<ProviderAgent>,
+    agent: Arc<crate::providers::factory::ProviderAgent>,
     max_turns: usize,
 }
 
@@ -37,9 +36,13 @@ async fn prompt_handler(
     Ok(Json(PromptResponse { response }))
 }
 
-pub async fn serve(config: Config, kernel: Kernel) -> Result<()> {
+pub async fn serve(
+    config: Config,
+    kernel: Kernel,
+    agent_builder: ProviderAgentBuilder,
+) -> Result<()> {
     let kernel = Arc::new(kernel);
-    let agent = ProviderFactory::build_agent(&config, kernel.tool_registry(), kernel.clone())?;
+    let agent = agent_builder.build(kernel.tool_registry(), kernel.clone(), config.max_turns());
     let state = AppState {
         agent: Arc::new(agent),
         max_turns: config.max_turns(),

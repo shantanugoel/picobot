@@ -3,25 +3,32 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::kernel::permissions::CapabilitySet;
+use crate::scheduler::service::SchedulerService;
 use crate::tools::registry::ToolRegistry;
 use crate::tools::traits::{ToolContext, ToolError, ToolExecutor, ToolOutput};
 
+#[derive(Clone)]
 pub struct Kernel {
     tool_registry: Arc<ToolRegistry>,
     context: ToolContext,
 }
 
 impl Kernel {
-    pub fn new(tool_registry: ToolRegistry) -> Self {
+    pub fn new(tool_registry: Arc<ToolRegistry>) -> Self {
         Self {
-            tool_registry: Arc::new(tool_registry),
+            tool_registry,
             context: ToolContext {
                 capabilities: Arc::new(CapabilitySet::empty()),
                 user_id: None,
                 session_id: None,
+                channel_id: None,
                 working_dir: std::env::current_dir()
                     .unwrap_or_else(|_| std::path::PathBuf::from(".")),
                 jail_root: None,
+                scheduler: None,
+                scheduled_job: false,
+                timezone_offset: "+00:00".to_string(),
+                timezone_name: "UTC".to_string(),
             },
         }
     }
@@ -41,28 +48,32 @@ impl Kernel {
         self
     }
 
+    pub fn with_scheduler(mut self, scheduler: Option<Arc<SchedulerService>>) -> Self {
+        self.context.scheduler = scheduler;
+        self
+    }
+
+    pub fn with_channel_id(mut self, channel_id: Option<String>) -> Self {
+        self.context.channel_id = channel_id;
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn with_timezone(mut self, offset: String, name: String) -> Self {
+        self.context.timezone_offset = offset;
+        self.context.timezone_name = name;
+        self
+    }
+
+    pub fn with_scheduled_job_mode(mut self, scheduled_job: bool) -> Self {
+        self.context.scheduled_job = scheduled_job;
+        self
+    }
+
     pub fn clone_with_context(&self, user_id: Option<String>, session_id: Option<String>) -> Self {
         let mut context = self.context.clone();
         context.user_id = user_id;
         context.session_id = session_id;
-        Self {
-            tool_registry: Arc::clone(&self.tool_registry),
-            context,
-        }
-    }
-
-    pub fn clone_with_working_dir(&self, working_dir: std::path::PathBuf) -> Self {
-        let mut context = self.context.clone();
-        context.working_dir = working_dir;
-        Self {
-            tool_registry: Arc::clone(&self.tool_registry),
-            context,
-        }
-    }
-
-    pub fn clone_with_jail_root(&self, jail_root: Option<std::path::PathBuf>) -> Self {
-        let mut context = self.context.clone();
-        context.jail_root = jail_root;
         Self {
             tool_registry: Arc::clone(&self.tool_registry),
             context,
@@ -108,13 +119,22 @@ impl Kernel {
         let required = self
             .tool_registry
             .required_permissions(tool, &self.context, &input)?;
-        let allowed = self.context.capabilities.allows_all(&required)
-            || extra_grants
-                .map(|grants| grants.allows_all(&required))
-                .unwrap_or(false)
-            || required
-                .iter()
-                .all(|permission| permission.is_auto_granted(&self.context));
+        let allowed = match tool.spec().name.as_str() {
+            "schedule" => {
+                self.context.capabilities.allows_any(&required)
+                    || extra_grants
+                        .map(|grants| grants.allows_any(&required))
+                        .unwrap_or(false)
+            }
+            _ => {
+                self.context.capabilities.allows_all(&required)
+                    || extra_grants
+                        .map(|grants| grants.allows_all(&required))
+                        .unwrap_or(false)
+            }
+        } || required
+            .iter()
+            .all(|permission| permission.is_auto_granted(&self.context));
         if !allowed {
             return Err(ToolError::new(format!(
                 "permission denied for tool '{}'",
@@ -193,8 +213,9 @@ mod tests {
     fn invoke_tool_denies_without_permission() {
         let mut registry = ToolRegistry::new();
         registry.register(Arc::new(DummyTool::new())).unwrap();
+        let registry = Arc::new(registry);
 
-        let kernel = Kernel::new(registry);
+        let kernel = Kernel::new(Arc::clone(&registry));
         let tool = kernel.tool_registry().get("dummy").unwrap();
         let result = tokio::runtime::Runtime::new()
             .unwrap()
@@ -207,18 +228,19 @@ mod tests {
     fn invoke_tool_allows_with_permission() {
         let mut registry = ToolRegistry::new();
         registry.register(Arc::new(DummyTool::new())).unwrap();
+        let registry = Arc::new(registry);
 
         let mut capabilities = CapabilitySet::empty();
         capabilities.insert(Permission::FileRead {
             path: PathPattern("/tmp/allowed.txt".to_string()),
         });
 
-        let kernel = Kernel::new(registry).with_capabilities(capabilities);
+        let kernel = Kernel::new(Arc::clone(&registry)).with_capabilities(capabilities);
         let tool = kernel.tool_registry().get("dummy").unwrap();
         let result = tokio::runtime::Runtime::new()
             .unwrap()
             .block_on(kernel.invoke_tool(tool.as_ref(), json!({})));
-    
+
         assert!(result.is_ok());
     }
 }

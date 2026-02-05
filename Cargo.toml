@@ -20,3 +20,8 @@ dirs = "6"
 uuid = { version = "1", features = ["v4"] }
 axum = { version = "0.8", features = ["macros"] }
 reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"] }
+rusqlite = { version = "0.33", features = ["chrono"] }
+cron = "0.13"
+chrono-tz = "0.10"
+dashmap = "6"
+tokio-util = { version = "0.7", features = ["rt"] }
