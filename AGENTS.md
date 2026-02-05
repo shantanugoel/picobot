@@ -11,6 +11,7 @@ This file provides guidance for AI agents working on the PicoBot rewrite. Read `
 - Whenever you make a change, make sure to check for warnings/errors/tests by running `cargo check`, `cargo clippy`, `cargo test`
 - Always use latest versions of any rust crates
 - When making any plans, consult with oracle subagent to get its recommendation about your plan and see if they make sense and incorporate in yours.
+- Most configurations should have sane defaults so that user does not need to really configure much at all to use picobot
 
 
 ## Quick Reference
@@ -52,7 +53,6 @@ impl Tool for DirectTool {
 - No implicit grants
 - Tools declare required permissions, Kernel checks them
 - CapabilitySet uses glob matching for paths
-- Session grants can be temporary (once) or session-scoped
 
 ## Architecture Overview
 
@@ -69,10 +69,9 @@ Rig Agent (multi_turn)
               ▼
          Kernel.invoke_tool()
               │
-              ├── Check permissions (CapabilitySet)
-              ├── Request permission if needed (callback)
-              ├── Execute tool
-              └── Return wrapped output
+         ├── Check permissions (CapabilitySet)
+         ├── Execute tool
+         └── Return wrapped output
 ```
 
 ## Key Files to Create

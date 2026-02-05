@@ -21,7 +21,7 @@ This is a ground-up rewrite of PicoBot using `rig-core` as the foundation for AI
 
 ```
 ┌───────────────────────────────────────────────────────────────────┐
-│                         User / TUI / API                          │
+│           Server Channels (API / WebSockets / WhatsApp)           │
 └───────────────────────────────────────┬───────────────────────────┘
                                         │
                                         ▼
@@ -47,8 +47,8 @@ This is a ground-up rewrite of PicoBot using `rig-core` as the foundation for AI
 ┌───────────────────────────────────────────────────────────────────┐
 │                  KernelBackedTool (impl rig::Tool)                │
 │  - Holds Arc<Kernel> reference                                    │
-│  - call() delegates to Kernel.invoke_tool_with_grants()           │
-│  - Preserves CapabilitySet, session grants, permission prompts    │
+│  - call() delegates to Kernel.invoke_tool()                       │
+│  - Enforces CapabilitySet permissions                             │
 └───────────────────────────────────────┬───────────────────────────┘
                                         │
                                         ▼
@@ -56,8 +56,7 @@ This is a ground-up rewrite of PicoBot using `rig-core` as the foundation for AI
 │                         Kernel                                    │
 │  - Permission enforcement (CapabilitySet)                         │
 │  - Glob-based path matching                                       │
-│  - Session grants management                                      │
-│  - Permission prompt callbacks (for TUI)                          │
+│  - Static capability enforcement                                  │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
@@ -71,7 +70,7 @@ The previous implementation is preserved in `reference/` for guidance:
 | `reference/src/kernel/agent.rs` | Kernel enforcement | Adapt for rig integration |
 | `reference/src/tools/*.rs` | Tool implementations | Port with rig::Tool wrapper |
 | `reference/src/tools/registry.rs` | Tool registry, schema validation | Simplify for rig |
-| `reference/src/cli/tui.rs` | TUI implementation | Port with streaming updates |
+| `reference/src/cli/tui.rs` | TUI implementation | Discard (migrating to Server Channels) |
 | `reference/src/config.rs` | Configuration parsing | Port and simplify |
 | `reference/src/kernel/memory.rs` | Memory/session management | Port for chat history |
 
@@ -97,7 +96,7 @@ The previous implementation is preserved in `reference/` for guidance:
 2. **Kernel Core** (`src/kernel/`)
    - [ ] Port `permissions.rs` (CapabilitySet, Permission, Scope types)
    - [ ] Create `kernel.rs` with permission checking and tool invocation
-   - [ ] Create `session.rs` for session grants management
+   - [ ] Create `session.rs` for session context (user/session IDs)
 
 3. **Tool Infrastructure** (`src/tools/`)
    - [ ] Create `traits.rs` with ToolSpec definition
@@ -110,15 +109,15 @@ The previous implementation is preserved in `reference/` for guidance:
    - [ ] Support OpenAI provider with configurable base_url
    - [ ] Create agent builder function
 
-5. **Basic CLI** (`src/cli/`)
-   - [ ] Create minimal REPL loop (no TUI yet)
+5. **Initial Interface** (`src/channels/`)
+   - [ ] Create minimal API endpoint for text prompts
    - [ ] Wire up agent execution with tool calls
-   - [ ] Add permission prompt via stdin
+   - [ ] Add basic REPL for local debugging
 
 6. **Configuration** (`src/config.rs`)
    - [ ] Port minimal config (model, permissions, data dir)
 
-#### Milestone: Run `cargo run`, chat with agent, execute filesystem tool with permission prompt.
+#### Milestone: Run `cargo run`, chat with agent, execute filesystem tool
 
 ### Phase 2: Multi-Provider & Tools (Week 3-4)
 
@@ -153,22 +152,20 @@ The previous implementation is preserved in `reference/` for guidance:
 
 #### Milestone: Switch between providers, all tools working, streaming output.
 
-### Phase 3: TUI & Polish (Week 5-6)
+### Phase 3: Server Channels & Integration (Week 5-6)
 
-**Goal**: Full-featured TUI and production readiness.
+**Goal**: Robust server-based interaction and production readiness.
 
 #### Tasks
 
-1. **TUI Implementation** (`src/cli/tui.rs`)
-   - [ ] Port Ratatui-based TUI
-   - [ ] Streaming token display
-   - [ ] Permission prompt UI
-   - [ ] Command handling (/help, /clear, /new, etc.)
+1. **Server Core** (`src/channels/`)
+   - [ ] Implement Axum-based REST API
+   - [ ] WebSocket server for real-time streaming tokens
 
-2. **Server Mode** (optional, lower priority)
-   - [ ] Port API server (if needed)
-   - [ ] WebSocket support
-   - [ ] WhatsApp adapter (if needed)
+2. **WhatsApp Integration**
+   - [ ] Implement WhatsApp adapter (Twilio or direct API)
+   - [ ] Handle media/document processing for tools
+   - [ ] Session management for concurrent users
 
 3. **Robustness**
    - [ ] Error handling and recovery
@@ -196,7 +193,6 @@ Tools implement rig-core's `Tool` trait but delegate execution to Kernel:
 pub struct KernelBackedTool {
     spec: ToolSpec,
     kernel: Arc<Kernel>,
-    permission_callback: Arc<dyn PermissionCallback>,
 }
 
 #[async_trait]
@@ -229,25 +225,7 @@ fn create_zai_client() -> openai::Client {
 }
 ```
 
-### 3. Permission Prompt Flow
-
-```rust
-pub trait PermissionCallback: Send + Sync {
-    async fn request_permission(
-        &self,
-        tool: &str,
-        permissions: &[Permission],
-    ) -> PermissionDecision;
-}
-
-pub enum PermissionDecision {
-    Allow,
-    AllowSession,
-    Deny,
-}
-```
-
-### 4. Agent Builder
+### 3. Agent Builder
 
 ```rust
 pub async fn build_agent<M: CompletionModel>(
@@ -272,13 +250,13 @@ pub async fn build_agent<M: CompletionModel>(
 
 ```
 src/
-├── main.rs              # Entry point, CLI/TUI dispatch
+├── main.rs              # Entry point, Server/Channel dispatch
 ├── config.rs            # Configuration parsing
 ├── kernel/
 │   ├── mod.rs
 │   ├── kernel.rs        # Core kernel with permission enforcement
 │   ├── permissions.rs   # CapabilitySet, Permission, Scope
-│   └── session.rs       # Session grants, memory
+│   └── session.rs       # Session context (user/session IDs)
 ├── providers/
 │   ├── mod.rs
 │   └── factory.rs       # Provider client factory
@@ -290,10 +268,12 @@ src/
 │   ├── filesystem.rs    # File operations
 │   ├── shell.rs         # Command execution
 │   └── http.rs          # HTTP fetch
-└── cli/
+└── channels/
     ├── mod.rs
-    ├── repl.rs          # Simple REPL (Phase 1)
-    └── tui.rs           # Ratatui TUI (Phase 3)
+    ├── api.rs           # REST API endpoints
+    ├── websocket.rs     # WebSocket streaming
+    ├── whatsapp.rs      # WhatsApp adapter
+    └── repl.rs          # Development REPL
 ```
 
 ## Dependencies
@@ -320,9 +300,9 @@ rusqlite = { version = "0.33", features = ["chrono"] }
 # HTTP (for tools)
 reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"] }
 
-# CLI
-crossterm = "0.28"
-ratatui = "0.29"
+# Server
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
 
 # Utilities
 anyhow = "1"
