@@ -10,6 +10,7 @@ This file provides guidance for AI agents working on the PicoBot rewrite. Read `
 - While porting any changes from reference, remember that we should not port them as is. Many of the hacks/workarounds etc might be taken care of by rig-core so we need to think through thoroughly and then write the code.
 - Whenever you make a change, make sure to check for warnings/errors/tests by running `cargo check`, `cargo clippy`, `cargo test`
 - Always use latest versions of any rust crates
+- When making any plans, consult with oracle subagent to get its recommendation about your plan and see if they make sense and incorporate in yours.
 
 
 ## Quick Reference

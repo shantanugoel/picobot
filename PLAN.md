@@ -349,17 +349,3 @@ uuid = { version = "1", features = ["v4"] }
 | Permission bypass | Kernel-only execution, thorough testing |
 | Missing features | Check reference before implementing |
 | Performance regression | Benchmark streaming paths |
-
-## Getting Started
-
-```bash
-# Start fresh
-cargo init
-
-# Add dependencies to Cargo.toml
-
-# Run tests from reference for guidance
-cd reference && cargo test
-
-# Begin with Phase 1, Task 1
-```
