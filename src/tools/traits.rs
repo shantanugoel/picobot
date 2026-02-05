@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::kernel::permissions::{CapabilitySet, Permission};
@@ -41,6 +42,7 @@ impl std::error::Error for ToolError {}
 
 pub type ToolOutput = Value;
 
+#[async_trait]
 pub trait ToolExecutor: Send + Sync {
     fn spec(&self) -> &ToolSpec;
     fn required_permissions(
@@ -48,5 +50,5 @@ pub trait ToolExecutor: Send + Sync {
         ctx: &ToolContext,
         input: &Value,
     ) -> Result<Vec<Permission>, ToolError>;
-    fn execute(&self, ctx: &ToolContext, input: Value) -> Result<ToolOutput, ToolError>;
+    async fn execute(&self, ctx: &ToolContext, input: Value) -> Result<ToolOutput, ToolError>;
 }

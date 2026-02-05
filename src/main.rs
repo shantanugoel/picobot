@@ -11,11 +11,17 @@ use crate::config::Config;
 use crate::kernel::kernel::Kernel;
 use crate::kernel::permissions::CapabilitySet;
 use crate::tools::filesystem::FilesystemTool;
+use crate::tools::http::HttpTool;
+use crate::tools::schedule::ScheduleTool;
+use crate::tools::shell::ShellTool;
 use crate::tools::registry::ToolRegistry;
 
 fn build_kernel(config: &Config) -> Result<Kernel> {
     let mut registry = ToolRegistry::new();
     registry.register(std::sync::Arc::new(FilesystemTool::new()))?;
+    registry.register(std::sync::Arc::new(ShellTool::new()))?;
+    registry.register(std::sync::Arc::new(HttpTool::new()?))?;
+    registry.register(std::sync::Arc::new(ScheduleTool::new()))?;
     let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let capabilities = CapabilitySet::from_config_with_base(&config.permissions(), &base_dir);
     let jail_root = config

@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use crate::kernel::permissions::{PathPattern, Permission};
@@ -39,6 +40,7 @@ impl FilesystemTool {
     }
 }
 
+#[async_trait]
 impl ToolExecutor for FilesystemTool {
     fn spec(&self) -> &ToolSpec {
         &self.spec
@@ -75,7 +77,7 @@ impl ToolExecutor for FilesystemTool {
         Ok(vec![permission])
     }
 
-    fn execute(&self, ctx: &ToolContext, input: Value) -> Result<ToolOutput, ToolError> {
+    async fn execute(&self, ctx: &ToolContext, input: Value) -> Result<ToolOutput, ToolError> {
         let operation = input
             .get("operation")
             .and_then(Value::as_str)

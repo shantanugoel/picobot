@@ -133,10 +133,10 @@ The previous implementation is preserved in `reference/` for guidance:
     - [x] Create provider routing based on config
 
 2. **Complete Tool Set**
-    - [ ] Port `shell.rs` (command execution)
-    - [ ] Port `http.rs` (HTTP fetch)
-    - [ ] Port `schedule.rs` (scheduling)
-    - [ ] Require allowlisted commands for shell tool
+    - [x] Port `shell.rs` (command execution)
+    - [x] Port `http.rs` (HTTP fetch)
+    - [~] Port `schedule.rs` (scheduling - stub implemented so far)
+    - [x] Require allowlisted commands for shell tool
 
 3. **Streaming Support**
    - [ ] Implement streaming output to CLI
@@ -150,6 +150,7 @@ The previous implementation is preserved in `reference/` for guidance:
 5. **Configuration Expansion**
    - [ ] Add multi-model configuration
    - [ ] Add channel permissions (pre_authorized, max_allowed)
+   - [ ] Ask user (if allowed for channel via config, default enabled) for expanding permission 
 
 #### Milestone: Switch between providers, all tools working, streaming output.
 
@@ -164,12 +165,13 @@ The previous implementation is preserved in `reference/` for guidance:
    - [ ] WebSocket server for real-time streaming tokens
 
 2. **WhatsApp Integration**
-   - [ ] Implement WhatsApp adapter (Twilio or direct API)
+   - [ ] Implement WhatsApp adapter (using whatsapp-rust. Take hint from reference)
    - [ ] Handle media/document processing for tools
    - [ ] Session management for concurrent users
 
 3. **Robustness**
    - [ ] Error handling and recovery
+   - [ ] Gracefully recover from upstream errors instead of crashing out
    - [ ] Logging and audit trail
    - [ ] Configuration validation
 

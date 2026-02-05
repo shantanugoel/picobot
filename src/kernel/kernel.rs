@@ -77,23 +77,27 @@ impl Kernel {
         &self.context
     }
 
-    pub fn invoke_tool(
+    pub async fn invoke_tool(
         &self,
         tool: &dyn ToolExecutor,
         input: Value,
     ) -> Result<ToolOutput, ToolError> {
-        self.invoke_tool_with_grants(tool, input, None)
+        self.invoke_tool_with_grants(tool, input, None).await
     }
 
-    pub fn invoke_tool_by_name(&self, name: &str, input: Value) -> Result<ToolOutput, ToolError> {
+    pub async fn invoke_tool_by_name(
+        &self,
+        name: &str,
+        input: Value,
+    ) -> Result<ToolOutput, ToolError> {
         let tool = self
             .tool_registry
             .get(name)
             .ok_or_else(|| ToolError::new(format!("unknown tool '{name}'")))?;
-        self.invoke_tool(tool.as_ref(), input)
+        self.invoke_tool(tool.as_ref(), input).await
     }
 
-    pub fn invoke_tool_with_grants(
+    pub async fn invoke_tool_with_grants(
         &self,
         tool: &dyn ToolExecutor,
         input: Value,
@@ -124,9 +128,9 @@ impl Kernel {
             }
             let mut scoped = self.context.clone();
             scoped.capabilities = Arc::new(merged);
-            tool.execute(&scoped, input)
+            tool.execute(&scoped, input).await
         } else {
-            tool.execute(&self.context, input)
+            tool.execute(&self.context, input).await
         }
     }
 }
@@ -135,6 +139,7 @@ impl Kernel {
 mod tests {
     use std::sync::Arc;
 
+    use async_trait::async_trait;
     use serde_json::json;
 
     use super::Kernel;
@@ -159,6 +164,7 @@ mod tests {
         }
     }
 
+    #[async_trait]
     impl ToolExecutor for DummyTool {
         fn spec(&self) -> &ToolSpec {
             &self.spec
@@ -174,7 +180,7 @@ mod tests {
             }])
         }
 
-        fn execute(
+        async fn execute(
             &self,
             _ctx: &ToolContext,
             _input: serde_json::Value,
@@ -190,7 +196,9 @@ mod tests {
 
         let kernel = Kernel::new(registry);
         let tool = kernel.tool_registry().get("dummy").unwrap();
-        let result = kernel.invoke_tool(tool.as_ref(), json!({}));
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(kernel.invoke_tool(tool.as_ref(), json!({})));
 
         assert!(result.is_err());
     }
@@ -207,8 +215,10 @@ mod tests {
 
         let kernel = Kernel::new(registry).with_capabilities(capabilities);
         let tool = kernel.tool_registry().get("dummy").unwrap();
-        let result = kernel.invoke_tool(tool.as_ref(), json!({}));
-
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(kernel.invoke_tool(tool.as_ref(), json!({})));
+    
         assert!(result.is_ok());
     }
 }

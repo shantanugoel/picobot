@@ -46,12 +46,12 @@ impl ToolDyn for KernelBackedTool {
         Box::pin(async move {
             let parsed: Value =
                 serde_json::from_str(&args).map_err(rig::tool::ToolError::JsonError)?;
-            self.kernel
+            let output = self
+                .kernel
                 .invoke_tool_by_name(&self.spec.name, parsed)
-                .map_err(|err| rig::tool::ToolError::ToolCallError(Box::new(err)))
-                .and_then(|output| {
-                    serde_json::to_string(&output).map_err(rig::tool::ToolError::JsonError)
-                })
+                .await
+                .map_err(|err| rig::tool::ToolError::ToolCallError(Box::new(err)))?;
+            serde_json::to_string(&output).map_err(rig::tool::ToolError::JsonError)
         })
     }
 }
