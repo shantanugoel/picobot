@@ -143,9 +143,9 @@ The previous implementation is preserved in `reference/` for guidance:
    - [x] Handle tool call events during stream
 
 4. **Session & Memory**
-    - [ ] Port SQLite session storage
-    - [ ] Implement chat history management
-    - [ ] Port memory retrieval for context
+    - [x] Port SQLite session storage
+    - [x] Implement chat history management
+    - [x] Port memory retrieval for context
 
 5. **Configuration Expansion**
    - [ ] Add multi-model configuration

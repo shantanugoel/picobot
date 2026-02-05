@@ -15,6 +15,7 @@ pub struct Config {
     pub data_dir: Option<String>,
     pub permissions: Option<PermissionsConfig>,
     pub scheduler: Option<SchedulerConfig>,
+    pub memory: Option<MemoryConfig>,
 }
 
 impl Config {
@@ -72,6 +73,10 @@ impl Config {
     pub fn scheduler(&self) -> SchedulerConfig {
         self.scheduler.clone().unwrap_or_default()
     }
+
+    pub fn memory(&self) -> MemoryConfig {
+        self.memory.clone().unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -115,6 +120,22 @@ pub struct SchedulerConfig {
     pub window_duration_secs: Option<u64>,
     pub job_timeout_secs: Option<u64>,
     pub max_backoff_secs: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct MemoryConfig {
+    pub enable_user_memories: Option<bool>,
+    pub context_budget_tokens: Option<u32>,
+    pub max_session_messages: Option<usize>,
+    pub max_user_memories: Option<usize>,
+    pub include_summary_on_truncation: Option<bool>,
+    pub include_tool_messages: Option<bool>,
+}
+
+impl MemoryConfig {
+    pub fn include_tool_messages(&self) -> bool {
+        self.include_tool_messages.unwrap_or(true)
+    }
 }
 
 impl SchedulerConfig {

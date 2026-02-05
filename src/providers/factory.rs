@@ -249,5 +249,4 @@ impl ProviderAgent {
             ProviderAgent::Gemini(agent) => Ok(agent.prompt(&prompt).max_turns(max_turns).await?),
         }
     }
-
 }

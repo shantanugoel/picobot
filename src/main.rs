@@ -15,6 +15,7 @@ use crate::kernel::permissions::CapabilitySet;
 use crate::providers::factory::{ProviderAgentBuilder, ProviderFactory};
 use crate::tools::filesystem::FilesystemTool;
 use crate::tools::http::HttpTool;
+use crate::tools::memory::MemoryTool;
 use crate::tools::registry::ToolRegistry;
 use crate::tools::schedule::ScheduleTool;
 use crate::tools::shell::ShellTool;
@@ -25,10 +26,19 @@ fn build_kernel(
     scheduler: Option<std::sync::Arc<crate::scheduler::service::SchedulerService>>,
 ) -> Result<Kernel> {
     let mut registry = ToolRegistry::new();
+    let session_store = crate::session::db::SqliteStore::new(
+        config
+            .data_dir()
+            .join("sessions.db")
+            .to_string_lossy()
+            .to_string(),
+    );
+    session_store.touch()?;
     registry.register(std::sync::Arc::new(FilesystemTool::new()))?;
     registry.register(std::sync::Arc::new(ShellTool::new()))?;
     registry.register(std::sync::Arc::new(HttpTool::new()?))?;
     registry.register(std::sync::Arc::new(ScheduleTool::new()))?;
+    registry.register(std::sync::Arc::new(MemoryTool::new(session_store.clone())))?;
     let registry = std::sync::Arc::new(registry);
     let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let capabilities = CapabilitySet::from_config_with_base(&config.permissions(), &base_dir);
@@ -142,12 +152,17 @@ fn run_schedules_cli(_config: &Config, kernel: Kernel, args: &[String]) -> Resul
                 return Ok(());
             }
             for job in jobs {
-                println!("{} {} {:?} {}", job.id, job.name, job.schedule_type, job.schedule_expr);
+                println!(
+                    "{} {} {:?} {}",
+                    job.id, job.name, job.schedule_type, job.schedule_expr
+                );
             }
             Ok(())
         }
         "cancel" => {
-            let job_id = args.get(1).ok_or_else(|| anyhow::anyhow!("missing job_id"))?;
+            let job_id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("missing job_id"))?;
             let cancelled = scheduler.cancel_job(job_id)?;
             println!("cancelled={cancelled}");
             Ok(())

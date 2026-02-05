@@ -4,18 +4,7 @@ use std::sync::Arc;
 
 use rusqlite::{Connection, OpenFlags, params};
 
-#[allow(clippy::enum_variant_names)]
-#[derive(Debug, thiserror::Error)]
-pub enum SessionDbError {
-    #[error("open failed: {0}")]
-    OpenFailed(String),
-    #[error("migration failed: {0}")]
-    MigrationFailed(String),
-    #[error("query failed: {0}")]
-    QueryFailed(String),
-}
-
-pub type SessionDbResult<T> = Result<T, SessionDbError>;
+use crate::session::error::{SessionDbError, SessionDbResult};
 
 #[derive(Debug, Clone)]
 pub struct SqliteStore {
@@ -57,6 +46,50 @@ impl SqliteStore {
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
             PRAGMA foreign_keys = ON;
+            CREATE TABLE IF NOT EXISTS sessions (
+                id TEXT PRIMARY KEY,
+                channel_type TEXT NOT NULL,
+                channel_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                permissions_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_active TEXT NOT NULL,
+                state_json TEXT NOT NULL,
+                summary TEXT
+            );
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                message_type TEXT NOT NULL CHECK(message_type IN ('system', 'user', 'assistant', 'assistant_tool_calls', 'tool')),
+                content TEXT NOT NULL,
+                tool_call_id TEXT,
+                created_at TEXT NOT NULL,
+                seq_order INTEGER NOT NULL,
+                token_estimate INTEGER
+            );
+            CREATE TABLE IF NOT EXISTS user_memories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                content TEXT NOT NULL,
+                source_session_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(user_id, key)
+            );
+            CREATE TABLE IF NOT EXISTS session_summaries (
+                session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+                summary TEXT NOT NULL,
+                message_count INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_messages_session_order ON messages(session_id, seq_order);
+            CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
+            CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_sessions_channel ON sessions(channel_id);
+            CREATE INDEX IF NOT EXISTS idx_user_memories_user ON user_memories(user_id);
+            CREATE INDEX IF NOT EXISTS idx_session_summaries_session ON session_summaries(session_id);
             CREATE TABLE IF NOT EXISTS schedules (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -128,25 +161,22 @@ impl SqliteStore {
     #[allow(dead_code)]
     pub fn insert_probe(&self, conn: &Connection) -> SessionDbResult<()> {
         conn.execute(
-            "INSERT INTO schedules (id, name, schedule_type, schedule_expr, task_prompt, user_id, capabilities_json, creator_principal, enabled, next_run_at, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            "INSERT INTO sessions (id, channel_type, channel_id, user_id, permissions_json, created_at, last_active, state_json, summary)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 "probe",
-                "probe",
-                "once",
-                "probe",
+                "repl",
                 "probe",
                 "probe",
                 "{}",
+                chrono::Utc::now().to_rfc3339(),
+                chrono::Utc::now().to_rfc3339(),
                 "{}",
-                0,
-                chrono::Utc::now().to_rfc3339(),
-                chrono::Utc::now().to_rfc3339(),
-                chrono::Utc::now().to_rfc3339(),
+                Option::<String>::None,
             ],
         )
         .map_err(|err| SessionDbError::QueryFailed(err.to_string()))?;
-        conn.execute("DELETE FROM schedules WHERE id = ?1", params!["probe"])
+        conn.execute("DELETE FROM sessions WHERE id = ?1", params!["probe"])
             .map_err(|err| SessionDbError::QueryFailed(err.to_string()))?;
         Ok(())
     }

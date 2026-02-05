@@ -77,10 +77,10 @@ impl ToolExecutor for ScheduleTool {
                 "schedule tool is disabled during scheduled job execution".to_string(),
             ));
         }
-    let scheduler = ctx
-        .scheduler
-        .as_ref()
-        .ok_or_else(|| ToolError::new("scheduler not available".to_string()))?;
+        let scheduler = ctx
+            .scheduler
+            .as_ref()
+            .ok_or_else(|| ToolError::new("scheduler not available".to_string()))?;
         let action = input
             .get("action")
             .and_then(Value::as_str)
@@ -230,27 +230,26 @@ fn list_jobs(
     } else {
         scheduler.list_jobs_by_user(user_id)
     };
-    jobs
-        .map(|jobs| {
-            let items = jobs
-                .into_iter()
-                .map(|job| {
-                    json!({
-                        "id": job.id,
-                        "name": job.name,
-                        "schedule_type": job.schedule_type,
-                        "schedule_expr": job.schedule_expr,
-                        "enabled": job.enabled,
-                        "execution_count": job.execution_count,
-                        "next_run_at": job.next_run_at,
-                        "last_run_at": job.last_run_at,
-                        "last_error": job.last_error,
-                    })
+    jobs.map(|jobs| {
+        let items = jobs
+            .into_iter()
+            .map(|job| {
+                json!({
+                    "id": job.id,
+                    "name": job.name,
+                    "schedule_type": job.schedule_type,
+                    "schedule_expr": job.schedule_expr,
+                    "enabled": job.enabled,
+                    "execution_count": job.execution_count,
+                    "next_run_at": job.next_run_at,
+                    "last_run_at": job.last_run_at,
+                    "last_error": job.last_error,
                 })
-                .collect::<Vec<_>>();
-            json!({"schedules": items})
-        })
-        .map_err(|err| ToolError::new(err.to_string()))
+            })
+            .collect::<Vec<_>>();
+        json!({"schedules": items})
+    })
+    .map_err(|err| ToolError::new(err.to_string()))
 }
 
 fn cancel_job(
