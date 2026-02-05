@@ -11,7 +11,9 @@ pub async fn run(
     kernel: Kernel,
     agent_builder: ProviderAgentBuilder,
 ) -> Result<()> {
-    let kernel = Arc::new(kernel);
+    let user_id = std::env::var("PICOBOT_USER_ID").ok().unwrap_or_else(|| "local-user".to_string());
+    let session_id = std::env::var("PICOBOT_SESSION_ID").ok().unwrap_or_else(|| "repl:local".to_string());
+    let kernel = Arc::new(kernel.clone_with_context(Some(user_id), Some(session_id)));
     let agent = agent_builder.build(kernel.tool_registry(), kernel.clone(), config.max_turns());
 
     println!("picobot repl (type 'exit' to quit)");

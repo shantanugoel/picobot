@@ -22,6 +22,12 @@ cp config.example.toml picobot.toml
 cargo run
 ```
 
+To persist schedule ownership, set a user/session id for the REPL:
+
+```bash
+PICOBOT_USER_ID=local-user PICOBOT_SESSION_ID=repl:local cargo run
+```
+
 4. Run the API server:
 
 ```bash

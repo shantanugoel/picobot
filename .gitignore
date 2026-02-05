@@ -1,3 +1,4 @@
 /target
 data/
 picobot.toml
+.DS_Store
