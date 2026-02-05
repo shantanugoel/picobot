@@ -40,10 +40,6 @@ use tokio::sync::{broadcast, watch};
 async fn main() -> anyhow::Result<()> {
     let config = load_config().unwrap_or_default();
     let args: Vec<String> = std::env::args().collect();
-    if args.len() > 1 && args[1] == "serve" {
-        return run_server(config).await;
-    }
-
     let registry = match ModelRegistry::from_config(&config) {
         Ok(registry) => registry,
         Err(err) => {
@@ -51,6 +47,25 @@ async fn main() -> anyhow::Result<()> {
             return Ok(());
         }
     };
+    println!(
+        "Model default: {} (provider={}, model={})",
+        registry.default_id(),
+        config
+            .models
+            .iter()
+            .find(|model| model.id == registry.default_id())
+            .map(|model| model.provider.as_str())
+            .unwrap_or("unknown"),
+        config
+            .models
+            .iter()
+            .find(|model| model.id == registry.default_id())
+            .map(|model| model.model.as_str())
+            .unwrap_or("unknown")
+    );
+    if args.len() > 1 && args[1] == "serve" {
+        return run_server(config).await;
+    }
 
     let data_dir = config.data.as_ref().and_then(|data| data.dir.as_deref());
     let tool_registry = register_builtin_tools(config.permissions.as_ref(), data_dir)?;
@@ -82,6 +97,7 @@ async fn main() -> anyhow::Result<()> {
         Kernel::new(tool_registry, working_dir).with_capabilities(capabilities)
     };
     kernel.set_scheduler(None);
+    kernel.set_channel_id(None);
     let kernel = Arc::new(kernel);
 
     let mut state = ConversationState::new();
@@ -143,8 +159,23 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
     };
     if log_model_requests {
         kernel.set_log_model_requests(true);
+        unsafe {
+            std::env::set_var("PICOBOT_LOG_MODEL_TRANSPORT", "1");
+        }
     }
     kernel.set_include_tool_messages(include_tool_messages);
+    kernel.set_environment(
+        std::env::consts::OS.to_string(),
+        chrono::Local::now().offset().to_string(),
+    );
+    kernel.set_timezone_name(chrono::Local::now().format("%Z").to_string());
+    let allowed_shell_commands = config
+        .permissions
+        .as_ref()
+        .and_then(|permissions| permissions.shell.as_ref())
+        .map(|shell| shell.allowed_commands.clone())
+        .unwrap_or_default();
+    kernel.set_allowed_shell_commands(allowed_shell_commands);
     kernel.set_scheduler(None);
     let kernel = Arc::new(kernel);
 
@@ -198,13 +229,12 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
             schedule_store.clone(),
             scheduler_config.clone(),
         );
-        if config
+        let notifications_enabled = config
             .notifications
             .as_ref()
             .map(|value| value.enabled())
-            .unwrap_or(false)
-            && let Some(backend) = whatsapp_backend.as_ref()
-        {
+            .unwrap_or(false);
+        if notifications_enabled && let Some(backend) = whatsapp_backend.as_ref() {
             let queue_config = config
                 .notifications
                 .as_ref()
@@ -214,7 +244,7 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
                     max_backoff: std::time::Duration::from_millis(value.max_backoff_ms()),
                 })
                 .unwrap_or_default();
-            let queue = NotificationQueue::new(queue_config);
+            let queue = NotificationQueue::new(queue_config.clone());
             let channel = Arc::new(WhatsAppNotificationChannel::new(Arc::new(
                 WhatsAppOutboundSender::new(Arc::clone(backend)),
             )));
@@ -223,7 +253,10 @@ async fn run_server(config: Config) -> anyhow::Result<()> {
             tokio::spawn(async move {
                 worker.worker_loop().await;
             });
-            executor.set_notifications(Some(notifications)).await;
+            executor
+                .set_notifications(Some(notifications.clone()))
+                .await;
+            kernel.set_notifications(Some(Arc::new(notifications)));
         }
         let service = Arc::new(SchedulerService::new(
             schedule_store,

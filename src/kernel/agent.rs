@@ -22,9 +22,16 @@ impl Kernel {
                 capabilities: Arc::new(CapabilitySet::empty()),
                 user_id: None,
                 session_id: None,
+                channel_id: None,
                 scheduler: Arc::new(std::sync::RwLock::new(None)),
+                notifications: Arc::new(std::sync::RwLock::new(None)),
                 log_model_requests: false,
                 include_tool_messages: false,
+                host_os: std::env::consts::OS.to_string(),
+                timezone_offset: chrono::Local::now().offset().to_string(),
+                timezone_name: chrono::Local::now().format("%Z").to_string(),
+                allowed_shell_commands: Vec::new(),
+                scheduled_job: false,
             },
             memory_retriever: None,
         }
@@ -80,12 +87,42 @@ impl Kernel {
         }
     }
 
+    pub fn set_notifications(
+        &self,
+        notifications: Option<Arc<crate::notifications::service::NotificationService>>,
+    ) {
+        if let Ok(mut slot) = self.context.notifications.write() {
+            *slot = notifications;
+        }
+    }
+
     pub fn set_log_model_requests(&mut self, enabled: bool) {
         self.context.log_model_requests = enabled;
     }
 
     pub fn set_include_tool_messages(&mut self, enabled: bool) {
         self.context.include_tool_messages = enabled;
+    }
+
+    pub fn set_environment(&mut self, host_os: String, timezone_offset: String) {
+        self.context.host_os = host_os;
+        self.context.timezone_offset = timezone_offset;
+    }
+
+    pub fn set_timezone_name(&mut self, timezone_name: String) {
+        self.context.timezone_name = timezone_name;
+    }
+
+    pub fn set_allowed_shell_commands(&mut self, commands: Vec<String>) {
+        self.context.allowed_shell_commands = commands;
+    }
+
+    pub fn set_channel_id(&mut self, channel_id: Option<String>) {
+        self.context.channel_id = channel_id;
+    }
+
+    pub fn set_scheduled_job_mode(&mut self, enabled: bool) {
+        self.context.scheduled_job = enabled;
     }
 
     pub fn scheduler(&self) -> Option<Arc<crate::scheduler::service::SchedulerService>> {

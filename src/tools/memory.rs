@@ -25,7 +25,7 @@ impl Tool for MemoryTool {
     }
 
     fn description(&self) -> &'static str {
-        "Save, list, or delete user memories"
+        "Save, list, or delete user memories. save requires action=save, key, content. list requires action=list. delete requires action=delete, key."
     }
 
     fn schema(&self) -> Value {

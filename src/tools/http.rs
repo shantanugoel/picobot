@@ -29,7 +29,7 @@ impl Tool for HttpTool {
     }
 
     fn description(&self) -> &'static str {
-        "Fetch a URL with domain allowlist"
+        "Fetch a URL with domain allowlist. Required: url. Optional: method (GET/POST), headers, body, timeout_secs."
     }
 
     fn schema(&self) -> Value {

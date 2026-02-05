@@ -18,7 +18,7 @@ impl Tool for ScheduleTool {
     }
 
     fn description(&self) -> &'static str {
-        "Create, list, or cancel scheduled jobs"
+        "Create, list, or cancel scheduled jobs. Required for create: action=create, name, schedule_type, schedule_expr, task_prompt. Required for cancel: action=cancel, job_id. interval uses seconds. cron uses 5 or 6 fields (5 implies leading seconds=0), optional timezone prefix: 'America/New_York|0 30 9 * * *'. Prefer once for one-off reminders with local ISO timestamps. When executing a scheduled job, perform the task prompt only; do not create new schedules unless explicitly requested."
     }
 
     fn schema(&self) -> Value {
@@ -63,6 +63,12 @@ impl Tool for ScheduleTool {
     }
 
     async fn execute(&self, ctx: &ToolContext, input: Value) -> Result<ToolOutput, ToolError> {
+        if ctx.scheduled_job {
+            return Err(ToolError::ExecutionFailed(
+                "schedule tool is disabled during scheduled job execution; use notify for reminders instead"
+                    .to_string(),
+            ));
+        }
         let scheduler = ctx
             .scheduler()
             .ok_or_else(|| ToolError::ExecutionFailed("scheduler not available".to_string()))?;
@@ -98,6 +104,12 @@ fn create_job(
         .and_then(Value::as_str)
         .ok_or_else(|| ToolError::InvalidInput("missing schedule_expr".to_string()))?;
     let mut schedule_expr = schedule_expr.to_string();
+    if matches!(schedule_type, ScheduleType::Cron) {
+        schedule_expr = normalize_cron_expr(&schedule_expr)?;
+    }
+    if matches!(schedule_type, ScheduleType::Once) {
+        schedule_expr = normalize_once_expr(&schedule_expr, ctx.timezone_offset.as_str())?;
+    }
     let task_prompt = input
         .get("task_prompt")
         .and_then(Value::as_str)
@@ -213,6 +225,78 @@ fn parse_relative_duration(value: &str) -> Option<u64> {
         "day" | "days" => Some(amount.saturating_mul(60 * 60 * 24)),
         _ => None,
     }
+}
+
+fn normalize_cron_expr(value: &str) -> Result<String, ToolError> {
+    let trimmed = value.trim();
+    let (tz, raw) = if let Some((prefix, rest)) = trimmed.split_once('|') {
+        let tz = prefix.trim();
+        if tz.is_empty() {
+            return Err(ToolError::InvalidInput("cron timezone missing".to_string()));
+        }
+        (Some(tz), rest.trim())
+    } else {
+        (None, trimmed)
+    };
+    let field_count = raw.split_whitespace().count();
+    let normalized = match field_count {
+        5 => format!("0 {raw}"),
+        6 | 7 => raw.to_string(),
+        _ => {
+            return Err(ToolError::InvalidInput(
+                "cron expression must have 5 or 6 fields".to_string(),
+            ));
+        }
+    };
+    Ok(match tz {
+        Some(tz) => format!("{tz}|{normalized}"),
+        None => normalized,
+    })
+}
+
+fn normalize_once_expr(value: &str, tz_offset: &str) -> Result<String, ToolError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(ToolError::InvalidInput(
+            "once schedule_expr must not be empty".to_string(),
+        ));
+    }
+    if trimmed.contains(' ') && trimmed.contains(':') && !trimmed.contains('T') {
+        let replaced = trimmed.replace(' ', "T");
+        return Ok(ensure_offset(replaced, tz_offset));
+    }
+    if trimmed.contains('T') && (trimmed.ends_with('Z') || has_offset_suffix(trimmed)) {
+        return Ok(trimmed.to_string());
+    }
+    if trimmed.contains('T') && !has_offset_suffix(trimmed) {
+        return Ok(format!("{trimmed}{tz_offset}"));
+    }
+    if trimmed.len() == 5 && trimmed.chars().nth(2) == Some(':') {
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        return Ok(format!("{today}T{trimmed}:00{tz_offset}"));
+    }
+    Ok(ensure_offset(trimmed.to_string(), tz_offset))
+}
+
+fn ensure_offset(value: String, tz_offset: &str) -> String {
+    if value.ends_with('Z') || has_offset_suffix(&value) {
+        return value;
+    }
+    format!("{value}{tz_offset}")
+}
+
+fn has_offset_suffix(value: &str) -> bool {
+    if value.len() < 6 {
+        return false;
+    }
+    let suffix = &value[value.len().saturating_sub(6)..];
+    let bytes = suffix.as_bytes();
+    matches!(bytes[0], b'+' | b'-')
+        && bytes[3] == b':'
+        && bytes[1].is_ascii_digit()
+        && bytes[2].is_ascii_digit()
+        && bytes[4].is_ascii_digit()
+        && bytes[5].is_ascii_digit()
 }
 
 fn find_duplicate_job(

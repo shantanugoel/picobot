@@ -144,6 +144,14 @@ fn build_model(config: &ModelConfig) -> Result<GenaiModel, ModelRegistryError> {
     .map_err(|err: crate::models::traits::ModelError| {
         ModelRegistryError::InitializationFailed(config.id.clone(), err.to_string())
     })?;
+    println!(
+        "Model init: id={} provider={} adapter={:?} model={} base_url={}",
+        config.id,
+        config.provider,
+        adapter_kind,
+        config.model,
+        config.base_url.as_deref().unwrap_or("(default)")
+    );
     Ok(GenaiModel::new(info, client, adapter_kind))
 }
 

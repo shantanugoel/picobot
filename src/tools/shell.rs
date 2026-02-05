@@ -16,7 +16,7 @@ impl Tool for ShellTool {
     }
 
     fn description(&self) -> &'static str {
-        "Execute a shell command from the allowlist"
+        "Execute a shell command from the allowlist. Required: command. Optional: args, working_dir. Use portable flags; avoid GNU-specific options unless confirmed by output."
     }
 
     fn schema(&self) -> Value {
@@ -103,9 +103,16 @@ mod tests {
             capabilities: std::sync::Arc::new(crate::kernel::permissions::CapabilitySet::empty()),
             user_id: None,
             session_id: None,
+            channel_id: None,
             scheduler: std::sync::Arc::new(std::sync::RwLock::new(None)),
+            notifications: std::sync::Arc::new(std::sync::RwLock::new(None)),
             log_model_requests: false,
             include_tool_messages: true,
+            host_os: "test".to_string(),
+            timezone_offset: "+00:00".to_string(),
+            timezone_name: "UTC".to_string(),
+            allowed_shell_commands: Vec::new(),
+            scheduled_job: false,
         };
         let required = tool
             .required_permissions(&ctx, &json!({"command": "ls"}))

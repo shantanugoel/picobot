@@ -38,6 +38,12 @@ impl Model for GenaiModel {
     }
 
     async fn complete(&self, req: ModelRequest) -> Result<ModelResponse, ModelError> {
+        if std::env::var("PICOBOT_LOG_MODEL_TRANSPORT").as_deref() == Ok("1") {
+            eprintln!(
+                "Model transport: provider={} adapter={:?} model={}",
+                self.info.provider, self.adapter_kind, self.info.model
+            );
+        }
         let chat_req = build_request(&req, self.adapter_kind);
         let options = chat_options_for_request(&req);
         let response = self
@@ -49,6 +55,12 @@ impl Model for GenaiModel {
     }
 
     async fn stream(&self, req: ModelRequest) -> Result<Vec<ModelEvent>, ModelError> {
+        if std::env::var("PICOBOT_LOG_MODEL_TRANSPORT").as_deref() == Ok("1") {
+            eprintln!(
+                "Model transport: provider={} adapter={:?} model={}",
+                self.info.provider, self.adapter_kind, self.info.model
+            );
+        }
         let chat_req = build_request(&req, self.adapter_kind);
         let options = chat_options_for_request(&req);
         let ChatStreamResponse { mut stream, .. } = self

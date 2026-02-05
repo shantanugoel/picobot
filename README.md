@@ -120,6 +120,11 @@ PicoBot is configured via `config.toml`. Key options include:
 - `job_timeout_secs`: Per-job execution timeout.
 - `max_backoff_secs`: Max exponential backoff between retries.
 
+#### Schedule tool notes
+
+- `schedule_type = "cron"` expects 5 or 6 fields. If 5 fields are provided, a leading seconds field of `0` is assumed.
+- Optional timezone prefix: `America/New_York|0 30 9 * * *`.
+
 ### Notifications (`[notifications]`)
 
 - `enabled`: Enable async notifications.
@@ -192,6 +197,10 @@ PicoBot is configured via `config.toml`. Key options include:
 - `logging.level`: Log level (e.g., `info`, `debug`).
 - `logging.audit_file`: Audit log file path.
 - `logging.log_model_requests`: Log model request payload summaries for debugging.
+
+### Model Guidance
+
+Tool descriptions include runtime environment hints (OS + timezone offset) and scheduler usage rules to reduce tool misuse. Keep system prompts focused on safety and behavior; tool-specific usage lives in tool descriptions.
 
 ## Notes
 

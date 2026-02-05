@@ -44,11 +44,35 @@ impl ToolRegistry {
     }
 
     pub fn tool_specs(&self) -> Vec<ToolSpec> {
+        self.tool_specs_with_context(None)
+    }
+
+    pub fn tool_specs_with_context(
+        &self,
+        ctx: Option<&crate::kernel::context::ToolContext>,
+    ) -> Vec<ToolSpec> {
+        let env_suffix = ctx.map(|context| {
+            let tz = if context.timezone_name.is_empty() {
+                context.timezone_offset.clone()
+            } else {
+                format!("{} ({})", context.timezone_name, context.timezone_offset)
+            };
+            let mut suffix = format!(" Host OS: {}. Local timezone: {}.", context.host_os, tz);
+            if !context.allowed_shell_commands.is_empty() {
+                suffix.push_str(" Shell allowlist: ");
+                suffix.push_str(&context.allowed_shell_commands.join(", "));
+                suffix.push('.');
+            }
+            suffix
+        });
         self.tools
             .values()
             .map(|tool| ToolSpec {
                 name: tool.name().to_string(),
-                description: tool.description().to_string(),
+                description: match env_suffix.as_ref() {
+                    Some(suffix) => format!("{}{}", tool.description(), suffix),
+                    None => tool.description().to_string(),
+                },
                 schema: tool.schema(),
             })
             .collect()
@@ -142,9 +166,16 @@ mod tests {
             capabilities: std::sync::Arc::new(CapabilitySet::empty()),
             user_id: None,
             session_id: None,
+            channel_id: None,
             scheduler: std::sync::Arc::new(std::sync::RwLock::new(None)),
+            notifications: std::sync::Arc::new(std::sync::RwLock::new(None)),
             log_model_requests: false,
             include_tool_messages: true,
+            host_os: "test".to_string(),
+            timezone_offset: "+00:00".to_string(),
+            timezone_name: "UTC".to_string(),
+            allowed_shell_commands: Vec::new(),
+            scheduled_job: false,
         };
 
         let perms = registry

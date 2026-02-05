@@ -255,13 +255,17 @@ pub async fn run_agent_step(
     let request = match kernel.memory_retriever() {
         Some(memory) => build_model_request_with_memory(
             state,
-            kernel.tool_registry().tool_specs(),
+            kernel
+                .tool_registry()
+                .tool_specs_with_context(Some(kernel.context())),
             memory,
             kernel.context(),
         ),
         None => build_model_request_with_logging(
             state,
-            kernel.tool_registry().tool_specs(),
+            kernel
+                .tool_registry()
+                .tool_specs_with_context(Some(kernel.context())),
             kernel.context().log_model_requests,
             kernel.context().include_tool_messages,
         ),
@@ -420,13 +424,17 @@ pub async fn run_agent_loop_streamed_with_permissions_limit(
         let request = match kernel.memory_retriever() {
             Some(memory) => build_model_request_with_memory(
                 state,
-                kernel.tool_registry().tool_specs(),
+                kernel
+                    .tool_registry()
+                    .tool_specs_with_context(Some(kernel.context())),
                 memory,
                 kernel.context(),
             ),
             None => build_model_request_with_logging(
                 state,
-                kernel.tool_registry().tool_specs(),
+                kernel
+                    .tool_registry()
+                    .tool_specs_with_context(Some(kernel.context())),
                 kernel.context().log_model_requests,
                 kernel.context().include_tool_messages,
             ),
@@ -494,13 +502,17 @@ pub async fn run_agent_loop_streamed_with_permissions_step(
         let request = match kernel.memory_retriever() {
             Some(memory) => build_model_request_with_memory(
                 state,
-                kernel.tool_registry().tool_specs(),
+                kernel
+                    .tool_registry()
+                    .tool_specs_with_context(Some(kernel.context())),
                 memory,
                 kernel.context(),
             ),
             None => build_model_request_with_logging(
                 state,
-                kernel.tool_registry().tool_specs(),
+                kernel
+                    .tool_registry()
+                    .tool_specs_with_context(Some(kernel.context())),
                 kernel.context().log_model_requests,
                 kernel.context().include_tool_messages,
             ),
@@ -762,9 +774,16 @@ mod tests {
             capabilities: std::sync::Arc::new(CapabilitySet::empty()),
             user_id: None,
             session_id: None,
+            channel_id: None,
             scheduler: std::sync::Arc::new(std::sync::RwLock::new(None)),
+            notifications: std::sync::Arc::new(std::sync::RwLock::new(None)),
             log_model_requests: false,
             include_tool_messages: true,
+            host_os: "test".to_string(),
+            timezone_offset: "+00:00".to_string(),
+            timezone_name: "UTC".to_string(),
+            allowed_shell_commands: Vec::new(),
+            scheduled_job: false,
         };
         let request = build_model_request_with_memory(&state, Vec::new(), &memory, &ctx);
         assert_eq!(request.messages.len(), 2);

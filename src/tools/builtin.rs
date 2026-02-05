@@ -4,6 +4,7 @@ use crate::session::db::SqliteStore;
 use crate::tools::filesystem::FilesystemTool;
 use crate::tools::http::HttpTool;
 use crate::tools::memory::MemoryTool;
+use crate::tools::notifications::NotificationTool;
 use crate::tools::registry::{ToolRegistry, ToolRegistryError};
 use crate::tools::schedule::ScheduleTool;
 use crate::tools::shell::ShellTool;
@@ -41,6 +42,7 @@ pub fn register_builtin_tools(
         })?;
     registry.register(Box::new(MemoryTool::new(store)))?;
     registry.register(Box::new(ScheduleTool))?;
+    registry.register(Box::new(NotificationTool))?;
 
     if let Some(permissions) = permissions
         && let Some(shell) = &permissions.shell

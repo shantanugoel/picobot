@@ -2,6 +2,7 @@ pub mod builtin;
 pub mod filesystem;
 pub mod http;
 pub mod memory;
+pub mod notifications;
 pub mod registry;
 pub mod schedule;
 pub mod schema;

@@ -176,9 +176,25 @@ impl JobExecutor {
                 .kernel
                 .clone_with_context(Some(job.user_id.clone()), job.session_id.clone());
             scoped.set_capabilities(job.capabilities.clone());
+            scoped.set_scheduled_job_mode(true);
+            scoped.set_channel_id(job.channel_id.clone());
             scoped
         };
         let model = self.models.default_model_arc();
+
+        if let Some(service) = scoped_kernel.context().notifications()
+            && let Some(channel_id) = scoped_kernel.context().channel_id.clone()
+        {
+            let request = crate::notifications::channel::NotificationRequest {
+                user_id: job.user_id.clone(),
+                channel_id,
+                message: job.task_prompt.clone(),
+            };
+            let id = service.enqueue(request).await;
+            return ExecutionOutcome::Completed {
+                response: Some(format!("notification queued {id}")),
+            };
+        }
 
         let result = run_agent_loop_with_limit(
             &scoped_kernel,

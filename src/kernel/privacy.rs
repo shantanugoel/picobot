@@ -125,9 +125,16 @@ mod tests {
             capabilities: Arc::new(CapabilitySet::empty()),
             user_id: Some("api:user".to_string()),
             session_id: Some("session-1".to_string()),
+            channel_id: None,
             scheduler: Arc::new(std::sync::RwLock::new(None)),
+            notifications: Arc::new(std::sync::RwLock::new(None)),
             log_model_requests: false,
             include_tool_messages: true,
+            host_os: "test".to_string(),
+            timezone_offset: "+00:00".to_string(),
+            timezone_name: "UTC".to_string(),
+            allowed_shell_commands: Vec::new(),
+            scheduled_job: false,
         };
         controller.purge(&ctx, PurgeScope::Session, None).unwrap();
         assert!(manager.get_session("session-1").unwrap().is_none());
@@ -172,9 +179,16 @@ mod tests {
             capabilities: Arc::new(CapabilitySet::empty()),
             user_id: Some("api:user2".to_string()),
             session_id: None,
+            channel_id: None,
             scheduler: Arc::new(std::sync::RwLock::new(None)),
+            notifications: Arc::new(std::sync::RwLock::new(None)),
             log_model_requests: false,
             include_tool_messages: true,
+            host_os: "test".to_string(),
+            timezone_offset: "+00:00".to_string(),
+            timezone_name: "UTC".to_string(),
+            allowed_shell_commands: Vec::new(),
+            scheduled_job: false,
         };
         controller.purge(&ctx, PurgeScope::User, None).unwrap();
         assert!(manager.get_session("session-2").unwrap().is_none());
@@ -232,9 +246,16 @@ mod tests {
             capabilities: Arc::new(CapabilitySet::empty()),
             user_id: Some("api:user3".to_string()),
             session_id: Some("session-3".to_string()),
+            channel_id: None,
             scheduler: Arc::new(std::sync::RwLock::new(None)),
+            notifications: Arc::new(std::sync::RwLock::new(None)),
             log_model_requests: false,
             include_tool_messages: true,
+            host_os: "test".to_string(),
+            timezone_offset: "+00:00".to_string(),
+            timezone_name: "UTC".to_string(),
+            allowed_shell_commands: Vec::new(),
+            scheduled_job: false,
         };
         controller
             .purge(&ctx, PurgeScope::OlderThanDays, Some(1))
