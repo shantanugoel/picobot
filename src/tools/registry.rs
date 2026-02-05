@@ -5,7 +5,7 @@ use jsonschema::Validator;
 use serde_json::Value;
 
 use crate::kernel::permissions::Permission;
-use crate::tools::traits::{ToolContext, ToolError, ToolExecutor};
+use crate::tools::traits::{ToolContext, ToolError, ToolExecutor, ToolSpec};
 
 #[derive(Default)]
 pub struct ToolRegistry {
@@ -36,6 +36,10 @@ impl ToolRegistry {
             .iter()
             .find(|tool| tool.spec().name == name)
             .cloned()
+    }
+
+    pub fn specs(&self) -> Vec<ToolSpec> {
+        self.tools.iter().map(|tool| tool.spec().clone()).collect()
     }
 
     pub fn validate_input(&self, tool: &dyn ToolExecutor, input: &Value) -> Result<(), ToolError> {

@@ -105,17 +105,17 @@ The previous implementation is preserved in `reference/` for guidance:
    - [x] Create `registry.rs` for tool collection
 
 4. **Provider Setup** (`src/providers/`)
-   - [ ] Create `factory.rs` for building rig-core clients
-   - [ ] Support OpenAI provider with configurable base_url
-   - [ ] Create agent builder function
+   - [x] Create `factory.rs` for building rig-core clients
+   - [x] Support OpenAI provider with configurable base_url
+   - [x] Create agent builder function
 
 5. **Initial Interface** (`src/channels/`)
-   - [ ] Create minimal API endpoint for text prompts
-   - [ ] Wire up agent execution with tool calls
-   - [ ] Add basic REPL for local debugging
+   - [x] Create minimal API endpoint for text prompts
+   - [x] Wire up agent execution with tool calls
+   - [x] Add basic REPL for local debugging
 
 6. **Configuration** (`src/config.rs`)
-   - [ ] Port minimal config (model, permissions, data dir)
+   - [x] Port minimal config (model, permissions, data dir)
 
 #### Milestone: Run `cargo run`, chat with agent, execute filesystem tool
 
@@ -126,10 +126,8 @@ The previous implementation is preserved in `reference/` for guidance:
 #### Tasks
 
 1. **Additional Providers**
-   - [ ] Add Anthropic client
    - [ ] Add Gemini client
    - [ ] Add OpenRouter client
-   - [ ] Add ZAI GLM via OpenAI client with custom base_url
    - [ ] Create provider routing based on config
 
 2. **Complete Tool Set**
