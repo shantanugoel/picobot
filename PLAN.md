@@ -45,8 +45,9 @@ This is a ground-up rewrite of PicoBot using `rig-core` as the foundation for AI
                                         │
                                         ▼
 ┌───────────────────────────────────────────────────────────────────┐
-│                  KernelBackedTool (impl rig::Tool)                │
+│                  KernelBackedTool (ToolDyn wrapper)               │
 │  - Holds Arc<Kernel> reference                                    │
+│  - Dynamic tool names via ToolDyn                                 │
 │  - call() delegates to Kernel.invoke_tool()                       │
 │  - Enforces CapabilitySet permissions                             │
 └───────────────────────────────────────┬───────────────────────────┘
@@ -55,7 +56,7 @@ This is a ground-up rewrite of PicoBot using `rig-core` as the foundation for AI
 ┌───────────────────────────────────────────────────────────────────┐
 │                         Kernel                                    │
 │  - Permission enforcement (CapabilitySet)                         │
-│  - Glob-based path matching                                       │
+│  - Canonicalized path checks with optional jail root              │
 │  - Static capability enforcement                                  │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -99,15 +100,16 @@ The previous implementation is preserved in `reference/` for guidance:
    - [x] Create `session.rs` for session context (user/session IDs)
 
 3. **Tool Infrastructure** (`src/tools/`)
-   - [x] Create `traits.rs` with ToolSpec definition
-   - [x] Create `rig_wrapper.rs` with KernelBackedTool implementation
-   - [x] Port `filesystem.rs` as first tool (read/write/list)
-   - [x] Create `registry.rs` for tool collection
+    - [x] Create `traits.rs` with ToolSpec definition
+    - [x] Create `rig_wrapper.rs` with KernelBackedTool implementation
+    - [x] Port `filesystem.rs` as first tool (read/write/list)
+    - [x] Create `registry.rs` for tool collection
 
 4. **Provider Setup** (`src/providers/`)
-   - [x] Create `factory.rs` for building rig-core clients
-   - [x] Support OpenAI provider with configurable base_url
-   - [x] Create agent builder function
+    - [x] Create `factory.rs` for building rig-core clients
+    - [x] Support OpenAI provider with configurable base_url
+    - [ ] Support OpenRouter provider (OpenAI-compatible)
+    - [x] Create agent builder function
 
 5. **Initial Interface** (`src/channels/`)
    - [x] Create minimal API endpoint for text prompts
@@ -115,7 +117,8 @@ The previous implementation is preserved in `reference/` for guidance:
    - [x] Add basic REPL for local debugging
 
 6. **Configuration** (`src/config.rs`)
-   - [x] Port minimal config (model, permissions, data dir)
+    - [x] Port minimal config (model, permissions, data dir)
+    - [ ] Add optional `jail_root` for filesystem tools
 
 #### Milestone: Run `cargo run`, chat with agent, execute filesystem tool
 
@@ -126,23 +129,23 @@ The previous implementation is preserved in `reference/` for guidance:
 #### Tasks
 
 1. **Additional Providers**
-   - [ ] Add Gemini client
-   - [ ] Add OpenRouter client
-   - [ ] Create provider routing based on config
+    - [ ] Add Gemini client
+    - [ ] Create provider routing based on config
 
 2. **Complete Tool Set**
-   - [ ] Port `shell.rs` (command execution)
-   - [ ] Port `http.rs` (HTTP fetch)
-   - [ ] Port `schedule.rs` (scheduling)
+    - [ ] Port `shell.rs` (command execution)
+    - [ ] Port `http.rs` (HTTP fetch)
+    - [ ] Port `schedule.rs` (scheduling)
+    - [ ] Require allowlisted commands for shell tool
 
 3. **Streaming Support**
    - [ ] Implement streaming output to CLI
    - [ ] Handle tool call events during stream
 
 4. **Session & Memory**
-   - [ ] Port SQLite session storage
-   - [ ] Implement chat history management
-   - [ ] Port memory retrieval for context
+    - [ ] Port SQLite session storage
+    - [ ] Implement chat history management
+    - [ ] Port memory retrieval for context
 
 5. **Configuration Expansion**
    - [ ] Add multi-model configuration
@@ -181,11 +184,48 @@ The previous implementation is preserved in `reference/` for guidance:
 
 #### Milestone: Feature parity with reference implementation.
 
+### Phase 4: Security & Polish (Week 7)
+
+**Goal**: Harden execution paths and tighten production readiness.
+
+#### Tasks
+
+1. **Execution Isolation**
+   - [ ] Containerized execution for shell tool (ephemeral containers)
+   - [ ] Resource limits and timeouts for tool execution
+
+2. **Sentinel (HITL) for Shell Commands**
+   - [ ] Add command classifier (pattern-based, safe/risky/deny)
+   - [ ] Add approval policy to shell permissions config
+   - [ ] Implement sync approval for REPL channel
+   - [ ] Implement async approval via WebSocket channel
+   - [ ] Add approval timeout and fallback behavior
+
+3. **Filesystem Hardening**
+   - [ ] Canonicalize/normalize all paths before checks
+   - [ ] Re-check canonical paths at execution time for writes
+
+4. **Audit & Diagnostics**
+   - [ ] Structured audit logs for tool usage
+   - [ ] Log approval decisions with context
+   - [ ] Security-focused documentation updates
+
+### Phase 5: Advanced Tools (Future)
+
+**Goal**: Add higher-complexity tools behind hardened boundaries.
+
+#### Tasks
+
+1. **Remote Browser Tool**
+   - [ ] Containerized headless Chrome/Chromium
+   - [ ] WebSocket control interface for browser actions
+   - [ ] Screenshot and DOM extraction support
+
 ## Key Design Decisions
 
 ### 1. KernelBackedTool Pattern
 
-Tools implement rig-core's `Tool` trait but delegate execution to Kernel:
+Tools should register via `ToolDyn` to support dynamic names while delegating to Kernel:
 
 ```rust
 pub struct KernelBackedTool {
@@ -194,11 +234,10 @@ pub struct KernelBackedTool {
 }
 
 #[async_trait]
-impl Tool for KernelBackedTool {
-    const NAME: &'static str = ""; // Dynamic
-    type Args = serde_json::Value;
-    type Output = serde_json::Value;
-    type Error = ToolError;
+impl ToolDyn for KernelBackedTool {
+    fn name(&self) -> String {
+        self.spec.name.clone()
+    }
 
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
@@ -208,7 +247,7 @@ impl Tool for KernelBackedTool {
         }
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolError> {
         self.kernel.invoke_tool(&self.spec.name, args).await
     }
 }
@@ -237,7 +276,7 @@ pub async fn build_agent<M: CompletionModel>(
     
     for spec in tools.specs() {
         let wrapped = KernelBackedTool::new(spec.clone(), kernel.clone());
-        builder = builder.tool(wrapped);
+        builder = builder.tool_boxed(Box::new(wrapped));
     }
     
     builder.build()
