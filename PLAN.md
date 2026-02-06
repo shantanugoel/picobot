@@ -224,6 +224,12 @@ The previous implementation is preserved in `reference/` for guidance:
    - [ ] WebSocket control interface for browser actions
    - [ ] Screenshot and DOM extraction support
 
+3. **Multi modal tool**
+   - [ ] A tool to understand documents/images etc and do actions as prescribed by the user. Should be able to configure model to be used
+
+4. **Sandboxed code executor tool**
+    - [ ] Should be able to leverage a configured model to write code and then execute it, but only in a sandboxed environment so it does not impact itself or anything else on the server its running on.
+
 ## Key Design Decisions
 
 ### 1. KernelBackedTool Pattern
