@@ -192,7 +192,7 @@ mod tests {
     fn sqlite_store_creates_schema() {
         let dir = std::env::temp_dir().join(format!("picobot-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("scheduler.db");
+        let path = dir.join("picobot.db");
         let store = SqliteStore::new(path.to_string_lossy().to_string());
         let conn = store.open().unwrap();
         store.migrate(&conn).unwrap();

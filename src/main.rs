@@ -103,7 +103,7 @@ async fn main() -> Result<()> {
         let store = crate::session::db::SqliteStore::new(
             config
                 .data_dir()
-                .join("scheduler.db")
+                .join("picobot.db")
                 .to_string_lossy()
                 .to_string(),
         );

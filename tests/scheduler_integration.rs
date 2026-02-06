@@ -13,7 +13,7 @@ use picobot::tools::registry::ToolRegistry;
 fn scheduler_list_by_session_filters_results() {
     let dir = std::env::temp_dir().join(format!("picobot-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
-    let store = SqliteStore::new(dir.join("scheduler.db").to_string_lossy().to_string());
+    let store = SqliteStore::new(dir.join("picobot.db").to_string_lossy().to_string());
     store.touch().unwrap();
     let schedule_store = ScheduleStore::new(store.clone());
     let registry = Arc::new(ToolRegistry::new());
