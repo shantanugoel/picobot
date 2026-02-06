@@ -48,6 +48,7 @@ impl WhatsappRustBackend {
         store_path: String,
         media_root: PathBuf,
         max_media_size_bytes: u64,
+        allowed_senders: Option<Vec<String>>,
         qr_cache: watch::Sender<Option<String>>,
     ) -> Self {
         let (inbound_tx, inbound_rx) = mpsc::unbounded_channel();
@@ -56,6 +57,7 @@ impl WhatsappRustBackend {
             store_path,
             media_root,
             max_media_size_bytes,
+            allowed_senders,
             inbound_tx,
             outbound_rx,
             qr_cache,
@@ -224,6 +226,7 @@ pub async fn run(
         store_path,
         media_root.clone(),
         whatsapp_config.max_media_size_bytes(),
+        allowed_senders.clone(),
         qr_cache_tx,
     ));
     tokio::spawn(async move {
@@ -494,6 +497,7 @@ async fn run_whatsapp_loop(
     store_path: String,
     media_root: PathBuf,
     max_media_size_bytes: u64,
+    allowed_senders: Option<Vec<String>>,
     inbound_tx: mpsc::UnboundedSender<InboundMessage>,
     mut outbound_rx: mpsc::UnboundedReceiver<WhatsappOutbound>,
     qr_cache: watch::Sender<Option<String>>,
@@ -515,6 +519,7 @@ async fn run_whatsapp_loop(
     };
 
     let (client_tx, mut client_rx) = mpsc::unbounded_channel();
+    let allowed_senders = Arc::new(allowed_senders);
 
     let mut bot = match Bot::builder()
         .with_backend(backend)
@@ -525,6 +530,7 @@ async fn run_whatsapp_loop(
             let qr_cache = qr_cache.clone();
             let client_tx = client_tx.clone();
             let media_root = media_root.clone();
+            let allowed_senders = Arc::clone(&allowed_senders);
             async move {
                 let _ = client_tx.send(StdArc::clone(&client));
                 match event {
@@ -532,6 +538,13 @@ async fn run_whatsapp_loop(
                         let _ = qr_cache.send(Some(code));
                     }
                     Event::Message(message, info) => {
+                        let from = info.source.sender.to_string();
+                        if let Some(allowed) = allowed_senders.as_ref() {
+                            if !is_allowed_sender(&from, allowed) {
+                                tracing::debug!(user = %from, "WhatsApp ignored message (not in allowlist)");
+                                return;
+                            }
+                        }
                         let text = message.text_content().unwrap_or_default().to_string();
                         let base = message.get_base_message();
                         let attachments = match extract_media_attachments(
@@ -551,7 +564,6 @@ async fn run_whatsapp_loop(
                         if text.trim().is_empty() && attachments.is_empty() {
                             return;
                         }
-                        let from = info.source.sender.to_string();
                         let _ = inbound_tx.send(InboundMessage {
                             channel_id: "whatsapp".to_string(),
                             user_id: from,
