@@ -1,4 +1,4 @@
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 
 use crate::scheduler::error::{SchedulerError, SchedulerResult};
 use crate::scheduler::job::{
@@ -658,7 +658,7 @@ fn parse_execution_status(value: &str) -> Result<ExecutionStatus, SessionDbError
 
 #[cfg(test)]
 mod tests {
-    use super::{ScheduleStore, parse_schedule_type};
+    use super::{parse_schedule_type, ScheduleStore};
     use crate::session::db::SqliteStore;
 
     #[test]
@@ -673,6 +673,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("picobot-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = SqliteStore::new(dir.join("scheduler.db").to_string_lossy().to_string());
+        store.touch().unwrap();
         let schedule_store = ScheduleStore::new(store.clone());
 
         let user_id = "user".to_string();

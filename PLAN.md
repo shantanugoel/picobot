@@ -162,8 +162,8 @@ The previous implementation is preserved in `reference/` for guidance:
 
 1. **WhatsApp Integration**
    - [x] Implement WhatsApp adapter (using whatsapp-rust. Take hint from reference)
-   - [ ] Handle media/document processing for tools
-   - [ ] Session management for concurrent users
+   - [x] Handle media/document processing for tools
+   - [x] Session management for concurrent users
 
 2. **Robustness**
    - [ ] Error handling and recovery
@@ -202,6 +202,7 @@ The previous implementation is preserved in `reference/` for guidance:
 3. **Filesystem Hardening**
    - [ ] Canonicalize/normalize all paths before checks
    - [ ] Re-check canonical paths at execution time for writes
+   - [ ] Check if incoming media/documents etc from different users e.g. over whatsapp (or any other channel) have leakage potential to other users via filesystem or shell or other tools
 
 4. **Audit & Diagnostics**
    - [ ] Structured audit logs for tool usage

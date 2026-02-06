@@ -1,17 +1,23 @@
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use dashmap::DashMap;
 use futures::{Stream, StreamExt};
 use qrcode::QrCode;
 use qrcode::render::unicode;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, watch, Semaphore, Mutex as AsyncMutex};
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use uuid::Uuid;
+use wacore::proto_helpers::MessageExt;
 
 use crate::channels::permissions::channel_profile;
 use crate::config::{Config, WhatsappConfig};
 use crate::kernel::core::Kernel;
+use crate::kernel::permissions::{PathPattern, Permission};
 use crate::providers::factory::{ProviderAgent, ProviderAgentBuilder, ProviderFactory};
 use crate::session::manager::SessionManager;
 use crate::session::memory::MemoryRetriever;
@@ -36,11 +42,18 @@ struct WhatsappOutbound {
 }
 
 impl WhatsappRustBackend {
-    pub fn new(store_path: String, qr_cache: watch::Sender<Option<String>>) -> Self {
+    pub fn new(
+        store_path: String,
+        media_root: PathBuf,
+        max_media_size_bytes: u64,
+        qr_cache: watch::Sender<Option<String>>,
+    ) -> Self {
         let (inbound_tx, inbound_rx) = mpsc::unbounded_channel();
         let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
         tokio::spawn(run_whatsapp_loop(
             store_path,
+            media_root,
+            max_media_size_bytes,
             inbound_tx,
             outbound_rx,
             qr_cache,
@@ -86,6 +99,26 @@ pub struct InboundMessage {
     pub user_id: String,
     pub text: String,
     pub message_id: Option<String>,
+    pub attachments: Vec<MediaAttachment>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MediaAttachment {
+    pub media_type: MediaType,
+    pub mime_type: Option<String>,
+    pub file_name: Option<String>,
+    pub local_path: PathBuf,
+    pub caption: Option<String>,
+    pub size_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MediaType {
+    Image,
+    Document,
+    Audio,
+    Video,
+    Sticker,
 }
 
 pub struct WhatsAppInboundAdapter {
@@ -155,9 +188,15 @@ pub async fn run(
 
     let store_path = whatsapp_store_path(&config, &whatsapp_config);
     let allowed_senders = whatsapp_allowed_senders(&whatsapp_config);
+    let media_root = whatsapp_media_root(&config, &whatsapp_config);
 
     let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let profile = channel_profile(&config.channels(), "whatsapp", &base_dir);
+    let mut profile = channel_profile(&config.channels(), "whatsapp", &base_dir);
+    let media_perm = Permission::FileRead {
+        path: PathPattern(format!("{}/**", media_root.display())),
+    };
+    profile.pre_authorized.insert(media_perm.clone());
+    profile.max_allowed.insert(media_perm);
     let base_kernel = kernel
         .with_prompt_profile(profile)
         .with_channel_id(Some("whatsapp".to_string()));
@@ -177,9 +216,14 @@ pub async fn run(
         .ok()
         .filter(|router| !router.is_empty());
 
+    ensure_media_dir(&media_root)?;
     let (qr_cache_tx, mut qr_cache_rx) = watch::channel(None);
-    let backend: Arc<dyn WhatsAppBackend> =
-        Arc::new(WhatsappRustBackend::new(store_path, qr_cache_tx));
+    let backend: Arc<dyn WhatsAppBackend> = Arc::new(WhatsappRustBackend::new(
+        store_path,
+        media_root.clone(),
+        whatsapp_config.max_media_size_bytes(),
+        qr_cache_tx,
+    ));
     tokio::spawn(async move {
         while qr_cache_rx.changed().await.is_ok() {
             if let Some(code) = qr_cache_rx.borrow().clone() {
@@ -189,92 +233,160 @@ pub async fn run(
     });
 
     let inbound = WhatsAppInboundAdapter::new(Arc::clone(&backend), allowed_senders);
-    let outbound = WhatsAppOutboundSender::new(Arc::clone(&backend));
+    let outbound = Arc::new(WhatsAppOutboundSender::new(Arc::clone(&backend)));
     backend.start().await?;
+
+    let max_concurrent = whatsapp_config.max_concurrent_messages();
+    let global_semaphore = Arc::new(Semaphore::new(max_concurrent));
+    let per_user_locks: Arc<DashMap<String, Arc<AsyncMutex<()>>>> =
+        Arc::new(DashMap::new());
+
+    let cleanup_root = media_root.clone();
+    let retention_hours = whatsapp_config.media_retention_hours();
+    tokio::spawn(async move {
+        loop {
+            cleanup_expired_media(&cleanup_root, retention_hours).await;
+            tokio::time::sleep(Duration::from_secs(60 * 60)).await;
+        }
+    });
 
     let mut inbound_stream = inbound.subscribe().await;
     while let Some(message) = inbound_stream.next().await {
-        let user_id = message.user_id.clone();
-        let session_id = format!("whatsapp:{user_id}");
-        let session = match session_manager.get_session(&session_id)? {
-            Some(session) => session,
-            None => session_manager.create_session(
-                session_id,
-                "whatsapp".to_string(),
-                "whatsapp".to_string(),
-                user_id.clone(),
-                base_kernel.context().capabilities.as_ref().clone(),
-            )?,
+        let permit = match global_semaphore.clone().acquire_owned().await {
+            Ok(permit) => permit,
+            Err(_) => continue,
         };
+        let user_lock = per_user_locks
+            .entry(message.user_id.clone())
+            .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+            .clone();
+        let config = config.clone();
+        let agent_builder = agent_builder.clone();
+        let agent_router = agent_router.clone();
+        let session_manager = session_manager.clone();
+        let memory_retriever = memory_retriever.clone();
+        let memory_config = memory_config.clone();
+        let outbound = outbound.clone();
+        let base_kernel = base_kernel.clone();
+        tokio::spawn(async move {
+            let _permit = permit;
+            let _user_guard = user_lock.lock().await;
+            let user_id = message.user_id.clone();
+            let session_id = format!("whatsapp:{user_id}");
+            let session = match session_manager.get_session(&session_id) {
+                Ok(Some(session)) => session,
+                Ok(None) => match session_manager.create_session(
+                    session_id,
+                    "whatsapp".to_string(),
+                    "whatsapp".to_string(),
+                    user_id.clone(),
+                    base_kernel.context().capabilities.as_ref().clone(),
+                ) {
+                    Ok(session) => session,
+                    Err(err) => {
+                        let _ = outbound
+                            .send(&user_id, &format!("Sorry, session error: {err}"))
+                            .await;
+                        return;
+                    }
+                },
+                Err(err) => {
+                    let _ = outbound
+                        .send(&user_id, &format!("Sorry, session error: {err}"))
+                        .await;
+                    return;
+                }
+            };
 
-        let existing_messages = session_manager
-            .get_messages(
-                &session.id,
-                memory_config.max_session_messages.unwrap_or(50),
-            )
-            .unwrap_or_default();
-        let filtered_messages = if memory_config.include_tool_messages() {
-            existing_messages
-        } else {
-            existing_messages
-                .into_iter()
-                .filter(|message| message.message_type != MessageType::Tool)
-                .collect::<Vec<_>>()
-        };
-        let context_messages =
-            memory_retriever.build_context(Some(&user_id), Some(&session.id), &filtered_messages);
-        let context_snippet = MemoryRetriever::to_prompt_snippet(&context_messages);
-        let prompt_to_send = if let Some(context) = context_snippet {
-            format!("Context:\n{context}\n\nUser: {}", message.text)
-        } else {
-            message.text.clone()
-        };
+            let existing_messages = session_manager
+                .get_messages(
+                    &session.id,
+                    memory_config.max_session_messages.unwrap_or(50),
+                )
+                .unwrap_or_default();
+            let filtered_messages = if memory_config.include_tool_messages() {
+                existing_messages
+            } else {
+                existing_messages
+                    .into_iter()
+                    .filter(|message| message.message_type != MessageType::Tool)
+                    .collect::<Vec<_>>()
+            };
+            let context_messages = memory_retriever.build_context(
+                Some(&user_id),
+                Some(&session.id),
+                &filtered_messages,
+            );
+            let context_snippet = MemoryRetriever::to_prompt_snippet(&context_messages);
+            let attachment_prompt = format_attachments_prompt(&message.attachments);
+            let user_text = if attachment_prompt.is_empty() {
+                message.text.clone()
+            } else if message.text.trim().is_empty() {
+                attachment_prompt
+            } else {
+                format!("{}\n\n{}", attachment_prompt, message.text)
+            };
+            let prompt_to_send = if let Some(context) = context_snippet {
+                format!("Context:\n{context}\n\nUser: {user_text}")
+            } else {
+                user_text.clone()
+            };
 
-        let mut seq_order = match session_manager.get_messages(&session.id, 1) {
-            Ok(messages) => messages
-                .last()
-                .map(|message| message.seq_order + 1)
-                .unwrap_or(0),
-            Err(_) => 0,
-        };
+            let mut seq_order = match session_manager.get_messages(&session.id, 1) {
+                Ok(messages) => messages
+                    .last()
+                    .map(|message| message.seq_order + 1)
+                    .unwrap_or(0),
+                Err(_) => 0,
+            };
 
-        let user_message = StoredMessage {
-            message_type: MessageType::User,
-            content: message.text.clone(),
-            tool_call_id: None,
-            seq_order,
-            token_estimate: None,
-        };
-        if session_manager
-            .append_message(&session.id, &user_message)
-            .is_ok()
-        {
-            seq_order += 1;
-        }
+            let user_message = StoredMessage {
+                message_type: MessageType::User,
+                content: user_text.clone(),
+                tool_call_id: None,
+                seq_order,
+                token_estimate: None,
+            };
+            if session_manager
+                .append_message(&session.id, &user_message)
+                .is_ok()
+            {
+                seq_order += 1;
+            }
 
-        let message_kernel = Arc::new(
-            base_kernel.clone_with_context(Some(user_id.clone()), Some(session.id.clone())),
-        );
-        let agent = build_agent_for_kernel(
-            &config,
-            &agent_builder,
-            agent_router.as_ref(),
-            message_kernel,
-        )?;
-        let response = prompt_with_agent(&agent, &prompt_to_send, config.max_turns())
-            .await
-            .unwrap_or_else(|err| format!("Sorry, something went wrong: {err}"));
-        let assistant_message = StoredMessage {
-            message_type: MessageType::Assistant,
-            content: response.clone(),
-            tool_call_id: None,
-            seq_order,
-            token_estimate: None,
-        };
-        let _ = session_manager.append_message(&session.id, &assistant_message);
-        let _ = session_manager.touch(&session.id);
+            let message_kernel = Arc::new(
+                base_kernel.clone_with_context(Some(user_id.clone()), Some(session.id.clone())),
+            );
+            let message_kernel = with_media_permissions(message_kernel, &message.attachments);
+            let agent = match build_agent_for_kernel(
+                &config,
+                &agent_builder,
+                agent_router.as_ref(),
+                message_kernel,
+            ) {
+                Ok(agent) => agent,
+                Err(err) => {
+                    let _ = outbound
+                        .send(&user_id, &format!("Sorry, agent error: {err}"))
+                        .await;
+                    return;
+                }
+            };
+            let response = prompt_with_agent(&agent, &prompt_to_send, config.max_turns())
+                .await
+                .unwrap_or_else(|err| format!("Sorry, something went wrong: {err}"));
+            let assistant_message = StoredMessage {
+                message_type: MessageType::Assistant,
+                content: response.clone(),
+                tool_call_id: None,
+                seq_order,
+                token_estimate: None,
+            };
+            let _ = session_manager.append_message(&session.id, &assistant_message);
+            let _ = session_manager.touch(&session.id);
 
-        let _ = outbound.send(&user_id, &response).await;
+            let _ = outbound.send(&user_id, &response).await;
+        });
     }
 
     Ok(())
@@ -349,6 +461,8 @@ async fn prompt_with_agent(
 
 async fn run_whatsapp_loop(
     store_path: String,
+    media_root: PathBuf,
+    max_media_size_bytes: u64,
     inbound_tx: mpsc::UnboundedSender<InboundMessage>,
     mut outbound_rx: mpsc::UnboundedReceiver<WhatsappOutbound>,
     qr_cache: watch::Sender<Option<String>>,
@@ -379,6 +493,7 @@ async fn run_whatsapp_loop(
             let inbound_tx = inbound_tx.clone();
             let qr_cache = qr_cache.clone();
             let client_tx = client_tx.clone();
+            let media_root = media_root.clone();
             async move {
                 let _ = client_tx.send(StdArc::clone(&client));
                 match event {
@@ -386,17 +501,23 @@ async fn run_whatsapp_loop(
                         let _ = qr_cache.send(Some(code));
                     }
                     Event::Message(message, info) => {
-                        let text = message
-                            .conversation
-                            .clone()
-                            .or_else(|| {
-                                message
-                                    .extended_text_message
-                                    .as_ref()
-                                    .and_then(|ext| ext.text.clone())
-                            })
-                            .unwrap_or_default();
-                        if text.trim().is_empty() {
+                        let text = message.text_content().unwrap_or_default().to_string();
+                        let base = message.get_base_message();
+                        let attachments = match extract_media_attachments(
+                            &client,
+                            base,
+                            &media_root,
+                            max_media_size_bytes,
+                        )
+                        .await
+                        {
+                            Ok(items) => items,
+                            Err(err) => {
+                                eprintln!("WhatsApp media download failed: {err}");
+                                Vec::new()
+                            }
+                        };
+                        if text.trim().is_empty() && attachments.is_empty() {
                             return;
                         }
                         let from = info.source.sender.to_string();
@@ -405,6 +526,7 @@ async fn run_whatsapp_loop(
                             user_id: from,
                             text,
                             message_id: Some(info.id.to_string()),
+                            attachments,
                         });
                     }
                     _ => {}
@@ -460,6 +582,309 @@ async fn send_outbound_message(
     };
     let message_id = client.send_message(jid, message).await?;
     Ok(message_id)
+}
+
+fn format_attachments_prompt(attachments: &[MediaAttachment]) -> String {
+    if attachments.is_empty() {
+        return String::new();
+    }
+    let mut lines = Vec::new();
+    lines.push("User sent attachments:".to_string());
+    for (idx, attachment) in attachments.iter().enumerate() {
+        let label = format!("{}. {}", idx + 1, attachment_label(attachment));
+        lines.push(label);
+    }
+    lines.join("\n")
+}
+
+fn attachment_label(attachment: &MediaAttachment) -> String {
+    let kind = match attachment.media_type {
+        MediaType::Image => "image",
+        MediaType::Document => "document",
+        MediaType::Audio => "audio",
+        MediaType::Video => "video",
+        MediaType::Sticker => "sticker",
+    };
+    let mut parts = Vec::new();
+    parts.push(format!("type={kind}"));
+    parts.push(format!("path={}", attachment.local_path.display()));
+    if let Some(name) = &attachment.file_name {
+        parts.push(format!("name={name}"));
+    }
+    if let Some(mime) = &attachment.mime_type {
+        parts.push(format!("mime={mime}"));
+    }
+    if let Some(size) = attachment.size_bytes {
+        parts.push(format!("bytes={size}"));
+    }
+    if let Some(caption) = &attachment.caption {
+        parts.push(format!("caption={caption}"));
+    }
+    parts.join(" ")
+}
+
+fn with_media_permissions(kernel: Arc<Kernel>, attachments: &[MediaAttachment]) -> Arc<Kernel> {
+    if attachments.is_empty() {
+        return kernel;
+    }
+    let mut profile = kernel.prompt_profile().clone();
+    for attachment in attachments {
+        let path = PathPattern(attachment.local_path.to_string_lossy().to_string());
+        profile
+            .pre_authorized
+            .insert(Permission::FileRead { path: path.clone() });
+        profile
+            .max_allowed
+            .insert(Permission::FileRead { path });
+    }
+    Arc::new(kernel.as_ref().clone().with_prompt_profile(profile))
+}
+
+fn whatsapp_media_root(config: &Config, channel: &WhatsappConfig) -> PathBuf {
+    if let Some(path) = &channel.store_path {
+        let base = PathBuf::from(path);
+        if let Some(parent) = base.parent() {
+            return parent.join("whatsapp-media");
+        }
+    }
+    config.data_dir().join("whatsapp-media")
+}
+
+fn ensure_media_dir(root: &Path) -> Result<()> {
+    std::fs::create_dir_all(root)
+        .with_context(|| format!("failed to create media dir at {}", root.display()))
+}
+
+async fn cleanup_expired_media(root: &Path, retention_hours: u64) {
+    let retention = Duration::from_secs(retention_hours.saturating_mul(60 * 60));
+    if retention.as_secs() == 0 {
+        return;
+    }
+    let cutoff = SystemTime::now().checked_sub(retention);
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let metadata = match entry.metadata() {
+            Ok(metadata) => metadata,
+            Err(_) => continue,
+        };
+        if metadata.is_dir() {
+            if let Ok(dir_entries) = std::fs::read_dir(&path) {
+                let mut remove_dir = true;
+                for inner in dir_entries.flatten() {
+                    if should_delete(&inner.path(), cutoff) {
+                        let _ = std::fs::remove_file(inner.path());
+                    } else {
+                        remove_dir = false;
+                    }
+                }
+                if remove_dir {
+                    let _ = std::fs::remove_dir(&path);
+                }
+            }
+        } else if should_delete(&path, cutoff) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+fn should_delete(path: &Path, cutoff: Option<SystemTime>) -> bool {
+    let cutoff = match cutoff {
+        Some(cutoff) => cutoff,
+        None => return false,
+    };
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if let Ok(modified) = metadata.modified() {
+        return modified < cutoff;
+    }
+    false
+}
+
+async fn extract_media_attachments(
+    client: &Arc<whatsapp_rust::Client>,
+    message: &waproto::whatsapp::Message,
+    media_root: &Path,
+    max_media_size_bytes: u64,
+) -> Result<Vec<MediaAttachment>> {
+    let mut attachments = Vec::new();
+    let base = message.get_base_message();
+    if let Some(msg) = base.image_message.as_deref()
+        && let Some(attachment) = download_media(
+            client,
+            msg,
+            media_root,
+            max_media_size_bytes,
+            MediaMeta {
+                media_type: MediaType::Image,
+                mime_type: msg.mimetype.clone(),
+                file_name: None,
+                caption: msg.caption.clone(),
+                file_length: msg.file_length,
+            },
+        )
+        .await?
+    {
+        attachments.push(attachment);
+    }
+    if let Some(msg) = base.document_message.as_deref()
+        && let Some(attachment) = download_media(
+            client,
+            msg,
+            media_root,
+            max_media_size_bytes,
+            MediaMeta {
+                media_type: MediaType::Document,
+                mime_type: msg.mimetype.clone(),
+                file_name: msg.file_name.clone(),
+                caption: msg.caption.clone(),
+                file_length: msg.file_length,
+            },
+        )
+        .await?
+    {
+        attachments.push(attachment);
+    }
+    if let Some(msg) = base.audio_message.as_deref()
+        && let Some(attachment) = download_media(
+            client,
+            msg,
+            media_root,
+            max_media_size_bytes,
+            MediaMeta {
+                media_type: MediaType::Audio,
+                mime_type: msg.mimetype.clone(),
+                file_name: None,
+                caption: None,
+                file_length: msg.file_length,
+            },
+        )
+        .await?
+    {
+        attachments.push(attachment);
+    }
+    if let Some(msg) = base.video_message.as_deref()
+        && let Some(attachment) = download_media(
+            client,
+            msg,
+            media_root,
+            max_media_size_bytes,
+            MediaMeta {
+                media_type: MediaType::Video,
+                mime_type: msg.mimetype.clone(),
+                file_name: None,
+                caption: msg.caption.clone(),
+                file_length: msg.file_length,
+            },
+        )
+        .await?
+    {
+        attachments.push(attachment);
+    }
+    if let Some(msg) = base.sticker_message.as_deref()
+        && let Some(attachment) = download_media(
+            client,
+            msg,
+            media_root,
+            max_media_size_bytes,
+            MediaMeta {
+                media_type: MediaType::Sticker,
+                mime_type: msg.mimetype.clone(),
+                file_name: None,
+                caption: None,
+                file_length: msg.file_length,
+            },
+        )
+        .await?
+    {
+        attachments.push(attachment);
+    }
+    Ok(attachments)
+}
+
+#[derive(Debug, Clone)]
+struct MediaMeta {
+    media_type: MediaType,
+    mime_type: Option<String>,
+    file_name: Option<String>,
+    caption: Option<String>,
+    file_length: Option<u64>,
+}
+
+async fn download_media<T: whatsapp_rust::download::Downloadable>(
+    client: &Arc<whatsapp_rust::Client>,
+    media: &T,
+    media_root: &Path,
+    max_media_size_bytes: u64,
+    meta: MediaMeta,
+) -> Result<Option<MediaAttachment>> {
+    if let Some(len) = meta.file_length
+        && len > max_media_size_bytes
+    {
+        return Ok(None);
+    }
+    let extension = file_extension_from_mime(meta.mime_type.as_deref());
+    let dir = media_root.join(Uuid::new_v4().to_string());
+    std::fs::create_dir_all(&dir)?;
+    let sanitized_name = meta.file_name.as_deref().and_then(sanitize_filename);
+    let filename = sanitized_name.clone().unwrap_or_else(|| {
+        let base = Uuid::new_v4().to_string();
+        match extension {
+            Some(ext) => format!("{base}.{ext}"),
+            None => base,
+        }
+    });
+    let path = dir.join(filename);
+    let file = std::fs::File::create(&path)?;
+    client.download_to_file(media, file).await?;
+    let size_bytes = std::fs::metadata(&path).ok().map(|meta| meta.len());
+    if let Some(size) = size_bytes
+        && size > max_media_size_bytes
+    {
+        let _ = std::fs::remove_file(&path);
+        return Ok(None);
+    }
+    let local_path = path.canonicalize().unwrap_or(path);
+    Ok(Some(MediaAttachment {
+        media_type: meta.media_type,
+        mime_type: meta.mime_type,
+        file_name: sanitized_name,
+        local_path,
+        caption: meta.caption,
+        size_bytes,
+    }))
+}
+
+fn file_extension_from_mime(mime: Option<&str>) -> Option<String> {
+    let mime = mime?.to_ascii_lowercase();
+    let ext = match mime.as_str() {
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/png" => "png",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        "application/pdf" => "pdf",
+        "application/zip" => "zip",
+        "text/plain" => "txt",
+        "audio/ogg" => "ogg",
+        "audio/mpeg" => "mp3",
+        "audio/wav" => "wav",
+        "video/mp4" => "mp4",
+        "video/quicktime" => "mov",
+        _ => return None,
+    };
+    Some(ext.to_string())
+}
+
+fn sanitize_filename(value: &str) -> Option<String> {
+    let name = Path::new(value).file_name()?.to_string_lossy().to_string();
+    if name.trim().is_empty() {
+        None
+    } else {
+        Some(name)
+    }
 }
 
 fn render_qr_code(payload: &str) -> String {

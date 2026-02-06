@@ -1,11 +1,19 @@
+# PicoBot example configuration
+
+# --- Core model settings ---
+# Required (unless you exclusively use [[models]] with [routing])
 provider = "openai"
 model = "gpt-4o-mini"
-system_prompt = "You are PicoBot, a helpful assistant."
-max_turns = 5
-bind = "127.0.0.1:8080"
-data_dir = "./data"
 
-# Optional multi-model configuration
+# Optional
+# system_prompt = "You are PicoBot, a helpful assistant."
+# max_turns = 5
+# bind = "127.0.0.1:8080"
+# data_dir = "./data"
+# base_url = "https://api.openai.com/v1"
+# api_key_env = "OPENAI_API_KEY"
+
+# --- Optional multi-model configuration ---
 # [[models]]
 # id = "fast"
 # provider = "openai"
@@ -21,25 +29,52 @@ data_dir = "./data"
 # [routing]
 # default_model = "fast"
 
+# --- Optional permissions (global defaults) ---
 [permissions.filesystem]
+# Optional
 read_paths = ["./data/**", "./picobot.example.toml"]
 write_paths = ["./data/**"]
+# Optional
 jail_root = "./data"
 
 [permissions.network]
+# Optional
 allowed_domains = ["api.github.com"]
 
 [permissions.shell]
+# Optional
 allowed_commands = ["git", "rg"]
 
 [permissions.schedule]
+# Optional
 allowed_actions = ["create", "list", "cancel"]
 
+# --- Optional scheduler configuration ---
 [scheduler]
-enabled = true
+enabled = false
+# Optional
+# tick_interval_secs = 1
+# max_concurrent_jobs = 4
+# max_concurrent_per_user = 2
+# max_jobs_per_user = 50
+# max_jobs_per_window = 100
+# window_duration_secs = 3600
+# job_timeout_secs = 300
+# max_backoff_secs = 3600
 
-# Optional channel-specific permissions and prompts
+# --- Optional memory configuration ---
+[memory]
+# Optional
+# enable_user_memories = true
+# context_budget_tokens = 4000
+# max_session_messages = 50
+# max_user_memories = 50
+# include_summary_on_truncation = true
+# include_tool_messages = true
+
+# --- Optional channel-specific permissions and prompts ---
 [channels.profiles.repl]
+# Optional
 pre_authorized = ["memory:read:session", "memory:write:session"]
 max_allowed = [
   "filesystem:read:./data/**",
@@ -51,25 +86,33 @@ allow_user_prompts = true
 prompt_timeout_secs = 60
 
 [channels.profiles.api]
+# Optional
 pre_authorized = ["memory:read:session", "memory:write:session"]
 allow_user_prompts = false
 
 [channels.profiles.whatsapp]
+# Optional
 pre_authorized = ["memory:read:session", "memory:write:session"]
 allow_user_prompts = false
 prompt_timeout_secs = 30
 
+# --- Optional WhatsApp configuration ---
 [whatsapp]
 enabled = false
+# Optional
 store_path = "./data/whatsapp.db"
 allowed_senders = ["15551234567@c.us"]
+max_concurrent_messages = 10
+max_media_size_bytes = 10485760
+media_retention_hours = 24
 
-# OpenRouter example
+# --- Optional provider examples ---
+# OpenRouter
 # provider = "openrouter"
 # model = "openai/gpt-4o-mini"
 # api_key_env = "OPENROUTER_API_KEY"
 
-# Gemini example
+# Gemini
 # provider = "gemini"
 # model = "gemini-1.5-flash"
 # api_key_env = "GEMINI_API_KEY"

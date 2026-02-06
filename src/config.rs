@@ -185,6 +185,9 @@ pub struct WhatsappConfig {
     pub enabled: Option<bool>,
     pub store_path: Option<String>,
     pub allowed_senders: Option<Vec<String>>,
+    pub max_concurrent_messages: Option<usize>,
+    pub max_media_size_bytes: Option<u64>,
+    pub media_retention_hours: Option<u64>,
 }
 
 impl ChannelConfig {
@@ -238,5 +241,19 @@ impl SchedulerConfig {
 
     pub fn max_backoff_secs(&self) -> u64 {
         self.max_backoff_secs.unwrap_or(3600)
+    }
+}
+
+impl WhatsappConfig {
+    pub fn max_concurrent_messages(&self) -> usize {
+        self.max_concurrent_messages.unwrap_or(10)
+    }
+
+    pub fn max_media_size_bytes(&self) -> u64 {
+        self.max_media_size_bytes.unwrap_or(10 * 1024 * 1024)
+    }
+
+    pub fn media_retention_hours(&self) -> u64 {
+        self.media_retention_hours.unwrap_or(24)
     }
 }

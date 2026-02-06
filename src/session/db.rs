@@ -154,7 +154,6 @@ impl SqliteStore {
         F: FnOnce(&Connection) -> SessionDbResult<T>,
     {
         let conn = self.open()?;
-        self.migrate(&conn)?;
         f(&conn)
     }
 

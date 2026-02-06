@@ -99,7 +99,7 @@ impl Kernel {
             context,
             prompt_profile: self.prompt_profile.clone(),
             prompter: self.prompter.clone(),
-            session_grants: Arc::clone(&self.session_grants),
+            session_grants: Arc::new(std::sync::RwLock::new(CapabilitySet::empty())),
         }
     }
 
