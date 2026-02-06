@@ -227,8 +227,8 @@ The previous implementation is preserved in `reference/` for guidance:
 3. **Multi modal tool**
    - [ ] A tool to understand documents/images etc and do actions as prescribed by the user. Should be able to configure model to be used
 
-4. **Sandboxed code executor tool**
-    - [ ] Should be able to leverage a configured model to write code and then execute it, but only in a sandboxed environment so it does not impact itself or anything else on the server its running on.
+4. **Skill System to add new skills via skill files**
+    - [ ] A skill system like openclaw but should be very secure. Any code executions should likely be sandboxed to avoid impacting picobot itself or anything on the server its running on.
 
 ## Key Design Decisions
 
