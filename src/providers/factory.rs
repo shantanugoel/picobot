@@ -91,6 +91,62 @@ impl ProviderFactory {
     pub fn build_agent_router(config: &Config) -> Result<ModelRouter> {
         ModelRouter::new(config)
     }
+
+    pub fn build_vision_agent(config: &Config) -> Result<ProviderAgent> {
+        let Some(vision) = &config.vision else {
+            let fallback = ProviderAgentBuilder::new(config)?;
+            return fallback.build_without_tools();
+        };
+
+        if let Some(model_id) = &vision.model_id {
+            let router = ModelRouter::new(config)?;
+            if router.models.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "vision.model_id '{model_id}' requires [[models]]"
+                ));
+            }
+            let model = router
+                .models
+                .iter()
+                .find(|model| model.id == *model_id)
+                .ok_or_else(|| anyhow::anyhow!("vision.model_id '{model_id}' not found"))?;
+            let mut builder = ProviderAgentBuilder::from_model_config(model, config)?;
+            builder.system_prompt = vision
+                .system_prompt
+                .clone()
+                .unwrap_or_else(|| config.system_prompt().to_string());
+            if vision.base_url.is_some() {
+                builder.base_url = vision.base_url.clone();
+            }
+            if vision.api_key_env.is_some() {
+                builder.api_key_env = vision.api_key_env.clone();
+            }
+            return builder.build_without_tools();
+        }
+
+        let provider = vision.provider.as_deref().unwrap_or_else(|| config.provider());
+        let model = vision
+            .model
+            .clone()
+            .unwrap_or_else(|| config.model().to_string());
+        let system_prompt = vision
+            .system_prompt
+            .clone()
+            .unwrap_or_else(|| config.system_prompt().to_string());
+        let base_url = vision.base_url.clone().or_else(|| config.base_url.clone());
+        let api_key_env = vision
+            .api_key_env
+            .clone()
+            .or_else(|| config.api_key_env.clone());
+        let builder = ProviderAgentBuilder::from_parts(
+            provider.parse()?,
+            model,
+            system_prompt,
+            base_url,
+            api_key_env,
+        );
+        builder.build_without_tools()
+    }
 }
 
 fn build_agent_with_tools<M>(
@@ -310,6 +366,50 @@ impl ProviderAgentBuilder {
             }
         }
     }
+
+    pub fn build_without_tools(self) -> Result<ProviderAgent> {
+        self.build_without_tools_with_env(|key| std::env::var(key).ok())
+    }
+
+    pub fn build_without_tools_with_env<F>(self, env: F) -> Result<ProviderAgent>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        match self.provider {
+            ProviderKind::OpenAI => {
+                let api_key_env = self.api_key_env.as_deref().unwrap_or("OPENAI_API_KEY");
+                let api_key = env(api_key_env)
+                    .ok_or_else(|| anyhow::anyhow!("missing API key in env '{api_key_env}'"))?;
+                let mut builder = rig::providers::openai::Client::builder().api_key(api_key);
+                if let Some(base_url) = &self.base_url {
+                    builder = builder.base_url(base_url);
+                }
+                let client = builder.build().context("failed to build OpenAI client")?;
+                let agent = client.agent(&self.model).preamble(&self.system_prompt).build();
+                Ok(ProviderAgent::OpenAI(agent))
+            }
+            ProviderKind::OpenRouter => {
+                let api_key_env = self.api_key_env.as_deref().unwrap_or("OPENROUTER_API_KEY");
+                let api_key = env(api_key_env)
+                    .ok_or_else(|| anyhow::anyhow!("missing API key in env '{api_key_env}'"))?;
+                let client = rig::providers::openrouter::Client::new(api_key)
+                    .context("failed to build OpenRouter client")?;
+                let agent = client.agent(&self.model).preamble(&self.system_prompt).build();
+                Ok(ProviderAgent::OpenRouter(agent))
+            }
+            ProviderKind::Gemini => {
+                let api_key_env = self.api_key_env.as_deref().unwrap_or("GEMINI_API_KEY");
+                let api_key = env(api_key_env)
+                    .ok_or_else(|| anyhow::anyhow!("missing API key in env '{api_key_env}'"))?;
+                let client = rig::providers::gemini::Client::builder()
+                    .api_key(api_key)
+                    .build()
+                    .context("failed to build Gemini client")?;
+                let agent = client.agent(&self.model).preamble(&self.system_prompt).build();
+                Ok(ProviderAgent::Gemini(agent))
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -356,7 +456,42 @@ impl ProviderAgent {
             match self.prompt_with_turns_once(&prompt, max_turns).await {
                 Ok(response) => return Ok(response),
                 Err(err) => {
-                    let mapped = ProviderError::from_anyhow(err);
+                    let mapped = ProviderError::from_anyhow(err.into());
+                    if attempt >= max_retries || !mapped.is_retryable() {
+                        return Err(mapped);
+                    }
+                    let backoff = mapped
+                        .retry_after()
+                        .unwrap_or_else(|| backoff_delay(attempt));
+                    tracing::warn!(
+                        attempt = attempt + 1,
+                        max_retries,
+                        error = %mapped,
+                        "provider call failed, retrying"
+                    );
+                    sleep(backoff).await;
+                    attempt += 1;
+                }
+            }
+        }
+    }
+
+    pub async fn prompt_message_with_retry(
+        &self,
+        message: rig::completion::message::Message,
+        max_retries: usize,
+    ) -> Result<String, ProviderError> {
+        let mut attempt = 0;
+        loop {
+            let response = match self {
+                ProviderAgent::OpenAI(agent) => agent.prompt(message.clone()).await,
+                ProviderAgent::OpenRouter(agent) => agent.prompt(message.clone()).await,
+                ProviderAgent::Gemini(agent) => agent.prompt(message.clone()).await,
+            };
+            match response {
+                Ok(output) => return Ok(output),
+                Err(err) => {
+                    let mapped = ProviderError::from_anyhow(err.into());
                     if attempt >= max_retries || !mapped.is_retryable() {
                         return Err(mapped);
                     }

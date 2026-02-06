@@ -22,6 +22,7 @@ use crate::tools::notify::NotifyTool;
 use crate::tools::registry::ToolRegistry;
 use crate::tools::schedule::ScheduleTool;
 use crate::tools::shell::ShellTool;
+use crate::tools::vision::VisionTool;
 
 fn build_kernel(
     config: &Config,
@@ -43,6 +44,16 @@ fn build_kernel(
     registry.register(std::sync::Arc::new(ScheduleTool::new()))?;
     registry.register(std::sync::Arc::new(NotifyTool::new()))?;
     registry.register(std::sync::Arc::new(MemoryTool::new(session_store.clone())))?;
+    let vision_agent = ProviderFactory::build_vision_agent(config)?;
+    let vision_tool = VisionTool::new(
+        vision_agent,
+        config
+            .vision
+            .as_ref()
+            .map(|vision| vision.max_image_size_bytes())
+            .unwrap_or(10 * 1024 * 1024),
+    );
+    registry.register(std::sync::Arc::new(vision_tool))?;
     let registry = std::sync::Arc::new(registry);
     let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let capabilities = CapabilitySet::from_config_with_base(&config.permissions(), &base_dir);

@@ -177,8 +177,7 @@ The previous implementation is preserved in `reference/` for guidance:
    - [x] Integration tests for tool execution
 
 4. **Documentation**
-   - [ ] Update README.md
-   - [ ] Configuration reference
+   - [ ] Update README.md for quick start guide, some other common example configurations, and a full configuration reference. Also update picobot.example.toml to be more complete
 
 #### Milestone: Feature parity with reference implementation.
 
@@ -195,8 +194,7 @@ The previous implementation is preserved in `reference/` for guidance:
 2. **Sentinel (HITL) for Shell Commands**
    - [ ] Add command classifier (pattern-based, safe/risky/deny)
    - [ ] Add approval policy to shell permissions config
-   - [ ] Implement sync approval for REPL channel
-   - [ ] Implement async approval via WebSocket channel
+   - [ ] Implement sync approval for various channels
    - [ ] Add approval timeout and fallback behavior
 
 3. **Filesystem Hardening**

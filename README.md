@@ -188,6 +188,24 @@ Notes:
 - `allowed_senders` must be WhatsApp JIDs (e.g., `15551234567@c.us`).
 - Media is downloaded into a local staging directory under `data_dir/whatsapp-media/` and exposed to the agent via file paths.
 
+### Vision Tool (Optional)
+
+The `vision` tool analyzes local image files using a vision-capable model.
+
+```toml
+[vision]
+# Use a model by id from [[models]] (recommended when routing is configured)
+# model_id = "vision"
+
+# Or specify provider/model directly
+# provider = "openai"
+# model = "gpt-4o"
+# base_url = "https://api.openai.com/v1"
+# api_key_env = "OPENAI_API_KEY"
+# system_prompt = "You are a helpful vision assistant."
+# max_image_size_bytes = 10485760
+```
+
 ## Environment Variables
 
 | Variable | Purpose |

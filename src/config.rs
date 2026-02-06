@@ -24,6 +24,7 @@ pub struct Config {
     pub routing: Option<RoutingConfig>,
     pub channels: Option<ChannelsConfig>,
     pub whatsapp: Option<WhatsappConfig>,
+    pub vision: Option<VisionConfig>,
 }
 
 impl Config {
@@ -110,6 +111,7 @@ impl Config {
         let base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
         let provider = self.provider();
+        let vision_config = self.vision.clone();
         if !is_known_provider(provider) {
             errors.push(format!("unsupported provider '{provider}'"));
         }
@@ -278,6 +280,41 @@ impl Config {
             }
         }
 
+        if let Some(vision) = &vision_config {
+            if let Some(model_id) = &vision.model_id {
+                if let Some(models) = &self.models {
+                    if !models.iter().any(|model| model.id == *model_id) {
+                        errors.push(format!(
+                            "vision.model_id '{model_id}' not found in models"
+                        ));
+                    }
+                } else {
+                    errors.push("vision.model_id set without models".to_string());
+                }
+            }
+            if let Some(provider) = &vision.provider {
+                if !is_known_provider(provider) {
+                    errors.push(format!("vision has unsupported provider '{provider}'"));
+                }
+            }
+            if let Some(model) = &vision.model {
+                if model.trim().is_empty() {
+                    errors.push("vision model cannot be empty".to_string());
+                }
+            }
+            if vision.model_id.is_none()
+                && vision.provider.is_none()
+                && vision.model.is_none()
+            {
+                warnings.push("vision config set without model_id or provider/model".to_string());
+            }
+            if let Some(max_image) = vision.max_image_size_bytes {
+                if max_image == 0 {
+                    warnings.push("vision max_image_size_bytes is 0".to_string());
+                }
+            }
+        }
+
         if let Some(default_model) = self.default_model_id() {
             if let Some(models) = &self.models {
                 if !models.iter().any(|model| model.id == default_model) {
@@ -314,6 +351,42 @@ impl Config {
                         "missing API key in env '{env_name}' for model '{}'",
                         model.id
                     ));
+                }
+            }
+        }
+
+        if let Some(vision) = &vision_config {
+            if let Some(model_id) = &vision.model_id {
+                if let Some(models) = &self.models {
+                    if let Some(model) = models.iter().find(|model| model.id == *model_id) {
+                        let provider_name = model.provider.as_deref().unwrap_or(provider);
+                        let env_name = resolve_provider_env(
+                            provider_name,
+                            model.api_key_env.as_deref().or(self.api_key_env.as_deref()),
+                        );
+                        if let Some(env_name) = env_name
+                            && checked_envs.insert(env_name.clone())
+                            && std::env::var(&env_name).is_err()
+                        {
+                            errors.push(format!(
+                                "missing API key in env '{env_name}' for vision model '{model_id}'"
+                            ));
+                        }
+                    }
+                }
+            } else if let Some(provider_name) = vision.provider.as_deref().or(Some(provider)) {
+                let env_name = resolve_provider_env(
+                    provider_name,
+                    vision
+                        .api_key_env
+                        .as_deref()
+                        .or(self.api_key_env.as_deref()),
+                );
+                if let Some(env_name) = env_name
+                    && checked_envs.insert(env_name.clone())
+                    && std::env::var(&env_name).is_err()
+                {
+                    errors.push(format!("missing API key in env '{env_name}' for vision"));
                 }
             }
         }
@@ -427,6 +500,23 @@ pub struct WhatsappConfig {
     pub max_concurrent_messages: Option<usize>,
     pub max_media_size_bytes: Option<u64>,
     pub media_retention_hours: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct VisionConfig {
+    pub model_id: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub base_url: Option<String>,
+    pub api_key_env: Option<String>,
+    pub system_prompt: Option<String>,
+    pub max_image_size_bytes: Option<u64>,
+}
+
+impl VisionConfig {
+    pub fn max_image_size_bytes(&self) -> u64 {
+        self.max_image_size_bytes.unwrap_or(10 * 1024 * 1024)
+    }
 }
 
 impl ChannelConfig {

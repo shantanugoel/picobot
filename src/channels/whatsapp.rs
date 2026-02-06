@@ -114,6 +114,9 @@ pub struct MediaAttachment {
     pub local_path: PathBuf,
     pub caption: Option<String>,
     pub size_bytes: Option<u64>,
+    pub thumbnail_path: Option<PathBuf>,
+    pub thumbnail_mime_type: Option<String>,
+    pub thumbnail_size_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -632,7 +635,7 @@ fn format_attachments_prompt(attachments: &[MediaAttachment]) -> String {
         return String::new();
     }
     let mut lines = Vec::new();
-    lines.push("User sent attachments:".to_string());
+    lines.push("User sent attachments (use vision tool for images/stickers if needed):".to_string());
     for (idx, attachment) in attachments.iter().enumerate() {
         let label = format!("{}. {}", idx + 1, attachment_label(attachment));
         lines.push(label);
@@ -663,6 +666,15 @@ fn attachment_label(attachment: &MediaAttachment) -> String {
     if let Some(caption) = &attachment.caption {
         parts.push(format!("caption={caption}"));
     }
+    if let Some(thumbnail_path) = &attachment.thumbnail_path {
+        parts.push(format!("thumbnail_path={}", thumbnail_path.display()));
+    }
+    if let Some(thumbnail_mime) = &attachment.thumbnail_mime_type {
+        parts.push(format!("thumbnail_mime={thumbnail_mime}"));
+    }
+    if let Some(thumbnail_size) = attachment.thumbnail_size_bytes {
+        parts.push(format!("thumbnail_bytes={thumbnail_size}"));
+    }
     parts.join(" ")
 }
 
@@ -677,6 +689,13 @@ fn with_media_permissions(kernel: Arc<Kernel>, attachments: &[MediaAttachment]) 
             .pre_authorized
             .insert(Permission::FileRead { path: path.clone() });
         profile.max_allowed.insert(Permission::FileRead { path });
+        if let Some(thumbnail_path) = &attachment.thumbnail_path {
+            let path = PathPattern(thumbnail_path.to_string_lossy().to_string());
+            profile
+                .pre_authorized
+                .insert(Permission::FileRead { path: path.clone() });
+            profile.max_allowed.insert(Permission::FileRead { path });
+        }
     }
     Arc::new(kernel.as_ref().clone().with_prompt_profile(profile))
 }
@@ -765,6 +784,7 @@ async fn extract_media_attachments(
                 file_name: None,
                 caption: msg.caption.clone(),
                 file_length: msg.file_length,
+                thumbnail_bytes: msg.jpeg_thumbnail.clone(),
             },
         )
         .await?
@@ -783,6 +803,7 @@ async fn extract_media_attachments(
                 file_name: msg.file_name.clone(),
                 caption: msg.caption.clone(),
                 file_length: msg.file_length,
+                thumbnail_bytes: msg.jpeg_thumbnail.clone(),
             },
         )
         .await?
@@ -801,6 +822,7 @@ async fn extract_media_attachments(
                 file_name: None,
                 caption: None,
                 file_length: msg.file_length,
+                thumbnail_bytes: None,
             },
         )
         .await?
@@ -819,6 +841,7 @@ async fn extract_media_attachments(
                 file_name: None,
                 caption: msg.caption.clone(),
                 file_length: msg.file_length,
+                thumbnail_bytes: msg.jpeg_thumbnail.clone(),
             },
         )
         .await?
@@ -837,6 +860,7 @@ async fn extract_media_attachments(
                 file_name: None,
                 caption: None,
                 file_length: msg.file_length,
+                thumbnail_bytes: None,
             },
         )
         .await?
@@ -853,6 +877,7 @@ struct MediaMeta {
     file_name: Option<String>,
     caption: Option<String>,
     file_length: Option<u64>,
+    thumbnail_bytes: Option<Vec<u8>>,
 }
 
 async fn download_media<T: whatsapp_rust::download::Downloadable>(
@@ -889,6 +914,20 @@ async fn download_media<T: whatsapp_rust::download::Downloadable>(
         return Ok(None);
     }
     let local_path = path.canonicalize().unwrap_or(path);
+    let (thumbnail_path, thumbnail_size_bytes, thumbnail_mime_type) =
+        match meta.thumbnail_bytes {
+            Some(bytes) if !bytes.is_empty() => {
+                let thumb_path = dir.join("thumbnail.jpg");
+                if std::fs::write(&thumb_path, &bytes).is_ok() {
+                    let thumb_size = Some(bytes.len() as u64);
+                    let thumb_path = thumb_path.canonicalize().unwrap_or(thumb_path);
+                    (Some(thumb_path), thumb_size, Some("image/jpeg".to_string()))
+                } else {
+                    (None, None, None)
+                }
+            }
+            _ => (None, None, None),
+        };
     Ok(Some(MediaAttachment {
         media_type: meta.media_type,
         mime_type: meta.mime_type,
@@ -896,6 +935,9 @@ async fn download_media<T: whatsapp_rust::download::Downloadable>(
         local_path,
         caption: meta.caption,
         size_bytes,
+        thumbnail_path,
+        thumbnail_mime_type,
+        thumbnail_size_bytes,
     }))
 }
 

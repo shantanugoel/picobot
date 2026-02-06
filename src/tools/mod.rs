@@ -7,3 +7,4 @@ pub mod rig_wrapper;
 pub mod schedule;
 pub mod shell;
 pub mod traits;
+pub mod vision;

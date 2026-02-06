@@ -29,6 +29,7 @@ dashmap = "6"
 tokio-util = { version = "0.7", features = ["rt"] }
 tokio-stream = "0.1"
 qrcode = "0.14"
+base64 = "0.22.1"
 whatsapp-rust = "0.2"
 whatsapp-rust-sqlite-storage = "0.2"
 whatsapp-rust-tokio-transport = "0.2"
