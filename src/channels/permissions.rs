@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::config::ChannelsConfig;
 use crate::kernel::permissions::{
-    parse_permission_with_base, CapabilitySet, ChannelPermissionProfile, MemoryScope, Permission,
+    CapabilitySet, ChannelPermissionProfile, MemoryScope, Permission, parse_permission_with_base,
 };
 
 pub fn channel_profile(
@@ -56,4 +56,65 @@ fn default_pre_authorized() -> CapabilitySet {
         scope: MemoryScope::Session,
     });
     set
+}
+
+#[cfg(test)]
+mod tests {
+    use super::channel_profile;
+    use crate::config::{ChannelConfig, ChannelsConfig};
+    use crate::kernel::permissions::{MemoryScope, Permission};
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    #[test]
+    fn channel_profile_default_for_missing_channel() {
+        let config = ChannelsConfig::default();
+        let profile = channel_profile(&config, "unknown", PathBuf::from("/tmp").as_path());
+        assert!(profile.pre_authorized.permissions().next().is_none());
+    }
+
+    #[test]
+    fn channel_profile_defaults_to_session_memory_when_permissions_missing() {
+        let mut profiles = HashMap::new();
+        profiles.insert("repl".to_string(), ChannelConfig::default());
+        let config = ChannelsConfig { profiles };
+        let profile = channel_profile(&config, "repl", PathBuf::from("/tmp").as_path());
+        let required = Permission::MemoryRead {
+            scope: MemoryScope::Session,
+        };
+        assert!(profile.pre_authorized.allows(&required));
+        assert!(profile.max_allowed.allows(&required));
+    }
+
+    #[test]
+    fn channel_profile_parses_configured_permissions() {
+        let mut channel = ChannelConfig::default();
+        channel.pre_authorized = Some(vec!["filesystem:read:/tmp/**".to_string()]);
+        channel.max_allowed = Some(vec!["filesystem:read:/tmp/**".to_string()]);
+        let mut profiles = HashMap::new();
+        profiles.insert("api".to_string(), channel);
+        let config = ChannelsConfig { profiles };
+
+        let profile = channel_profile(&config, "api", PathBuf::from("/tmp").as_path());
+        let required = Permission::FileRead {
+            path: crate::kernel::permissions::PathPattern("/tmp/**".to_string()),
+        };
+        assert!(profile.pre_authorized.allows(&required));
+    }
+
+    #[test]
+    fn channel_profile_max_allowed_inherits_pre_authorized() {
+        let mut channel = ChannelConfig::default();
+        channel.pre_authorized = Some(vec!["filesystem:read:/tmp/**".to_string()]);
+        channel.max_allowed = Some(vec![]);
+        let mut profiles = HashMap::new();
+        profiles.insert("api".to_string(), channel);
+        let config = ChannelsConfig { profiles };
+
+        let profile = channel_profile(&config, "api", PathBuf::from("/tmp").as_path());
+        let required = Permission::FileRead {
+            path: crate::kernel::permissions::PathPattern("/tmp/**".to_string()),
+        };
+        assert!(profile.max_allowed.allows(&required));
+    }
 }

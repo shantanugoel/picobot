@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 use crate::kernel::permissions::CapabilitySet;
 use crate::session::db::SqliteStore;

@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::SchedulerConfig;
 use crate::kernel::core::Kernel;
-use crate::providers::factory::{ModelRouter, ProviderAgentBuilder, DEFAULT_PROVIDER_RETRIES};
+use crate::providers::factory::{DEFAULT_PROVIDER_RETRIES, ModelRouter, ProviderAgentBuilder};
 use crate::scheduler::job::{ExecutionStatus, JobExecution, ScheduledJob};
 use crate::scheduler::service::next_cron_occurrence;
 use crate::scheduler::store::ScheduleStore;

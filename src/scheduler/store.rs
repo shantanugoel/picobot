@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 use crate::scheduler::error::{SchedulerError, SchedulerResult};
 use crate::scheduler::job::{
@@ -658,7 +658,7 @@ fn parse_execution_status(value: &str) -> Result<ExecutionStatus, SessionDbError
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_schedule_type, ScheduleStore};
+    use super::{ScheduleStore, parse_schedule_type};
     use crate::session::db::SqliteStore;
 
     #[test]

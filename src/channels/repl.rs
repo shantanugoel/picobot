@@ -144,8 +144,7 @@ pub async fn run(
             config.max_turns(),
         )?
     } else {
-        agent_builder
-            .build(kernel.tool_registry(), kernel.clone(), config.max_turns())?
+        agent_builder.build(kernel.tool_registry(), kernel.clone(), config.max_turns())?
     };
 
     println!("picobot repl (type 'exit' to quit)");

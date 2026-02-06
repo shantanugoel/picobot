@@ -165,11 +165,19 @@ fn is_private_ip(ip: IpAddr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_host;
+    use super::{is_private_ip, parse_host};
+    use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
     fn parse_host_extracts_domain() {
         let host = parse_host("https://example.com/path").unwrap();
         assert_eq!(host, "example.com");
+    }
+
+    #[test]
+    fn is_private_ip_blocks_private_ranges() {
+        assert!(is_private_ip(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))));
+        assert!(is_private_ip(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+        assert!(is_private_ip(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
     }
 }

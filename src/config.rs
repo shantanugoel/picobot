@@ -164,9 +164,7 @@ impl Config {
                 if let Some(timeout) = channel.prompt_timeout_secs
                     && timeout == 0
                 {
-                    warnings.push(format!(
-                        "channel '{channel_id}' prompt_timeout_secs is 0"
-                    ));
+                    warnings.push(format!("channel '{channel_id}' prompt_timeout_secs is 0"));
                 }
                 let mut pre_auth = Vec::new();
                 let mut max_allowed = Vec::new();

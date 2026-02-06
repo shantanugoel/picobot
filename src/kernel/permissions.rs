@@ -411,6 +411,7 @@ impl MemoryScope {
 mod tests {
     use super::{CapabilitySet, DomainPattern, MemoryScope, PathPattern, Permission};
     use crate::config::{FilesystemPermissions, PermissionsConfig};
+    use crate::tools::traits::ToolContext;
     use std::path::PathBuf;
     use std::str::FromStr;
 
@@ -549,5 +550,107 @@ mod tests {
         assert!(set.allows(&Permission::FileRead {
             path: PathPattern("/tmp/picobot/data/**".to_string())
         }));
+    }
+
+    #[test]
+    fn permission_cross_type_does_not_cover() {
+        let mut set = CapabilitySet::empty();
+        set.insert(Permission::FileRead {
+            path: PathPattern("/tmp/**".to_string()),
+        });
+        let needed = Permission::FileWrite {
+            path: PathPattern("/tmp/file.txt".to_string()),
+        };
+        assert!(!set.allows(&needed));
+    }
+
+    #[test]
+    fn path_pattern_single_star_matches_nested() {
+        let pattern = PathPattern("/tmp/*".to_string());
+        assert!(pattern.matches(std::path::Path::new("/tmp/file.txt")));
+        assert!(pattern.matches(std::path::Path::new("/tmp/nested/file.txt")));
+    }
+
+    #[test]
+    fn path_pattern_exact_match_only() {
+        let pattern = PathPattern("/tmp/file.txt".to_string());
+        assert!(pattern.matches(std::path::Path::new("/tmp/file.txt")));
+        assert!(!pattern.matches(std::path::Path::new("/tmp/file.txt.bak")));
+    }
+
+    #[test]
+    fn domain_pattern_wildcard_matches_subdomain() {
+        let pattern = DomainPattern("*.github.com".to_string());
+        assert!(pattern.matches("api.github.com"));
+        assert!(!pattern.matches("github.com"));
+    }
+
+    #[test]
+    fn shell_exec_specific_does_not_cover_other() {
+        let mut set = CapabilitySet::empty();
+        set.insert(Permission::ShellExec {
+            allowed_commands: Some(vec!["git".to_string()]),
+        });
+        let required = Permission::ShellExec {
+            allowed_commands: Some(vec!["rm".to_string()]),
+        };
+        assert!(!set.allows(&required));
+    }
+
+    #[test]
+    fn capability_set_allows_any_requires_one_match() {
+        let mut set = CapabilitySet::empty();
+        set.insert(Permission::FileRead {
+            path: PathPattern("/tmp/one.txt".to_string()),
+        });
+        let required = vec![
+            Permission::FileRead {
+                path: PathPattern("/tmp/one.txt".to_string()),
+            },
+            Permission::FileRead {
+                path: PathPattern("/tmp/two.txt".to_string()),
+            },
+        ];
+        assert!(set.allows_any(&required));
+    }
+
+    #[test]
+    fn memory_scope_session_does_not_cover_user() {
+        let session = Permission::MemoryRead {
+            scope: MemoryScope::Session,
+        };
+        let required = Permission::MemoryRead {
+            scope: MemoryScope::User,
+        };
+        assert!(!session.covers(&required));
+    }
+
+    #[test]
+    fn permission_display_roundtrip() {
+        let permission = Permission::MemoryWrite {
+            scope: MemoryScope::User,
+        };
+        let parsed = Permission::from_str(&permission.to_string()).unwrap();
+        assert_eq!(permission, parsed);
+    }
+
+    #[test]
+    fn is_auto_granted_session_memory_requires_session_id() {
+        let permission = Permission::MemoryRead {
+            scope: MemoryScope::Session,
+        };
+        let ctx = ToolContext {
+            capabilities: std::sync::Arc::new(CapabilitySet::empty()),
+            user_id: None,
+            session_id: Some("session".to_string()),
+            channel_id: None,
+            working_dir: PathBuf::from("/tmp"),
+            jail_root: None,
+            scheduler: None,
+            scheduled_job: false,
+            timezone_offset: "+00:00".to_string(),
+            timezone_name: "UTC".to_string(),
+        };
+        assert!(permission.is_auto_granted(&ctx));
     }
 }

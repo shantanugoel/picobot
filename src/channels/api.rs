@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::channels::permissions::channel_profile;
 use crate::providers::error::ProviderError;
-use crate::providers::factory::{ProviderAgentBuilder, DEFAULT_PROVIDER_RETRIES};
+use crate::providers::factory::{DEFAULT_PROVIDER_RETRIES, ProviderAgentBuilder};
 use anyhow::{Context, Result};
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use serde::{Deserialize, Serialize};

@@ -236,7 +236,6 @@ impl ModelRouter {
         let builder = ProviderAgentBuilder::from_model_config(model, fallback)?;
         builder.build(tool_registry, kernel, max_turns)
     }
-
 }
 
 impl ProviderAgentBuilder {
@@ -246,7 +245,9 @@ impl ProviderAgentBuilder {
         kernel: Arc<Kernel>,
         max_turns: usize,
     ) -> Result<ProviderAgent> {
-        self.build_with_env(tool_registry, kernel, max_turns, |key| std::env::var(key).ok())
+        self.build_with_env(tool_registry, kernel, max_turns, |key| {
+            std::env::var(key).ok()
+        })
     }
 
     pub fn build_with_env<F>(
@@ -342,7 +343,6 @@ impl ProviderAgent {
             ProviderAgent::Gemini(agent) => Ok(agent.prompt(prompt).max_turns(max_turns).await?),
         }
     }
-
 
     pub async fn prompt_with_turns_retry(
         &self,

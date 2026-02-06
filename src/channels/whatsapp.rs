@@ -9,7 +9,7 @@ use dashmap::DashMap;
 use futures::{Stream, StreamExt};
 use qrcode::QrCode;
 use qrcode::render::unicode;
-use tokio::sync::{mpsc, watch, Semaphore, Mutex as AsyncMutex};
+use tokio::sync::{Mutex as AsyncMutex, Semaphore, mpsc, watch};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use uuid::Uuid;
 use wacore::proto_helpers::MessageExt;
@@ -18,7 +18,9 @@ use crate::channels::permissions::channel_profile;
 use crate::config::{Config, WhatsappConfig};
 use crate::kernel::core::Kernel;
 use crate::kernel::permissions::{PathPattern, Permission};
-use crate::providers::factory::{ProviderAgent, ProviderAgentBuilder, ProviderFactory, DEFAULT_PROVIDER_RETRIES};
+use crate::providers::factory::{
+    DEFAULT_PROVIDER_RETRIES, ProviderAgent, ProviderAgentBuilder, ProviderFactory,
+};
 use crate::session::manager::SessionManager;
 use crate::session::memory::MemoryRetriever;
 use crate::session::types::{MessageType, StoredMessage};
@@ -238,8 +240,7 @@ pub async fn run(
 
     let max_concurrent = whatsapp_config.max_concurrent_messages();
     let global_semaphore = Arc::new(Semaphore::new(max_concurrent));
-    let per_user_locks: Arc<DashMap<String, Arc<AsyncMutex<()>>>> =
-        Arc::new(DashMap::new());
+    let per_user_locks: Arc<DashMap<String, Arc<AsyncMutex<()>>>> = Arc::new(DashMap::new());
 
     let cleanup_root = media_root.clone();
     let retention_hours = whatsapp_config.media_retention_hours();
@@ -372,13 +373,14 @@ pub async fn run(
                     return;
                 }
             };
-            let response = match prompt_with_agent(&agent, &prompt_to_send, config.max_turns()).await {
-                Ok(response) => response,
-                Err(err) => {
-                    tracing::error!(error = %err, "prompt failed");
-                    format!("Sorry, something went wrong: {err}")
-                }
-            };
+            let response =
+                match prompt_with_agent(&agent, &prompt_to_send, config.max_turns()).await {
+                    Ok(response) => response,
+                    Err(err) => {
+                        tracing::error!(error = %err, "prompt failed");
+                        format!("Sorry, something went wrong: {err}")
+                    }
+                };
             let assistant_message = StoredMessage {
                 message_type: MessageType::Assistant,
                 content: response.clone(),
@@ -640,9 +642,7 @@ fn with_media_permissions(kernel: Arc<Kernel>, attachments: &[MediaAttachment]) 
         profile
             .pre_authorized
             .insert(Permission::FileRead { path: path.clone() });
-        profile
-            .max_allowed
-            .insert(Permission::FileRead { path });
+        profile.max_allowed.insert(Permission::FileRead { path });
     }
     Arc::new(kernel.as_ref().clone().with_prompt_profile(profile))
 }

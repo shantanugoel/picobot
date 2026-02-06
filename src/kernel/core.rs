@@ -276,12 +276,16 @@ impl Kernel {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use async_trait::async_trait;
     use serde_json::json;
 
     use super::Kernel;
-    use crate::kernel::permissions::{CapabilitySet, PathPattern, Permission};
+    use crate::kernel::permissions::{
+        CapabilitySet, ChannelPermissionProfile, PathPattern, Permission, PermissionPrompter,
+        PromptDecision,
+    };
     use crate::tools::registry::ToolRegistry;
     use crate::tools::traits::{ToolContext, ToolError, ToolExecutor, ToolOutput, ToolSpec};
 
@@ -299,6 +303,97 @@ mod tests {
                     schema: json!({"type": "object"}),
                 },
             }
+        }
+    }
+
+    #[derive(Debug)]
+    struct StaticTool {
+        spec: ToolSpec,
+        required: Vec<Permission>,
+        output: ToolOutput,
+    }
+
+    impl StaticTool {
+        fn new(name: &str, schema: serde_json::Value, required: Vec<Permission>) -> Self {
+            Self {
+                spec: ToolSpec {
+                    name: name.to_string(),
+                    description: "static tool".to_string(),
+                    schema,
+                },
+                required,
+                output: json!({"status": "ok"}),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl ToolExecutor for StaticTool {
+        fn spec(&self) -> &ToolSpec {
+            &self.spec
+        }
+
+        fn required_permissions(
+            &self,
+            _ctx: &ToolContext,
+            _input: &serde_json::Value,
+        ) -> Result<Vec<Permission>, ToolError> {
+            Ok(self.required.clone())
+        }
+
+        async fn execute(
+            &self,
+            _ctx: &ToolContext,
+            _input: serde_json::Value,
+        ) -> Result<ToolOutput, ToolError> {
+            Ok(self.output.clone())
+        }
+    }
+
+    #[derive(Clone)]
+    struct MockPrompter {
+        decision: Option<PromptDecision>,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl MockPrompter {
+        fn new(decision: Option<PromptDecision>) -> Self {
+            Self {
+                decision,
+                calls: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+
+        fn calls(&self) -> usize {
+            self.calls.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl PermissionPrompter for MockPrompter {
+        async fn prompt(
+            &self,
+            _tool_name: &str,
+            _permissions: &[Permission],
+            _timeout_secs: u64,
+        ) -> Option<PromptDecision> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.decision
+        }
+    }
+
+    fn read_permission() -> Permission {
+        Permission::FileRead {
+            path: PathPattern("/tmp/allowed.txt".to_string()),
+        }
+    }
+
+    fn prompt_profile_for(required: &[Permission]) -> ChannelPermissionProfile {
+        ChannelPermissionProfile {
+            pre_authorized: CapabilitySet::empty(),
+            max_allowed: CapabilitySet::from_permissions(required),
+            allow_user_prompts: true,
+            prompt_timeout_secs: 30,
         }
     }
 
@@ -360,5 +455,186 @@ mod tests {
             .block_on(kernel.invoke_tool(tool.as_ref(), json!({})));
 
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn invoke_tool_with_prompt_allow_once_does_not_persist() {
+        let required = vec![read_permission()];
+        let mut registry = ToolRegistry::new();
+        registry
+            .register(Arc::new(StaticTool::new(
+                "dummy",
+                json!({"type": "object"}),
+                required.clone(),
+            )))
+            .unwrap();
+        let registry = Arc::new(registry);
+
+        let prompter = Arc::new(MockPrompter::new(Some(PromptDecision::AllowOnce)));
+        let kernel = Kernel::new(Arc::clone(&registry))
+            .with_prompt_profile(prompt_profile_for(&required))
+            .with_prompter(Some(prompter));
+
+        let output = kernel
+            .invoke_tool_with_prompt_by_name("dummy", json!({}))
+            .await;
+        assert!(output.is_ok());
+
+        let tool = kernel.tool_registry().get("dummy").unwrap();
+        let second = kernel.invoke_tool(tool.as_ref(), json!({})).await;
+        assert!(second.is_err());
+    }
+
+    #[tokio::test]
+    async fn invoke_tool_with_prompt_allow_session_persists() {
+        let required = vec![read_permission()];
+        let mut registry = ToolRegistry::new();
+        registry
+            .register(Arc::new(StaticTool::new(
+                "dummy",
+                json!({"type": "object"}),
+                required.clone(),
+            )))
+            .unwrap();
+        let registry = Arc::new(registry);
+
+        let prompter = Arc::new(MockPrompter::new(Some(PromptDecision::AllowSession)));
+        let kernel = Kernel::new(Arc::clone(&registry))
+            .with_prompt_profile(prompt_profile_for(&required))
+            .with_prompter(Some(prompter));
+
+        let output = kernel
+            .invoke_tool_with_prompt_by_name("dummy", json!({}))
+            .await;
+        assert!(output.is_ok());
+
+        let kernel_no_prompt = kernel.clone().with_prompter(None);
+        let tool = kernel_no_prompt.tool_registry().get("dummy").unwrap();
+        let second = kernel_no_prompt.invoke_tool(tool.as_ref(), json!({})).await;
+        assert!(second.is_ok());
+    }
+
+    #[tokio::test]
+    async fn invoke_tool_with_prompt_deny_returns_error() {
+        let required = vec![read_permission()];
+        let mut registry = ToolRegistry::new();
+        registry
+            .register(Arc::new(StaticTool::new(
+                "dummy",
+                json!({"type": "object"}),
+                required.clone(),
+            )))
+            .unwrap();
+        let registry = Arc::new(registry);
+
+        let prompter = Arc::new(MockPrompter::new(Some(PromptDecision::Deny)));
+        let kernel = Kernel::new(Arc::clone(&registry))
+            .with_prompt_profile(prompt_profile_for(&required))
+            .with_prompter(Some(prompter));
+
+        let result = kernel
+            .invoke_tool_with_prompt_by_name("dummy", json!({}))
+            .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.required_permissions().is_some());
+    }
+
+    #[tokio::test]
+    async fn invoke_tool_with_prompt_disabled_when_scheduled_job() {
+        let required = vec![read_permission()];
+        let mut registry = ToolRegistry::new();
+        registry
+            .register(Arc::new(StaticTool::new(
+                "dummy",
+                json!({"type": "object"}),
+                required.clone(),
+            )))
+            .unwrap();
+        let registry = Arc::new(registry);
+
+        let prompter = Arc::new(MockPrompter::new(Some(PromptDecision::AllowOnce)));
+        let prompter_dyn: Arc<dyn PermissionPrompter> = prompter.clone();
+        let kernel = Kernel::new(Arc::clone(&registry))
+            .with_prompt_profile(prompt_profile_for(&required))
+            .with_prompter(Some(prompter_dyn))
+            .with_scheduled_job_mode(true);
+
+        let result = kernel
+            .invoke_tool_with_prompt_by_name("dummy", json!({}))
+            .await;
+        assert!(result.is_err());
+        assert_eq!(prompter.calls(), 0);
+    }
+
+    #[tokio::test]
+    async fn invoke_tool_with_prompt_disabled_when_allow_user_prompts_false() {
+        let required = vec![read_permission()];
+        let mut registry = ToolRegistry::new();
+        registry
+            .register(Arc::new(StaticTool::new(
+                "dummy",
+                json!({"type": "object"}),
+                required.clone(),
+            )))
+            .unwrap();
+        let registry = Arc::new(registry);
+
+        let prompter = Arc::new(MockPrompter::new(Some(PromptDecision::AllowOnce)));
+        let prompter_dyn: Arc<dyn PermissionPrompter> = prompter.clone();
+        let mut profile = prompt_profile_for(&required);
+        profile.allow_user_prompts = false;
+        let kernel = Kernel::new(Arc::clone(&registry))
+            .with_prompt_profile(profile)
+            .with_prompter(Some(prompter_dyn));
+
+        let result = kernel
+            .invoke_tool_with_prompt_by_name("dummy", json!({}))
+            .await;
+        assert!(result.is_err());
+        assert_eq!(prompter.calls(), 0);
+    }
+
+    #[tokio::test]
+    async fn schedule_tool_allows_any_permission_match() {
+        let required = vec![
+            Permission::Schedule {
+                action: "create".to_string(),
+            },
+            Permission::Schedule {
+                action: "*".to_string(),
+            },
+        ];
+        let mut registry = ToolRegistry::new();
+        registry
+            .register(Arc::new(StaticTool::new(
+                "schedule",
+                json!({"type": "object"}),
+                required.clone(),
+            )))
+            .unwrap();
+        registry
+            .register(Arc::new(StaticTool::new(
+                "dummy2",
+                json!({"type": "object"}),
+                required.clone(),
+            )))
+            .unwrap();
+        let registry = Arc::new(registry);
+
+        let mut capabilities = CapabilitySet::empty();
+        capabilities.insert(Permission::Schedule {
+            action: "create".to_string(),
+        });
+
+        let kernel = Kernel::new(Arc::clone(&registry)).with_capabilities(capabilities);
+
+        let schedule_tool = kernel.tool_registry().get("schedule").unwrap();
+        let schedule_result = kernel.invoke_tool(schedule_tool.as_ref(), json!({})).await;
+        assert!(schedule_result.is_ok());
+
+        let dummy_tool = kernel.tool_registry().get("dummy2").unwrap();
+        let dummy_result = kernel.invoke_tool(dummy_tool.as_ref(), json!({})).await;
+        assert!(dummy_result.is_err());
     }
 }
