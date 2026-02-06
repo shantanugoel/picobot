@@ -134,6 +134,16 @@ job_timeout_secs = 300
 max_backoff_secs = 3600
 ```
 
+### Notifications (Optional)
+
+```toml
+[notifications]
+enabled = false
+max_attempts = 3
+base_backoff_ms = 200
+max_backoff_ms = 5000
+```
+
 ### Memory (Optional)
 
 ```toml
@@ -182,9 +192,9 @@ Notes:
 
 | Variable | Purpose |
 | --- | --- |
-| `PICOBOT_CONFIG` | Path to config file |
 | `OPENAI_API_KEY` | OpenAI API key (default) |
 | `OPENROUTER_API_KEY` | OpenRouter API key |
 | `GEMINI_API_KEY` | Gemini API key |
 | `PICOBOT_USER_ID` | REPL user id |
 | `PICOBOT_SESSION_ID` | REPL session id |
+| `PICOBOT_CONFIG` | Path to config file |

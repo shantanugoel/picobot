@@ -24,8 +24,8 @@ impl ScheduleTool {
                         "action": { "type": "string", "enum": ["create", "list", "cancel"] },
                         "name": { "type": "string" },
                         "schedule_type": { "type": "string", "enum": ["interval", "once", "cron"] },
-                        "schedule_expr": { "type": "string" },
-                        "task_prompt": { "type": "string" },
+                        "schedule_expr": { "type": "string", "description": "For interval: seconds or relative duration (e.g. '2 minutes'). For once: relative duration (e.g. '2 minutes') or RFC3339 datetime. For cron: cron expression." },
+                        "task_prompt": { "type": "string", "description": "User-facing message to send when the job runs." },
                         "session_id": { "type": "string" },
                         "user_id": { "type": "string" },
                         "channel_id": { "type": "string" },
@@ -74,7 +74,8 @@ impl ToolExecutor for ScheduleTool {
     async fn execute(&self, ctx: &ToolContext, input: Value) -> Result<ToolOutput, ToolError> {
         if ctx.scheduled_job {
             return Err(ToolError::new(
-                "schedule tool is disabled during scheduled job execution".to_string(),
+                "schedule tool is disabled during scheduled job execution; use notify for reminders instead"
+                    .to_string(),
             ));
         }
         let scheduler = ctx
@@ -116,9 +117,6 @@ fn create_job(
     if matches!(schedule_type, ScheduleType::Cron) {
         schedule_expr = normalize_cron_expr(&schedule_expr)?;
     }
-    if matches!(schedule_type, ScheduleType::Once) {
-        schedule_expr = normalize_once_expr(&schedule_expr, ctx.timezone_offset.as_str())?;
-    }
     let task_prompt = input
         .get("task_prompt")
         .and_then(Value::as_str)
@@ -138,7 +136,8 @@ fn create_job(
         .get("channel_id")
         .and_then(Value::as_str)
         .map(|value| value.to_string())
-        .or_else(|| ctx.channel_id.clone());
+        .or_else(|| ctx.channel_id.clone())
+        .or_else(|| session_id.as_deref().and_then(channel_id_from_session));
     let enabled = input
         .get("enabled")
         .and_then(Value::as_bool)
@@ -161,6 +160,8 @@ fn create_job(
             }
             ScheduleType::Cron => {}
         }
+    } else if matches!(schedule_type, ScheduleType::Once) {
+        schedule_expr = normalize_once_expr(&schedule_expr, ctx.timezone_offset.as_str())?;
     }
     if let Some(duplicate) = find_duplicate_job(
         scheduler,
@@ -213,6 +214,12 @@ fn create_job(
             })
         })
         .map_err(|err| ToolError::new(err.to_string()))
+}
+
+fn channel_id_from_session(session_id: &str) -> Option<String> {
+    session_id
+        .split_once(':')
+        .map(|(channel, _)| channel.to_string())
 }
 
 fn list_jobs(

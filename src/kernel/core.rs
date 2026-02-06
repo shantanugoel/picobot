@@ -29,6 +29,7 @@ impl Kernel {
                     .unwrap_or_else(|_| std::path::PathBuf::from(".")),
                 jail_root: None,
                 scheduler: None,
+                notifications: None,
                 scheduled_job: false,
                 timezone_offset: "+00:00".to_string(),
                 timezone_name: "UTC".to_string(),
@@ -70,6 +71,14 @@ impl Kernel {
 
     pub fn with_scheduler(mut self, scheduler: Option<Arc<SchedulerService>>) -> Self {
         self.context.scheduler = scheduler;
+        self
+    }
+
+    pub fn with_notifications(
+        mut self,
+        notifications: Option<Arc<crate::notifications::service::NotificationService>>,
+    ) -> Self {
+        self.context.notifications = notifications;
         self
     }
 

@@ -6,6 +6,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::SchedulerConfig;
 use crate::kernel::core::Kernel;
+use crate::notifications::service::NotificationService;
 use crate::providers::factory::{DEFAULT_PROVIDER_RETRIES, ModelRouter, ProviderAgentBuilder};
 use crate::scheduler::job::{ExecutionStatus, JobExecution, ScheduledJob};
 use crate::scheduler::service::next_cron_occurrence;
@@ -20,6 +21,7 @@ pub struct JobExecutor {
     agent_builder: ProviderAgentBuilder,
     router: Option<ModelRouter>,
     fallback_config: crate::config::Config,
+    notifications: Arc<tokio::sync::RwLock<Option<Arc<NotificationService>>>>,
 }
 
 impl JobExecutor {
@@ -39,7 +41,13 @@ impl JobExecutor {
             agent_builder,
             router,
             fallback_config,
+            notifications: Arc::new(tokio::sync::RwLock::new(None)),
         }
+    }
+
+    pub async fn set_notifications(&self, service: Option<Arc<NotificationService>>) {
+        let mut guard = self.notifications.write().await;
+        *guard = service;
     }
 
     pub fn cancel_job(&self, job_id: &str) -> bool {
@@ -106,7 +114,7 @@ impl JobExecutor {
                 job.consecutive_failures = 0;
                 job.last_error = None;
                 job.backoff_until = None;
-                job = apply_next_run(job, finished_at, &self.config);
+                job = apply_next_run(job, finished_at);
                 if should_disable(&job) {
                     job.enabled = false;
                 }
@@ -155,9 +163,11 @@ impl JobExecutor {
             tracing::error!(error = %err, "failed to persist job state");
         }
 
-        if let Some(_channel_id) = job.channel_id.clone() {
-            let _notification_text =
+        if let Some(channel_id) = job.channel_id.clone() {
+            let notification_text =
                 completion_message.unwrap_or_else(|| "Job completed".to_string());
+            self.enqueue_notification(&job.user_id, &channel_id, notification_text)
+                .await;
         }
     }
 
@@ -179,6 +189,22 @@ impl JobExecutor {
             &base_dir,
         );
         let scoped_kernel = scoped_kernel.with_prompt_profile(profile);
+        let notification_service = self.notifications.read().await.clone();
+        let scoped_kernel = scoped_kernel.with_notifications(notification_service.clone());
+
+        if let Some(service) = notification_service.as_ref()
+            && let Some(channel_id) = scoped_kernel.context().channel_id.clone()
+        {
+            let request = crate::notifications::channel::NotificationRequest {
+                user_id: job.user_id.clone(),
+                channel_id,
+                message: job.task_prompt.clone(),
+            };
+            let id = service.enqueue(request).await;
+            return ExecutionOutcome::Completed {
+                response: Some(format!("notification queued {id}")),
+            };
+        }
 
         let agent = if let Some(router) = self.router.as_ref()
             && !router.is_empty()
@@ -230,6 +256,19 @@ impl JobExecutor {
             },
         }
     }
+
+    async fn enqueue_notification(&self, user_id: &str, channel_id: &str, message: String) {
+        let service = self.notifications.read().await.clone();
+        let Some(service) = service else {
+            return;
+        };
+        let request = crate::notifications::channel::NotificationRequest {
+            user_id: user_id.to_string(),
+            channel_id: channel_id.to_string(),
+            message,
+        };
+        let _ = service.enqueue(request).await;
+    }
 }
 
 #[derive(Debug)]
@@ -240,19 +279,20 @@ enum ExecutionOutcome {
     Cancelled,
 }
 
-fn apply_next_run(
-    mut job: ScheduledJob,
-    now: chrono::DateTime<chrono::Utc>,
-    _config: &SchedulerConfig,
-) -> ScheduledJob {
-    job.next_run_at = match job.schedule_type {
+fn apply_next_run(mut job: ScheduledJob, now: chrono::DateTime<chrono::Utc>) -> ScheduledJob {
+    match job.schedule_type {
         crate::scheduler::job::ScheduleType::Interval => {
             let secs = job.schedule_interval_seconds().unwrap_or(60) as i64;
-            now + chrono::Duration::seconds(secs)
+            job.next_run_at = now + chrono::Duration::seconds(secs);
         }
-        crate::scheduler::job::ScheduleType::Once => now,
-        crate::scheduler::job::ScheduleType::Cron => next_cron_occurrence(&job.schedule_expr, now)
-            .unwrap_or(now + chrono::Duration::seconds(60)),
+        crate::scheduler::job::ScheduleType::Once => {
+            job.enabled = false;
+            job.next_run_at = now;
+        }
+        crate::scheduler::job::ScheduleType::Cron => {
+            job.next_run_at = next_cron_occurrence(&job.schedule_expr, now)
+                .unwrap_or(now + chrono::Duration::seconds(60));
+        }
     };
     job.backoff_until = None;
     job

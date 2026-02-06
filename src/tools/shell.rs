@@ -113,6 +113,7 @@ mod tests {
             channel_id: None,
             jail_root: None,
             scheduler: None,
+            notifications: None,
             scheduled_job: false,
             timezone_offset: "+00:00".to_string(),
             timezone_name: "UTC".to_string(),

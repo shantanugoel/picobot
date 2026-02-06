@@ -62,6 +62,14 @@ enabled = false
 # job_timeout_secs = 300
 # max_backoff_secs = 3600
 
+# --- Optional notifications configuration ---
+[notifications]
+enabled = false
+# Optional
+# max_attempts = 3
+# base_backoff_ms = 200
+# max_backoff_ms = 5000
+
 # --- Optional memory configuration ---
 [memory]
 # Optional

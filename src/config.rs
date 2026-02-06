@@ -18,6 +18,7 @@ pub struct Config {
     pub data_dir: Option<String>,
     pub permissions: Option<PermissionsConfig>,
     pub scheduler: Option<SchedulerConfig>,
+    pub notifications: Option<NotificationsConfig>,
     pub memory: Option<MemoryConfig>,
     pub models: Option<Vec<ModelConfig>>,
     pub routing: Option<RoutingConfig>,
@@ -79,6 +80,10 @@ impl Config {
 
     pub fn scheduler(&self) -> SchedulerConfig {
         self.scheduler.clone().unwrap_or_default()
+    }
+
+    pub fn notifications(&self) -> NotificationsConfig {
+        self.notifications.clone().unwrap_or_default()
     }
 
     pub fn memory(&self) -> MemoryConfig {
@@ -238,6 +243,19 @@ impl Config {
             }
         }
 
+        if let Some(notifications) = &self.notifications {
+            if let Some(max_attempts) = notifications.max_attempts
+                && max_attempts == 0
+            {
+                warnings.push("notifications max_attempts is 0".to_string());
+            }
+            if let Some(base_backoff) = notifications.base_backoff_ms
+                && base_backoff == 0
+            {
+                warnings.push("notifications base_backoff_ms is 0".to_string());
+            }
+        }
+
         let mut seen_ids = HashSet::new();
         if let Some(models) = &self.models {
             for model in models {
@@ -355,6 +373,14 @@ pub struct SchedulerConfig {
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
+pub struct NotificationsConfig {
+    pub enabled: Option<bool>,
+    pub max_attempts: Option<usize>,
+    pub base_backoff_ms: Option<u64>,
+    pub max_backoff_ms: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
 pub struct MemoryConfig {
     pub enable_user_memories: Option<bool>,
     pub context_budget_tokens: Option<u32>,
@@ -454,6 +480,24 @@ impl SchedulerConfig {
 
     pub fn max_backoff_secs(&self) -> u64 {
         self.max_backoff_secs.unwrap_or(3600)
+    }
+}
+
+impl NotificationsConfig {
+    pub fn enabled(&self) -> bool {
+        self.enabled.unwrap_or(false)
+    }
+
+    pub fn max_attempts(&self) -> usize {
+        self.max_attempts.unwrap_or(3)
+    }
+
+    pub fn base_backoff_ms(&self) -> u64 {
+        self.base_backoff_ms.unwrap_or(200)
+    }
+
+    pub fn max_backoff_ms(&self) -> u64 {
+        self.max_backoff_ms.unwrap_or(5000)
     }
 }
 

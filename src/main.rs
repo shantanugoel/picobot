@@ -1,6 +1,7 @@
 mod channels;
 mod config;
 mod kernel;
+mod notifications;
 mod providers;
 mod scheduler;
 mod session;
@@ -17,6 +18,7 @@ use crate::providers::factory::{ProviderAgentBuilder, ProviderFactory};
 use crate::tools::filesystem::FilesystemTool;
 use crate::tools::http::HttpTool;
 use crate::tools::memory::MemoryTool;
+use crate::tools::notify::NotifyTool;
 use crate::tools::registry::ToolRegistry;
 use crate::tools::schedule::ScheduleTool;
 use crate::tools::shell::ShellTool;
@@ -39,6 +41,7 @@ fn build_kernel(
     registry.register(std::sync::Arc::new(ShellTool::new()))?;
     registry.register(std::sync::Arc::new(HttpTool::new()?))?;
     registry.register(std::sync::Arc::new(ScheduleTool::new()))?;
+    registry.register(std::sync::Arc::new(NotifyTool::new()))?;
     registry.register(std::sync::Arc::new(MemoryTool::new(session_store.clone())))?;
     let registry = std::sync::Arc::new(registry);
     let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
@@ -117,16 +120,16 @@ async fn main() -> Result<()> {
             agent_router.clone(),
             config.clone(),
         );
-        let scheduler = crate::scheduler::service::SchedulerService::new(
+        let scheduler = std::sync::Arc::new(crate::scheduler::service::SchedulerService::new(
             schedule_store,
             executor,
             config.scheduler(),
-        );
-        Some(std::sync::Arc::new(scheduler))
+        ));
+        Some(scheduler)
     } else {
         None
     };
-    let kernel = kernel.with_scheduler(scheduler);
+    let kernel = kernel.with_scheduler(scheduler.clone());
 
     let args: Vec<String> = std::env::args().collect();
     let mode = args.get(1).map(|arg| arg.as_str()).unwrap_or("repl");

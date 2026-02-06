@@ -236,6 +236,28 @@ pub async fn run(
 
     let inbound = WhatsAppInboundAdapter::new(Arc::clone(&backend), allowed_senders);
     let outbound = Arc::new(WhatsAppOutboundSender::new(Arc::clone(&backend)));
+    let mut base_kernel = base_kernel;
+    if config.notifications().enabled() {
+        let queue_config = crate::notifications::queue::NotificationQueueConfig {
+            max_attempts: config.notifications().max_attempts(),
+            base_backoff: Duration::from_millis(config.notifications().base_backoff_ms()),
+            max_backoff: Duration::from_millis(config.notifications().max_backoff_ms()),
+        };
+        let queue = crate::notifications::queue::NotificationQueue::new(queue_config);
+        let channel = Arc::new(
+            crate::notifications::whatsapp::WhatsAppNotificationChannel::new(outbound.clone()),
+        );
+        let notifications = crate::notifications::service::NotificationService::new(queue, channel);
+        let worker = notifications.clone();
+        tokio::spawn(async move {
+            worker.worker_loop().await;
+        });
+        let notification_arc = Arc::new(notifications);
+        base_kernel = base_kernel.with_notifications(Some(notification_arc.clone()));
+        if let Some(scheduler) = base_kernel.context().scheduler.clone() {
+            scheduler.set_notifications(Some(notification_arc)).await;
+        }
+    }
     backend.start().await?;
 
     let max_concurrent = whatsapp_config.max_concurrent_messages();
@@ -647,7 +669,7 @@ fn with_media_permissions(kernel: Arc<Kernel>, attachments: &[MediaAttachment]) 
     Arc::new(kernel.as_ref().clone().with_prompt_profile(profile))
 }
 
-fn whatsapp_media_root(config: &Config, channel: &WhatsappConfig) -> PathBuf {
+pub fn whatsapp_media_root(config: &Config, channel: &WhatsappConfig) -> PathBuf {
     if let Some(path) = &channel.store_path {
         let base = PathBuf::from(path);
         if let Some(parent) = base.parent() {

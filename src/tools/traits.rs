@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::kernel::permissions::{CapabilitySet, Permission};
+use crate::notifications::service::NotificationService;
 use crate::scheduler::service::SchedulerService;
 
 #[derive(Debug, Default, Clone)]
@@ -23,6 +24,7 @@ pub struct ToolContext {
     pub working_dir: std::path::PathBuf,
     pub jail_root: Option<std::path::PathBuf>,
     pub scheduler: Option<Arc<SchedulerService>>,
+    pub notifications: Option<Arc<NotificationService>>,
     pub scheduled_job: bool,
     pub timezone_offset: String,
     pub timezone_name: String,

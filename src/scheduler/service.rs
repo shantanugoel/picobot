@@ -5,6 +5,7 @@ use tokio::sync::Semaphore;
 
 use crate::config::SchedulerConfig;
 use crate::kernel::permissions::Permission;
+use crate::notifications::service::NotificationService;
 use crate::scheduler::error::{SchedulerError, SchedulerResult};
 use crate::scheduler::executor::JobExecutor;
 use crate::scheduler::job::{CreateJobRequest, ScheduleType, ScheduledJob};
@@ -33,6 +34,10 @@ impl SchedulerService {
 
     pub fn enabled(&self) -> bool {
         self.config.enabled()
+    }
+
+    pub async fn set_notifications(&self, service: Option<Arc<NotificationService>>) {
+        self.executor.set_notifications(service).await;
     }
 
     pub async fn run_loop(&self) {
@@ -230,7 +235,12 @@ pub fn compute_next_run_for(
             if let Some(secs) = parse_relative_duration(schedule_expr) {
                 return Ok(chrono::Utc::now() + chrono::Duration::seconds(secs as i64));
             }
-            Ok(chrono::Utc::now())
+            if let Some(when) = parse_once_datetime(schedule_expr) {
+                return Ok(when);
+            }
+            Err(SchedulerError::InvalidSchedule(
+                "once schedule_expr must be a relative duration or RFC3339 timestamp".to_string(),
+            ))
         }
         ScheduleType::Cron => compute_cron_initial_run(schedule_expr),
     }
@@ -249,6 +259,51 @@ fn parse_relative_duration(value: &str) -> Option<u64> {
         "day" | "days" => Some(amount.saturating_mul(60 * 60 * 24)),
         _ => None,
     }
+}
+
+fn parse_once_datetime(value: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let trimmed = value.trim();
+    if let Ok(value) = chrono::DateTime::parse_from_rfc3339(trimmed) {
+        return Some(value.with_timezone(&chrono::Utc));
+    }
+    let with_seconds = add_missing_seconds(trimmed)?;
+    chrono::DateTime::parse_from_rfc3339(&with_seconds)
+        .ok()
+        .map(|value| value.with_timezone(&chrono::Utc))
+}
+
+fn add_missing_seconds(value: &str) -> Option<String> {
+    if !value.contains('T') {
+        return None;
+    }
+    let (base, suffix) = if value.ends_with('Z') {
+        (&value[..value.len().saturating_sub(1)], "Z")
+    } else if has_offset_suffix(value) {
+        let idx = value.len().saturating_sub(6);
+        (&value[..idx], &value[idx..])
+    } else {
+        (value, "")
+    };
+    let time_part = base.split_once('T')?.1;
+    let colon_count = time_part.matches(':').count();
+    if colon_count == 1 {
+        return Some(format!("{base}:00{suffix}"));
+    }
+    None
+}
+
+fn has_offset_suffix(value: &str) -> bool {
+    if value.len() < 6 {
+        return false;
+    }
+    let suffix = &value[value.len().saturating_sub(6)..];
+    let bytes = suffix.as_bytes();
+    matches!(bytes[0], b'+' | b'-')
+        && bytes[3] == b':'
+        && bytes[1].is_ascii_digit()
+        && bytes[2].is_ascii_digit()
+        && bytes[4].is_ascii_digit()
+        && bytes[5].is_ascii_digit()
 }
 
 const MIN_CRON_INTERVAL_SECS: i64 = 60;
