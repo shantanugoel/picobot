@@ -1,8 +1,8 @@
 use std::io::{self, Write};
 use std::sync::Arc;
 
-use crate::config::Config;
 use crate::channels::permissions::channel_profile;
+use crate::config::Config;
 use crate::kernel::core::Kernel;
 use crate::kernel::permissions::{Permission, PermissionPrompter, PromptDecision};
 use crate::providers::factory::ProviderAgentBuilder;
@@ -133,10 +133,16 @@ pub async fn run(
     let memory_config = config.memory();
     let session_manager = SessionManager::new(session_store.clone());
     let memory_retriever = MemoryRetriever::new(memory_config.clone(), session_store);
-    let agent = if let Ok(router) = crate::providers::factory::ProviderFactory::build_agent_router(&config)
+    let agent = if let Ok(router) =
+        crate::providers::factory::ProviderFactory::build_agent_router(&config)
         && !router.is_empty()
     {
-        router.build_default(&config, kernel.tool_registry(), kernel.clone(), config.max_turns())?
+        router.build_default(
+            &config,
+            kernel.tool_registry(),
+            kernel.clone(),
+            config.max_turns(),
+        )?
     } else {
         agent_builder.build(kernel.tool_registry(), kernel.clone(), config.max_turns())
     };

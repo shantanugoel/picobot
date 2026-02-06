@@ -20,6 +20,7 @@ pub struct Config {
     pub models: Option<Vec<ModelConfig>>,
     pub routing: Option<RoutingConfig>,
     pub channels: Option<ChannelsConfig>,
+    pub whatsapp: Option<WhatsappConfig>,
 }
 
 impl Config {
@@ -84,6 +85,10 @@ impl Config {
 
     pub fn channels(&self) -> ChannelsConfig {
         self.channels.clone().unwrap_or_default()
+    }
+
+    pub fn whatsapp(&self) -> WhatsappConfig {
+        self.whatsapp.clone().unwrap_or_default()
     }
 
     pub fn default_model_id(&self) -> Option<&str> {
@@ -173,6 +178,13 @@ pub struct ChannelConfig {
     pub max_allowed: Option<Vec<String>>,
     pub allow_user_prompts: Option<bool>,
     pub prompt_timeout_secs: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct WhatsappConfig {
+    pub enabled: Option<bool>,
+    pub store_path: Option<String>,
+    pub allowed_senders: Option<Vec<String>>,
 }
 
 impl ChannelConfig {

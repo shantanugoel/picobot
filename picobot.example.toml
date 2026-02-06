@@ -54,6 +54,16 @@ prompt_timeout_secs = 60
 pre_authorized = ["memory:read:session", "memory:write:session"]
 allow_user_prompts = false
 
+[channels.profiles.whatsapp]
+pre_authorized = ["memory:read:session", "memory:write:session"]
+allow_user_prompts = false
+prompt_timeout_secs = 30
+
+[whatsapp]
+enabled = false
+store_path = "./data/whatsapp.db"
+allowed_senders = ["15551234567@c.us"]
+
 # OpenRouter example
 # provider = "openrouter"
 # model = "openai/gpt-4o-mini"

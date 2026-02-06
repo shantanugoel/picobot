@@ -215,7 +215,9 @@ impl Kernel {
                 };
                 if !self.prompt_profile.allow_user_prompts
                     || self.context.scheduled_job
-                    || required.iter().all(|permission| permission.is_auto_granted(&self.context))
+                    || required
+                        .iter()
+                        .all(|permission| permission.is_auto_granted(&self.context))
                 {
                     return Err(err);
                 }
@@ -243,7 +245,8 @@ impl Kernel {
                         for permission in self.prompt_profile.pre_authorized.permissions() {
                             grants.insert(permission.clone());
                         }
-                        self.invoke_tool_with_grants(tool, input, Some(&grants)).await
+                        self.invoke_tool_with_grants(tool, input, Some(&grants))
+                            .await
                     }
                     Some(crate::kernel::permissions::PromptDecision::AllowSession) => {
                         if let Ok(mut session_grants) = self.session_grants.write() {

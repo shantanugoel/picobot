@@ -20,8 +20,17 @@ dirs = "6"
 uuid = { version = "1", features = ["v4"] }
 axum = { version = "0.8", features = ["macros"] }
 reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"] }
-rusqlite = { version = "0.33", features = ["chrono"] }
+rusqlite = { version = "0.37", features = ["chrono"] }
 cron = "0.13"
 chrono-tz = "0.10"
 dashmap = "6"
 tokio-util = { version = "0.7", features = ["rt"] }
+tokio-stream = "0.1"
+qrcode = "0.14"
+whatsapp-rust = "0.2"
+whatsapp-rust-sqlite-storage = "0.2"
+whatsapp-rust-tokio-transport = "0.2"
+whatsapp-rust-ureq-http-client = "0.2"
+wacore = "0.2"
+wacore-binary = "0.2"
+waproto = "0.2"

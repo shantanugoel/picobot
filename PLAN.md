@@ -161,7 +161,7 @@ The previous implementation is preserved in `reference/` for guidance:
 #### Tasks
 
 1. **WhatsApp Integration**
-   - [ ] Implement WhatsApp adapter (using whatsapp-rust. Take hint from reference)
+   - [x] Implement WhatsApp adapter (using whatsapp-rust. Take hint from reference)
    - [ ] Handle media/document processing for tools
    - [ ] Session management for concurrent users
 

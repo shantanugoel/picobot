@@ -45,10 +45,16 @@ pub async fn serve(
     let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let profile = channel_profile(&config.channels(), "api", &base_dir);
     let kernel = Arc::new(kernel.with_prompt_profile(profile));
-    let agent = if let Ok(router) = crate::providers::factory::ProviderFactory::build_agent_router(&config)
+    let agent = if let Ok(router) =
+        crate::providers::factory::ProviderFactory::build_agent_router(&config)
         && !router.is_empty()
     {
-        router.build_default(&config, kernel.tool_registry(), kernel.clone(), config.max_turns())?
+        router.build_default(
+            &config,
+            kernel.tool_registry(),
+            kernel.clone(),
+            config.max_turns(),
+        )?
     } else {
         agent_builder.build(kernel.tool_registry(), kernel.clone(), config.max_turns())
     };

@@ -162,7 +162,10 @@ impl JobExecutor {
             .with_capabilities(job.capabilities.clone())
             .with_scheduled_job_mode(true)
             .with_channel_id(job.channel_id.clone());
-        let channel_id = job.channel_id.clone().unwrap_or_else(|| "scheduler".to_string());
+        let channel_id = job
+            .channel_id
+            .clone()
+            .unwrap_or_else(|| "scheduler".to_string());
         let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
         let profile = crate::channels::permissions::channel_profile(
             &self.fallback_config.channels(),

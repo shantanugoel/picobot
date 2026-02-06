@@ -8,7 +8,7 @@ mod tools;
 
 use anyhow::Result;
 
-use crate::channels::{api, repl};
+use crate::channels::{api, repl, whatsapp};
 use crate::config::Config;
 use crate::kernel::core::Kernel;
 use crate::kernel::permissions::CapabilitySet;
@@ -125,9 +125,10 @@ async fn main() -> Result<()> {
     match mode {
         "api" => api::serve(config, kernel, agent_builder.clone()).await,
         "repl" => repl::run(config, kernel, agent_builder.clone()).await,
+        "whatsapp" => whatsapp::run(config, kernel, agent_builder.clone()).await,
         "schedules" => run_schedules_cli(&config, kernel, &args[2..]),
         other => {
-            eprintln!("unknown mode '{other}', use 'repl', 'api', or 'schedules'");
+            eprintln!("unknown mode '{other}', use 'repl', 'api', 'whatsapp', or 'schedules'");
             Ok(())
         }
     }
