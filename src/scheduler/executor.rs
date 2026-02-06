@@ -103,7 +103,9 @@ impl JobExecutor {
             ExecutionOutcome::Failed { error } => Some(format!("Job failed: {error}")),
             ExecutionOutcome::Timeout => Some("Job timed out".to_string()),
             ExecutionOutcome::Cancelled => Some("Job cancelled".to_string()),
+            ExecutionOutcome::Notified { .. } => None,
         };
+        let should_notify = !matches!(outcome, ExecutionOutcome::Notified { .. });
 
         match outcome {
             ExecutionOutcome::Completed { response } => {
@@ -149,6 +151,19 @@ impl JobExecutor {
                 execution.status = ExecutionStatus::Cancelled;
                 execution.error = Some("job cancelled".to_string());
             }
+            ExecutionOutcome::Notified { ref id } => {
+                execution.status = ExecutionStatus::Completed;
+                execution.result_summary = Some(format!("notification queued {id}"));
+                job.execution_count = job.execution_count.saturating_add(1);
+                job.last_run_at = Some(finished_at);
+                job.consecutive_failures = 0;
+                job.last_error = None;
+                job.backoff_until = None;
+                job = apply_next_run(job, finished_at);
+                if should_disable(&job) {
+                    job.enabled = false;
+                }
+            }
         }
 
         job.claimed_at = None;
@@ -164,10 +179,12 @@ impl JobExecutor {
         }
 
         if let Some(channel_id) = job.channel_id.clone() {
-            let notification_text =
-                completion_message.unwrap_or_else(|| "Job completed".to_string());
-            self.enqueue_notification(&job.user_id, &channel_id, notification_text)
-                .await;
+            if should_notify {
+                let notification_text =
+                    completion_message.unwrap_or_else(|| "Job completed".to_string());
+                self.enqueue_notification(&job.user_id, &channel_id, notification_text)
+                    .await;
+            }
         }
     }
 
@@ -201,9 +218,7 @@ impl JobExecutor {
                 message: job.task_prompt.clone(),
             };
             let id = service.enqueue(request).await;
-            return ExecutionOutcome::Completed {
-                response: Some(format!("notification queued {id}")),
-            };
+            return ExecutionOutcome::Notified { id };
         }
 
         let agent = if let Some(router) = self.router.as_ref()
@@ -277,6 +292,7 @@ enum ExecutionOutcome {
     Failed { error: String },
     Timeout,
     Cancelled,
+    Notified { id: String },
 }
 
 fn apply_next_run(mut job: ScheduledJob, now: chrono::DateTime<chrono::Utc>) -> ScheduledJob {
