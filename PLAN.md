@@ -223,7 +223,7 @@ The previous implementation is preserved in `reference/` for guidance:
    - [ ] Screenshot and DOM extraction support
 
 3. **Multi modal tool**
-   - [ ] A tool to understand documents/images etc and do actions as prescribed by the user. Should be able to configure model to be used
+   - [x] A tool to understand documents/images etc and do actions as prescribed by the user. Should be able to configure model to be used
 
 4. **Skill System to add new skills via skill files**
     - [ ] A skill system like openclaw but should be very secure. Any code executions should likely be sandboxed to avoid impacting picobot itself or anything on the server its running on.
