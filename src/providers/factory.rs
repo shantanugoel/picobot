@@ -1,5 +1,6 @@
 use std::env;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use rig::agent::Agent;
@@ -7,11 +8,15 @@ use rig::client::CompletionClient;
 use rig::completion::Prompt;
 use rig::providers::{gemini, openai, openrouter};
 use rig::tool::ToolDyn;
+use tokio::time::sleep;
 
 use crate::config::{Config, ModelConfig};
 use crate::kernel::core::Kernel;
+use crate::providers::error::ProviderError;
 use crate::tools::registry::ToolRegistry;
 use crate::tools::rig_wrapper::KernelBackedTool;
+
+pub const DEFAULT_PROVIDER_RETRIES: usize = 2;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ProviderKind {
@@ -20,8 +25,10 @@ pub enum ProviderKind {
     Gemini,
 }
 
-impl ProviderKind {
-    pub fn from_str(value: &str) -> Result<Self> {
+impl std::str::FromStr for ProviderKind {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self> {
         match value.trim().to_lowercase().as_str() {
             "openai" => Ok(Self::OpenAI),
             "openrouter" => Ok(Self::OpenRouter),
@@ -74,7 +81,7 @@ impl ProviderFactory {
         kernel: Arc<Kernel>,
     ) -> Result<ProviderAgent> {
         let router = Self::build_agent_router(config)?;
-        Ok(router.build_default(config, tool_registry, kernel, config.max_turns())?)
+        router.build_default(config, tool_registry, kernel, config.max_turns())
     }
 
     pub fn build_agent_builder(config: &Config) -> Result<ProviderAgentBuilder> {
@@ -124,7 +131,7 @@ pub struct ProviderAgentBuilder {
 impl ProviderAgentBuilder {
     pub fn new(config: &Config) -> Result<Self> {
         Ok(Self {
-            provider: ProviderKind::from_str(config.provider())?,
+            provider: config.provider().parse()?,
             model: config.model().to_string(),
             system_prompt: config.system_prompt().to_string(),
             base_url: config.base_url.clone(),
@@ -138,7 +145,7 @@ impl ProviderAgentBuilder {
             .as_deref()
             .unwrap_or_else(|| fallback.provider());
         Ok(Self {
-            provider: ProviderKind::from_str(provider)?,
+            provider: provider.parse()?,
             model: model.model.clone(),
             system_prompt: model
                 .system_prompt
@@ -215,7 +222,7 @@ impl ModelRouter {
     ) -> Result<ProviderAgent> {
         if self.models.is_empty() {
             let fallback = ProviderAgentBuilder::new(fallback)?;
-            return Ok(fallback.build(tool_registry, kernel, max_turns));
+            return fallback.build(tool_registry, kernel, max_turns);
         }
         let model = if let Some(default_id) = &self.default_id {
             self.models
@@ -227,26 +234,9 @@ impl ModelRouter {
         };
         let max_turns = model.max_turns.unwrap_or(max_turns);
         let builder = ProviderAgentBuilder::from_model_config(model, fallback)?;
-        Ok(builder.build(tool_registry, kernel, max_turns))
+        builder.build(tool_registry, kernel, max_turns)
     }
 
-    pub fn build_for_id(
-        &self,
-        model_id: &str,
-        fallback: &Config,
-        tool_registry: &ToolRegistry,
-        kernel: Arc<Kernel>,
-        max_turns: usize,
-    ) -> Result<ProviderAgent> {
-        let model = self
-            .models
-            .iter()
-            .find(|model| model.id == model_id)
-            .ok_or_else(|| anyhow::anyhow!("model id '{model_id}' not found"))?;
-        let max_turns = model.max_turns.unwrap_or(max_turns);
-        let builder = ProviderAgentBuilder::from_model_config(model, fallback)?;
-        Ok(builder.build(tool_registry, kernel, max_turns))
-    }
 }
 
 impl ProviderAgentBuilder {
@@ -255,10 +245,8 @@ impl ProviderAgentBuilder {
         tool_registry: &ToolRegistry,
         kernel: Arc<Kernel>,
         max_turns: usize,
-    ) -> ProviderAgent {
-        self.build_with_env(tool_registry, kernel, max_turns, |key| {
-            std::env::var(key).ok()
-        })
+    ) -> Result<ProviderAgent> {
+        self.build_with_env(tool_registry, kernel, max_turns, |key| std::env::var(key).ok())
     }
 
     pub fn build_with_env<F>(
@@ -267,54 +255,57 @@ impl ProviderAgentBuilder {
         kernel: Arc<Kernel>,
         max_turns: usize,
         env: F,
-    ) -> ProviderAgent
+    ) -> Result<ProviderAgent>
     where
         F: Fn(&str) -> Option<String>,
     {
         match self.provider {
             ProviderKind::OpenAI => {
                 let api_key_env = self.api_key_env.as_deref().unwrap_or("OPENAI_API_KEY");
-                let api_key = env(api_key_env).unwrap_or_default();
+                let api_key = env(api_key_env)
+                    .ok_or_else(|| anyhow::anyhow!("missing API key in env '{api_key_env}'"))?;
                 let mut builder = rig::providers::openai::Client::builder().api_key(api_key);
                 if let Some(base_url) = &self.base_url {
                     builder = builder.base_url(base_url);
                 }
-                let client = builder.build().expect("openai client");
+                let client = builder.build().context("failed to build OpenAI client")?;
                 let agent_builder = client.agent(&self.model).preamble(&self.system_prompt);
-                ProviderAgent::OpenAI(build_agent_with_tools(
+                Ok(ProviderAgent::OpenAI(build_agent_with_tools(
                     agent_builder,
                     tool_registry,
                     kernel,
                     max_turns,
-                ))
+                )))
             }
             ProviderKind::OpenRouter => {
                 let api_key_env = self.api_key_env.as_deref().unwrap_or("OPENROUTER_API_KEY");
-                let api_key = env(api_key_env).unwrap_or_default();
-                let client =
-                    rig::providers::openrouter::Client::new(api_key).expect("openrouter client");
+                let api_key = env(api_key_env)
+                    .ok_or_else(|| anyhow::anyhow!("missing API key in env '{api_key_env}'"))?;
+                let client = rig::providers::openrouter::Client::new(api_key)
+                    .context("failed to build OpenRouter client")?;
                 let agent_builder = client.agent(&self.model).preamble(&self.system_prompt);
-                ProviderAgent::OpenRouter(build_agent_with_tools(
+                Ok(ProviderAgent::OpenRouter(build_agent_with_tools(
                     agent_builder,
                     tool_registry,
                     kernel,
                     max_turns,
-                ))
+                )))
             }
             ProviderKind::Gemini => {
                 let api_key_env = self.api_key_env.as_deref().unwrap_or("GEMINI_API_KEY");
-                let api_key = env(api_key_env).unwrap_or_default();
+                let api_key = env(api_key_env)
+                    .ok_or_else(|| anyhow::anyhow!("missing API key in env '{api_key_env}'"))?;
                 let client = rig::providers::gemini::Client::builder()
                     .api_key(api_key)
                     .build()
-                    .expect("gemini client");
+                    .context("failed to build Gemini client")?;
                 let agent_builder = client.agent(&self.model).preamble(&self.system_prompt);
-                ProviderAgent::Gemini(build_agent_with_tools(
+                Ok(ProviderAgent::Gemini(build_agent_with_tools(
                     agent_builder,
                     tool_registry,
                     kernel,
                     max_turns,
-                ))
+                )))
             }
         }
     }
@@ -338,18 +329,58 @@ impl ProviderAgent {
         }
     }
 
-    pub async fn prompt_with_turns(
+    async fn prompt_with_turns_once(
+        &self,
+        prompt: &str,
+        max_turns: usize,
+    ) -> anyhow::Result<String> {
+        match self {
+            ProviderAgent::OpenAI(agent) => Ok(agent.prompt(prompt).max_turns(max_turns).await?),
+            ProviderAgent::OpenRouter(agent) => {
+                Ok(agent.prompt(prompt).max_turns(max_turns).await?)
+            }
+            ProviderAgent::Gemini(agent) => Ok(agent.prompt(prompt).max_turns(max_turns).await?),
+        }
+    }
+
+
+    pub async fn prompt_with_turns_retry(
         &self,
         prompt: impl Into<String>,
         max_turns: usize,
-    ) -> anyhow::Result<String> {
+        max_retries: usize,
+    ) -> Result<String, ProviderError> {
         let prompt = prompt.into();
-        match self {
-            ProviderAgent::OpenAI(agent) => Ok(agent.prompt(&prompt).max_turns(max_turns).await?),
-            ProviderAgent::OpenRouter(agent) => {
-                Ok(agent.prompt(&prompt).max_turns(max_turns).await?)
+        let mut attempt = 0;
+        loop {
+            match self.prompt_with_turns_once(&prompt, max_turns).await {
+                Ok(response) => return Ok(response),
+                Err(err) => {
+                    let mapped = ProviderError::from_anyhow(err);
+                    if attempt >= max_retries || !mapped.is_retryable() {
+                        return Err(mapped);
+                    }
+                    let backoff = mapped
+                        .retry_after()
+                        .unwrap_or_else(|| backoff_delay(attempt));
+                    tracing::warn!(
+                        attempt = attempt + 1,
+                        max_retries,
+                        error = %mapped,
+                        "provider call failed, retrying"
+                    );
+                    sleep(backoff).await;
+                    attempt += 1;
+                }
             }
-            ProviderAgent::Gemini(agent) => Ok(agent.prompt(&prompt).max_turns(max_turns).await?),
         }
     }
+}
+
+fn backoff_delay(attempt: usize) -> Duration {
+    let base_ms = 200u64;
+    let shift = attempt.min(8) as u32;
+    let multiplier = 1u64.saturating_mul(1u64 << shift);
+    let delay_ms = base_ms.saturating_mul(multiplier).min(2000);
+    Duration::from_millis(delay_ms)
 }

@@ -1,8 +1,10 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
+
+use crate::kernel::permissions::parse_permission_with_base;
 
 #[derive(Debug, Deserialize, Default, Clone)]
 pub struct Config {
@@ -95,6 +97,219 @@ impl Config {
         self.routing
             .as_ref()
             .and_then(|routing| routing.default_model.as_deref())
+    }
+
+    pub fn validate(&self) -> Result<ConfigValidation> {
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        let base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
+        let provider = self.provider();
+        if !is_known_provider(provider) {
+            errors.push(format!("unsupported provider '{provider}'"));
+        }
+
+        if self.model().trim().is_empty() {
+            errors.push("model cannot be empty".to_string());
+        }
+
+        if let Some(max_turns) = self.max_turns {
+            if max_turns == 0 {
+                warnings.push("max_turns should be >= 1".to_string());
+            } else if max_turns > 50 {
+                warnings.push("max_turns is unusually high".to_string());
+            }
+        }
+
+        let data_dir = self.data_dir();
+        if let Err(err) = std::fs::create_dir_all(&data_dir) {
+            errors.push(format!(
+                "data_dir '{}' is not writable: {err}",
+                data_dir.display()
+            ));
+        } else if let Ok(meta) = std::fs::metadata(&data_dir)
+            && !meta.is_dir()
+        {
+            errors.push(format!(
+                "data_dir '{}' is not a directory",
+                data_dir.display()
+            ));
+        }
+
+        if let Some(perms) = &self.permissions
+            && let Some(filesystem) = &perms.filesystem
+        {
+            if let Some(root) = &filesystem.jail_root {
+                let resolved = resolve_config_path(&base_dir, root);
+                let path = PathBuf::from(&resolved);
+                if !path.exists() {
+                    errors.push(format!("jail_root '{}' does not exist", resolved));
+                } else if !path.is_dir() {
+                    errors.push(format!("jail_root '{}' is not a directory", resolved));
+                }
+            }
+            for entry in filesystem
+                .read_paths
+                .iter()
+                .chain(filesystem.write_paths.iter())
+            {
+                if entry.trim().is_empty() {
+                    warnings.push("filesystem permission path is empty".to_string());
+                }
+            }
+        }
+
+        if let Some(channels) = &self.channels {
+            for (channel_id, channel) in &channels.profiles {
+                if let Some(timeout) = channel.prompt_timeout_secs
+                    && timeout == 0
+                {
+                    warnings.push(format!(
+                        "channel '{channel_id}' prompt_timeout_secs is 0"
+                    ));
+                }
+                let mut pre_auth = Vec::new();
+                let mut max_allowed = Vec::new();
+                if let Some(entries) = channel.pre_authorized.as_ref() {
+                    pre_auth.extend(entries.iter());
+                }
+                let max_allowed_defined = channel
+                    .max_allowed
+                    .as_ref()
+                    .map(|entries| !entries.is_empty())
+                    .unwrap_or(false);
+                if let Some(entries) = channel.max_allowed.as_ref() {
+                    max_allowed.extend(entries.iter());
+                }
+                for entry in pre_auth.iter().chain(max_allowed.iter()) {
+                    if parse_permission_with_base(entry, &base_dir).is_err() {
+                        errors.push(format!(
+                            "channel '{channel_id}' has invalid permission '{entry}'"
+                        ));
+                    }
+                }
+                if max_allowed_defined && !pre_auth.is_empty() {
+                    for entry in &pre_auth {
+                        let Ok(permission) = parse_permission_with_base(entry, &base_dir) else {
+                            continue;
+                        };
+                        if max_allowed
+                            .iter()
+                            .filter_map(|entry| parse_permission_with_base(entry, &base_dir).ok())
+                            .all(|allowed| !allowed.covers(&permission))
+                        {
+                            warnings.push(format!(
+                                "channel '{channel_id}' pre_authorized permission '{entry}' is not covered by max_allowed"
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(whatsapp) = &self.whatsapp {
+            if let Some(limit) = whatsapp.max_media_size_bytes {
+                if limit == 0 {
+                    warnings.push("whatsapp max_media_size_bytes is 0".to_string());
+                } else if limit > 100 * 1024 * 1024 {
+                    warnings.push("whatsapp max_media_size_bytes is very large".to_string());
+                }
+            }
+            if let Some(retention) = whatsapp.media_retention_hours
+                && retention == 0
+            {
+                warnings.push("whatsapp media_retention_hours is 0".to_string());
+            }
+        }
+
+        if let Some(scheduler) = &self.scheduler {
+            if let Some(tick) = scheduler.tick_interval_secs
+                && tick == 0
+            {
+                warnings.push("scheduler tick_interval_secs is 0".to_string());
+            }
+            if let Some(max_jobs) = scheduler.max_concurrent_jobs
+                && max_jobs == 0
+            {
+                warnings.push("scheduler max_concurrent_jobs is 0".to_string());
+            }
+            if let Some(per_user) = scheduler.max_concurrent_per_user
+                && per_user == 0
+            {
+                warnings.push("scheduler max_concurrent_per_user is 0".to_string());
+            }
+        }
+
+        let mut seen_ids = HashSet::new();
+        if let Some(models) = &self.models {
+            for model in models {
+                if model.id.trim().is_empty() {
+                    errors.push("model id cannot be empty".to_string());
+                }
+                if model.model.trim().is_empty() {
+                    errors.push(format!("model '{}' has empty model name", model.id));
+                }
+                if !seen_ids.insert(model.id.clone()) {
+                    errors.push(format!("duplicate model id '{}'", model.id));
+                }
+                let provider_name = model.provider.as_deref().unwrap_or(provider);
+                if !is_known_provider(provider_name) {
+                    errors.push(format!(
+                        "model '{}' has unsupported provider '{provider_name}'",
+                        model.id
+                    ));
+                }
+            }
+        }
+
+        if let Some(default_model) = self.default_model_id() {
+            if let Some(models) = &self.models {
+                if !models.iter().any(|model| model.id == default_model) {
+                    warnings.push(format!(
+                        "routing.default_model '{default_model}' not found in models"
+                    ));
+                }
+            } else {
+                warnings.push("routing.default_model set without models".to_string());
+            }
+        }
+
+        let mut checked_envs = HashSet::new();
+        let base_env = resolve_provider_env(provider, self.api_key_env.as_deref());
+        if let Some(env_name) = base_env
+            && checked_envs.insert(env_name.clone())
+            && std::env::var(&env_name).is_err()
+        {
+            errors.push(format!("missing API key in env '{env_name}'"));
+        }
+
+        if let Some(models) = &self.models {
+            for model in models {
+                let provider_name = model.provider.as_deref().unwrap_or(provider);
+                let env_name = resolve_provider_env(
+                    provider_name,
+                    model.api_key_env.as_deref().or(self.api_key_env.as_deref()),
+                );
+                if let Some(env_name) = env_name
+                    && checked_envs.insert(env_name.clone())
+                    && std::env::var(&env_name).is_err()
+                {
+                    errors.push(format!(
+                        "missing API key in env '{env_name}' for model '{}'",
+                        model.id
+                    ));
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(ConfigValidation { warnings })
+        } else {
+            Err(anyhow::anyhow!(format!(
+                "config validation failed: {}",
+                errors.join("; ")
+            )))
+        }
     }
 }
 
@@ -256,4 +471,32 @@ impl WhatsappConfig {
     pub fn media_retention_hours(&self) -> u64 {
         self.media_retention_hours.unwrap_or(24)
     }
+}
+
+#[derive(Debug, Default)]
+pub struct ConfigValidation {
+    pub warnings: Vec<String>,
+}
+
+fn is_known_provider(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "openai" | "openrouter" | "gemini"
+    )
+}
+
+fn resolve_provider_env(provider: &str, override_env: Option<&str>) -> Option<String> {
+    if let Some(env) = override_env {
+        return Some(env.to_string());
+    }
+    match provider.trim().to_ascii_lowercase().as_str() {
+        "openai" => Some("OPENAI_API_KEY".to_string()),
+        "openrouter" => Some("OPENROUTER_API_KEY".to_string()),
+        "gemini" => Some("GEMINI_API_KEY".to_string()),
+        _ => None,
+    }
+}
+
+fn resolve_config_path(base_dir: &Path, raw: &str) -> String {
+    crate::kernel::permissions::resolve_permission_path(base_dir, raw)
 }

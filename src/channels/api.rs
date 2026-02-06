@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use crate::channels::permissions::channel_profile;
-use crate::providers::factory::ProviderAgentBuilder;
+use crate::providers::error::ProviderError;
+use crate::providers::factory::{ProviderAgentBuilder, DEFAULT_PROVIDER_RETRIES};
 use anyhow::{Context, Result};
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use serde::{Deserialize, Serialize};
@@ -31,9 +32,9 @@ async fn prompt_handler(
 ) -> Result<Json<PromptResponse>, (StatusCode, String)> {
     let response = state
         .agent
-        .prompt_with_turns(payload.prompt, state.max_turns)
+        .prompt_with_turns_retry(payload.prompt, state.max_turns, DEFAULT_PROVIDER_RETRIES)
         .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        .map_err(map_provider_error)?;
     Ok(Json(PromptResponse { response }))
 }
 
@@ -56,7 +57,7 @@ pub async fn serve(
             config.max_turns(),
         )?
     } else {
-        agent_builder.build(kernel.tool_registry(), kernel.clone(), config.max_turns())
+        agent_builder.build(kernel.tool_registry(), kernel.clone(), config.max_turns())?
     };
     let state = AppState {
         agent: Arc::new(agent),
@@ -74,4 +75,14 @@ pub async fn serve(
     axum::serve(listener, app).await.context("server failed")?;
 
     Ok(())
+}
+
+fn map_provider_error(err: ProviderError) -> (StatusCode, String) {
+    let status = match err {
+        ProviderError::RateLimit { .. } => StatusCode::TOO_MANY_REQUESTS,
+        ProviderError::Transient { .. } => StatusCode::SERVICE_UNAVAILABLE,
+        ProviderError::Permanent { .. } => StatusCode::BAD_REQUEST,
+    };
+    tracing::error!(error = %err, status = ?status, "prompt failed");
+    (status, err.to_string())
 }

@@ -18,7 +18,7 @@ use crate::channels::permissions::channel_profile;
 use crate::config::{Config, WhatsappConfig};
 use crate::kernel::core::Kernel;
 use crate::kernel::permissions::{PathPattern, Permission};
-use crate::providers::factory::{ProviderAgent, ProviderAgentBuilder, ProviderFactory};
+use crate::providers::factory::{ProviderAgent, ProviderAgentBuilder, ProviderFactory, DEFAULT_PROVIDER_RETRIES};
 use crate::session::manager::SessionManager;
 use crate::session::memory::MemoryRetriever;
 use crate::session::types::{MessageType, StoredMessage};
@@ -141,10 +141,10 @@ impl WhatsAppInboundAdapter {
                 async move {
                     let user = message.user_id.clone();
                     if is_allowed_sender(&user, &allowed) {
-                        println!("WhatsApp received message from '{user}'");
+                        tracing::info!(user = %user, "WhatsApp received message");
                         Some(message)
                     } else {
-                        println!("WhatsApp ignored message from '{user}' (not in allowlist)");
+                        tracing::info!(user = %user, "WhatsApp ignored message (not in allowlist)");
                         None
                     }
                 }
@@ -168,7 +168,7 @@ impl WhatsAppOutboundSender {
         match self.backend.send_text(user_id, text).await {
             Ok(delivery_id) => Ok(delivery_id),
             Err(err) => {
-                eprintln!("WhatsApp send failed to '{user_id}': {err}");
+                tracing::error!(user = %user_id, error = %err, "WhatsApp send failed");
                 Err(err)
             }
         }
@@ -182,7 +182,7 @@ pub async fn run(
 ) -> Result<()> {
     let whatsapp_config = config.whatsapp();
     if whatsapp_config.enabled == Some(false) {
-        println!("WhatsApp channel disabled via config");
+        tracing::info!("WhatsApp channel disabled via config");
         return Ok(());
     }
 
@@ -227,7 +227,7 @@ pub async fn run(
     tokio::spawn(async move {
         while qr_cache_rx.changed().await.is_ok() {
             if let Some(code) = qr_cache_rx.borrow().clone() {
-                println!("WhatsApp QR Code:\n{}", render_qr_code(&code));
+                tracing::info!("WhatsApp QR Code:\n{}", render_qr_code(&code));
             }
         }
     });
@@ -347,11 +347,11 @@ pub async fn run(
                 seq_order,
                 token_estimate: None,
             };
-            if session_manager
-                .append_message(&session.id, &user_message)
-                .is_ok()
-            {
-                seq_order += 1;
+            match session_manager.append_message(&session.id, &user_message) {
+                Ok(()) => seq_order += 1,
+                Err(err) => {
+                    tracing::warn!(error = %err, "failed to store user message");
+                }
             }
 
             let message_kernel = Arc::new(
@@ -372,9 +372,13 @@ pub async fn run(
                     return;
                 }
             };
-            let response = prompt_with_agent(&agent, &prompt_to_send, config.max_turns())
-                .await
-                .unwrap_or_else(|err| format!("Sorry, something went wrong: {err}"));
+            let response = match prompt_with_agent(&agent, &prompt_to_send, config.max_turns()).await {
+                Ok(response) => response,
+                Err(err) => {
+                    tracing::error!(error = %err, "prompt failed");
+                    format!("Sorry, something went wrong: {err}")
+                }
+            };
             let assistant_message = StoredMessage {
                 message_type: MessageType::Assistant,
                 content: response.clone(),
@@ -382,8 +386,12 @@ pub async fn run(
                 seq_order,
                 token_estimate: None,
             };
-            let _ = session_manager.append_message(&session.id, &assistant_message);
-            let _ = session_manager.touch(&session.id);
+            if let Err(err) = session_manager.append_message(&session.id, &assistant_message) {
+                tracing::warn!(error = %err, "failed to store assistant message");
+            }
+            if let Err(err) = session_manager.touch(&session.id) {
+                tracing::warn!(error = %err, "failed to update session activity");
+            }
 
             let _ = outbound.send(&user_id, &response).await;
         });
@@ -403,9 +411,9 @@ fn build_agent_for_kernel(
     if let Some(router) = agent_router {
         router.build_default(config, registry, kernel_clone, config.max_turns())
     } else {
-        Ok(agent_builder
+        agent_builder
             .clone()
-            .build(registry, kernel_clone, config.max_turns()))
+            .build(registry, kernel_clone, config.max_turns())
     }
 }
 
@@ -452,11 +460,10 @@ async fn prompt_with_agent(
     prompt: &str,
     max_turns: usize,
 ) -> Result<String> {
-    let response = agent
-        .prompt_with_turns(prompt.to_string(), max_turns)
+    agent
+        .prompt_with_turns_retry(prompt.to_string(), max_turns, DEFAULT_PROVIDER_RETRIES)
         .await
-        .context("prompt failed")?;
-    Ok(response)
+        .map_err(|err| anyhow::anyhow!(err))
 }
 
 async fn run_whatsapp_loop(
@@ -478,7 +485,7 @@ async fn run_whatsapp_loop(
     let backend = match SqliteStore::new(&store_path).await {
         Ok(store) => StdArc::new(store),
         Err(err) => {
-            eprintln!("WhatsApp store init failed: {err}");
+            tracing::error!(error = %err, "WhatsApp store init failed");
             return;
         }
     };
@@ -513,7 +520,7 @@ async fn run_whatsapp_loop(
                         {
                             Ok(items) => items,
                             Err(err) => {
-                                eprintln!("WhatsApp media download failed: {err}");
+                                tracing::warn!(error = %err, "WhatsApp media download failed");
                                 Vec::new()
                             }
                         };
@@ -538,7 +545,7 @@ async fn run_whatsapp_loop(
     {
         Ok(bot) => bot,
         Err(err) => {
-            eprintln!("WhatsApp bot build failed: {err}");
+            tracing::error!(error = %err, "WhatsApp bot build failed");
             return;
         }
     };
@@ -547,11 +554,11 @@ async fn run_whatsapp_loop(
         match bot.run().await {
             Ok(handle) => {
                 if let Err(err) = handle.await {
-                    eprintln!("WhatsApp bot task error: {err}");
+                    tracing::error!(error = %err, "WhatsApp bot task error");
                 }
             }
             Err(err) => {
-                eprintln!("WhatsApp bot error: {err}");
+                tracing::error!(error = %err, "WhatsApp bot error");
             }
         }
     });

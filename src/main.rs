@@ -7,6 +7,7 @@ mod session;
 mod tools;
 
 use anyhow::Result;
+use tracing_subscriber::EnvFilter;
 
 use crate::channels::{api, repl, whatsapp};
 use crate::config::Config;
@@ -79,7 +80,22 @@ fn resolve_working_path(base_dir: &std::path::Path, raw: &str) -> std::path::Pat
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .init();
     let config = Config::load()?;
+    let validation = config.validate()?;
+    for warning in validation.warnings {
+        tracing::warn!(warning = %warning, "config validation warning");
+    }
+    tracing::info!(
+        provider = %config.provider(),
+        model = %config.model(),
+        max_turns = config.max_turns(),
+        "config loaded"
+    );
     let agent_builder = ProviderFactory::build_agent_builder(&config)?;
     let agent_router = ProviderFactory::build_agent_router(&config).ok();
     let kernel = build_kernel(&config, agent_builder.clone(), None)?;

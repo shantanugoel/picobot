@@ -53,12 +53,15 @@ impl SchedulerService {
         let claim_id = uuid::Uuid::new_v4().to_string();
         let claim_limit = self.config.max_concurrent_jobs().max(1);
         let lease_secs = (self.config.tick_interval_secs() * 2).max(2);
-        let jobs = match self
+            let jobs = match self
             .store
             .claim_due_jobs(now, claim_limit, &claim_id, lease_secs)
         {
             Ok(jobs) => jobs,
-            Err(_) => return,
+            Err(err) => {
+                tracing::error!(error = %err, "failed to claim due jobs");
+                return;
+            }
         };
         let mut seen_jobs = std::collections::HashSet::new();
         for job in jobs {

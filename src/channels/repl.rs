@@ -144,7 +144,8 @@ pub async fn run(
             config.max_turns(),
         )?
     } else {
-        agent_builder.build(kernel.tool_registry(), kernel.clone(), config.max_turns())
+        agent_builder
+            .build(kernel.tool_registry(), kernel.clone(), config.max_turns())?
     };
 
     println!("picobot repl (type 'exit' to quit)");
@@ -233,11 +234,11 @@ pub async fn run(
             seq_order,
             token_estimate: None,
         };
-        if session_manager
-            .append_message(&session.id, &user_message)
-            .is_ok()
-        {
-            seq_order += 1;
+        match session_manager.append_message(&session.id, &user_message) {
+            Ok(()) => seq_order += 1,
+            Err(err) => {
+                tracing::warn!(error = %err, "failed to store user message");
+            }
         }
 
         let response = match &agent {
@@ -250,8 +251,15 @@ pub async fn run(
             crate::providers::factory::ProviderAgent::Gemini(inner) => {
                 stream_prompt_to_stdout(inner, &prompt_to_send, config.max_turns()).await
             }
-        }
-        .context("prompt failed")?;
+        };
+        let response = match response {
+            Ok(response) => response,
+            Err(err) => {
+                tracing::error!(error = %err, "prompt failed");
+                println!("Sorry, something went wrong: {err}");
+                continue;
+            }
+        };
 
         let assistant_message = StoredMessage {
             message_type: MessageType::Assistant,
@@ -260,8 +268,12 @@ pub async fn run(
             seq_order,
             token_estimate: None,
         };
-        let _ = session_manager.append_message(&session.id, &assistant_message);
-        let _ = session_manager.touch(&session.id);
+        if let Err(err) = session_manager.append_message(&session.id, &assistant_message) {
+            tracing::warn!(error = %err, "failed to store assistant message");
+        }
+        if let Err(err) = session_manager.touch(&session.id) {
+            tracing::warn!(error = %err, "failed to update session activity");
+        }
     }
 
     Ok(())

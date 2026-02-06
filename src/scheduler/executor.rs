@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::SchedulerConfig;
 use crate::kernel::core::Kernel;
-use crate::providers::factory::{ModelRouter, ProviderAgentBuilder};
+use crate::providers::factory::{ModelRouter, ProviderAgentBuilder, DEFAULT_PROVIDER_RETRIES};
 use crate::scheduler::job::{ExecutionStatus, JobExecution, ScheduledJob};
 use crate::scheduler::service::next_cron_occurrence;
 use crate::scheduler::store::ScheduleStore;
@@ -66,7 +66,9 @@ impl JobExecutor {
             error: None,
             execution_time_ms: None,
         };
-        let _ = self.store.insert_execution(&execution);
+        if let Err(err) = self.store.insert_execution(&execution) {
+            tracing::error!(error = %err, "failed to persist job execution start");
+        }
 
         let token = CancellationToken::new();
         self.running.insert(job.id.clone(), token.clone());
@@ -146,8 +148,12 @@ impl JobExecutor {
         job.claim_expires_at = None;
         job.updated_at = finished_at;
 
-        let _ = self.store.update_execution(&execution);
-        let _ = self.store.update_job(&job);
+        if let Err(err) = self.store.update_execution(&execution) {
+            tracing::error!(error = %err, "failed to persist job execution result");
+        }
+        if let Err(err) = self.store.update_job(&job) {
+            tracing::error!(error = %err, "failed to persist job state");
+        }
 
         if let Some(_channel_id) = job.channel_id.clone() {
             let _notification_text =
@@ -177,21 +183,23 @@ impl JobExecutor {
         let agent = if let Some(router) = self.router.as_ref()
             && !router.is_empty()
         {
-            router
-                .build_default(
-                    &self.fallback_config,
-                    scoped_kernel.tool_registry(),
-                    Arc::new(scoped_kernel.clone()),
-                    8,
-                )
-                .unwrap_or_else(|_| {
+            match router.build_default(
+                &self.fallback_config,
+                scoped_kernel.tool_registry(),
+                Arc::new(scoped_kernel.clone()),
+                8,
+            ) {
+                Ok(agent) => Ok(agent),
+                Err(err) => {
+                    tracing::warn!(error = %err, "failed to build routed agent, falling back to default");
                     self.agent_builder.clone().build_with_env(
                         scoped_kernel.tool_registry(),
                         Arc::new(scoped_kernel.clone()),
                         8,
                         |key| std::env::var(key).ok(),
                     )
-                })
+                }
+            }
         } else {
             self.agent_builder.clone().build_with_env(
                 scoped_kernel.tool_registry(),
@@ -200,7 +208,18 @@ impl JobExecutor {
                 |key| std::env::var(key).ok(),
             )
         };
-        let response = agent.prompt_with_turns(job.task_prompt.clone(), 8).await;
+        let agent = match agent {
+            Ok(agent) => agent,
+            Err(err) => {
+                tracing::error!(error = %err, "failed to build scheduler agent");
+                return ExecutionOutcome::Failed {
+                    error: err.to_string(),
+                };
+            }
+        };
+        let response = agent
+            .prompt_with_turns_retry(job.task_prompt.clone(), 8, DEFAULT_PROVIDER_RETRIES)
+            .await;
 
         match response {
             Ok(text) => ExecutionOutcome::Completed {

@@ -1,8 +1,8 @@
 use std::path::Path;
 
-use crate::config::{ChannelConfig, ChannelsConfig};
+use crate::config::ChannelsConfig;
 use crate::kernel::permissions::{
-    CapabilitySet, ChannelPermissionProfile, MemoryScope, Permission, parse_permission_with_base,
+    parse_permission_with_base, CapabilitySet, ChannelPermissionProfile, MemoryScope, Permission,
 };
 
 pub fn channel_profile(
@@ -35,8 +35,13 @@ fn parse_permissions(entries: Option<&Vec<String>>, base_dir: &Path) -> Capabili
         return set;
     };
     for entry in entries {
-        if let Ok(permission) = parse_permission_with_base(entry, base_dir) {
-            set.insert(permission);
+        match parse_permission_with_base(entry, base_dir) {
+            Ok(permission) => {
+                set.insert(permission);
+            }
+            Err(err) => {
+                tracing::warn!(permission = %entry, error = %err, "invalid channel permission");
+            }
         }
     }
     set
@@ -51,11 +56,4 @@ fn default_pre_authorized() -> CapabilitySet {
         scope: MemoryScope::Session,
     });
     set
-}
-
-pub fn channel_config<'a>(
-    config: &'a ChannelsConfig,
-    channel_id: &str,
-) -> Option<&'a ChannelConfig> {
-    config.profiles.get(channel_id)
 }

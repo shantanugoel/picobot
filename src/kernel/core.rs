@@ -119,18 +119,6 @@ impl Kernel {
         self.invoke_tool_with_grants(tool, input, None).await
     }
 
-    pub async fn invoke_tool_by_name(
-        &self,
-        name: &str,
-        input: Value,
-    ) -> Result<ToolOutput, ToolError> {
-        let tool = self
-            .tool_registry
-            .get(name)
-            .ok_or_else(|| ToolError::new(format!("unknown tool '{name}'")))?;
-        self.invoke_tool(tool.as_ref(), input).await
-    }
-
     pub async fn invoke_tool_with_prompt_by_name(
         &self,
         name: &str,
@@ -149,6 +137,15 @@ impl Kernel {
         input: Value,
         extra_grants: Option<&CapabilitySet>,
     ) -> Result<ToolOutput, ToolError> {
+        let span = tracing::info_span!(
+            "tool_invoke",
+            tool = %tool.spec().name,
+            user_id = ?self.context.user_id,
+            session_id = ?self.context.session_id,
+            channel_id = ?self.context.channel_id,
+            scheduled = self.context.scheduled_job,
+        );
+        let _enter = span.enter();
         self.tool_registry.validate_input(tool, &input)?;
 
         let required = self
@@ -183,6 +180,7 @@ impl Kernel {
             .iter()
             .all(|permission| permission.is_auto_granted(&self.context));
         if !allowed {
+            tracing::warn!(permissions = ?required, "tool permission denied");
             return Err(ToolError::permission_denied(
                 format!("permission denied for tool '{}'", tool.spec().name),
                 required,
@@ -195,9 +193,21 @@ impl Kernel {
             }
             let mut scoped = self.context.clone();
             scoped.capabilities = Arc::new(merged);
-            tool.execute(&scoped, input).await
+            let output = tool.execute(&scoped, input).await;
+            if let Err(err) = &output {
+                tracing::error!(error = %err, "tool execution failed");
+            } else {
+                tracing::info!("tool execution succeeded");
+            }
+            output
         } else {
-            tool.execute(&self.context, input).await
+            let output = tool.execute(&self.context, input).await;
+            if let Err(err) = &output {
+                tracing::error!(error = %err, "tool execution failed");
+            } else {
+                tracing::info!("tool execution succeeded");
+            }
+            output
         }
     }
 

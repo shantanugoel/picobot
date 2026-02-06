@@ -23,15 +23,6 @@ pub enum SessionState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionSummary {
-    pub id: String,
-    pub channel_id: String,
-    pub user_id: String,
-    pub last_active: DateTime<Utc>,
-    pub state: SessionState,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredMessage {
     pub message_type: MessageType,
     pub content: String,
