@@ -1,4 +1,3 @@
-use std::net::IpAddr;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -6,6 +5,7 @@ use reqwest::Client;
 use serde_json::{Value, json};
 
 use crate::kernel::permissions::{DomainPattern, Permission};
+use crate::tools::net_utils::{ensure_allowed_url, parse_host};
 use crate::tools::traits::{ToolContext, ToolError, ToolExecutor, ToolOutput, ToolSpec};
 
 #[derive(Debug)]
@@ -115,58 +115,11 @@ impl ToolExecutor for HttpTool {
     }
 }
 
-fn parse_host(url: &str) -> Result<String, ToolError> {
-    let parsed = reqwest::Url::parse(url).map_err(|err| ToolError::new(err.to_string()))?;
-    match parsed.scheme() {
-        "http" | "https" => {}
-        _ => return Err(ToolError::new("unsupported URL scheme".to_string())),
-    }
-    parsed
-        .host_str()
-        .map(|host| host.to_string())
-        .ok_or_else(|| ToolError::new("missing host".to_string()))
-}
-
-async fn ensure_allowed_url(url: &str, host: &str) -> Result<(), ToolError> {
-    let parsed = reqwest::Url::parse(url).map_err(|err| ToolError::new(err.to_string()))?;
-    if parsed.username() != "" || parsed.password().is_some() {
-        return Err(ToolError::new(
-            "credentials in URL are not allowed".to_string(),
-        ));
-    }
-    let port = parsed.port_or_known_default().unwrap_or(80);
-    let addrs = tokio::net::lookup_host((host, port))
-        .await
-        .map_err(|err| ToolError::new(err.to_string()))?;
-    for addr in addrs {
-        if is_private_ip(addr.ip()) {
-            return Err(ToolError::new(format!(
-                "SSRF blocked: {host} resolves to private IP {}",
-                addr.ip()
-            )));
-        }
-    }
-    Ok(())
-}
-
-fn is_private_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => {
-            v4.is_private()
-                || v4.is_loopback()
-                || v4.is_link_local()
-                || v4.is_broadcast()
-                || v4.is_unspecified()
-                || v4.octets()[0] == 169
-        }
-        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{is_private_ip, parse_host};
     use std::net::{IpAddr, Ipv4Addr};
+
+    use crate::tools::net_utils::{is_private_ip, parse_host};
 
     #[test]
     fn parse_host_extracts_domain() {
@@ -181,3 +134,5 @@ mod tests {
         assert!(is_private_ip(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
     }
 }
+
+ 

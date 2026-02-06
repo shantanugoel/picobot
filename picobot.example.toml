@@ -114,16 +114,21 @@ max_concurrent_messages = 10
 max_media_size_bytes = 10485760
 media_retention_hours = 24
 
-# --- Optional vision model (for image analysis tool) ---
+# --- Optional multimodal tool (images/audio/video/docs) ---
 # Defaults to core provider/model if unset
-# [vision]
-# model_id = "vision" # Uses [[models]] entry by id
+# [multimodal]
+# model_id = "multimodal" # Uses [[models]] entry by id
 # provider = "openai"
 # model = "gpt-4o"
 # base_url = "https://api.openai.com/v1"
 # api_key_env = "OPENAI_API_KEY"
-# system_prompt = "You are a helpful vision assistant."
+# system_prompt = "You are a helpful multimodal assistant."
+# max_media_size_bytes = 20971520
 # max_image_size_bytes = 10485760
+
+# --- Backward-compatible vision alias ---
+# [vision]
+# model_id = "multimodal"
 
 # --- Optional provider examples ---
 # OpenRouter

@@ -635,7 +635,10 @@ fn format_attachments_prompt(attachments: &[MediaAttachment]) -> String {
         return String::new();
     }
     let mut lines = Vec::new();
-    lines.push("User sent attachments (use vision tool for images/stickers if needed):".to_string());
+    lines.push(
+        "User sent attachments (use multimodal_looker for images, documents, audio, or video if needed):"
+            .to_string(),
+    );
     for (idx, attachment) in attachments.iter().enumerate() {
         let label = format!("{}. {}", idx + 1, attachment_label(attachment));
         lines.push(label);

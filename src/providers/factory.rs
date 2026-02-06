@@ -92,49 +92,53 @@ impl ProviderFactory {
         ModelRouter::new(config)
     }
 
-    pub fn build_vision_agent(config: &Config) -> Result<ProviderAgent> {
-        let Some(vision) = &config.vision else {
+    pub fn build_multimodal_agent(config: &Config) -> Result<ProviderAgent> {
+        let multimodal = config
+            .multimodal
+            .clone()
+            .or_else(|| config.vision.clone().map(crate::config::MultimodalConfig::from));
+        let Some(multimodal) = multimodal else {
             let fallback = ProviderAgentBuilder::new(config)?;
             return fallback.build_without_tools();
         };
 
-        if let Some(model_id) = &vision.model_id {
+        if let Some(model_id) = &multimodal.model_id {
             let router = ModelRouter::new(config)?;
             if router.models.is_empty() {
                 return Err(anyhow::anyhow!(
-                    "vision.model_id '{model_id}' requires [[models]]"
+                    "multimodal.model_id '{model_id}' requires [[models]]"
                 ));
             }
             let model = router
                 .models
                 .iter()
                 .find(|model| model.id == *model_id)
-                .ok_or_else(|| anyhow::anyhow!("vision.model_id '{model_id}' not found"))?;
+                .ok_or_else(|| anyhow::anyhow!("multimodal.model_id '{model_id}' not found"))?;
             let mut builder = ProviderAgentBuilder::from_model_config(model, config)?;
-            builder.system_prompt = vision
+            builder.system_prompt = multimodal
                 .system_prompt
                 .clone()
                 .unwrap_or_else(|| config.system_prompt().to_string());
-            if vision.base_url.is_some() {
-                builder.base_url = vision.base_url.clone();
+            if multimodal.base_url.is_some() {
+                builder.base_url = multimodal.base_url.clone();
             }
-            if vision.api_key_env.is_some() {
-                builder.api_key_env = vision.api_key_env.clone();
+            if multimodal.api_key_env.is_some() {
+                builder.api_key_env = multimodal.api_key_env.clone();
             }
             return builder.build_without_tools();
         }
 
-        let provider = vision.provider.as_deref().unwrap_or_else(|| config.provider());
-        let model = vision
+        let provider = multimodal.provider.as_deref().unwrap_or_else(|| config.provider());
+        let model = multimodal
             .model
             .clone()
             .unwrap_or_else(|| config.model().to_string());
-        let system_prompt = vision
+        let system_prompt = multimodal
             .system_prompt
             .clone()
             .unwrap_or_else(|| config.system_prompt().to_string());
-        let base_url = vision.base_url.clone().or_else(|| config.base_url.clone());
-        let api_key_env = vision
+        let base_url = multimodal.base_url.clone().or_else(|| config.base_url.clone());
+        let api_key_env = multimodal
             .api_key_env
             .clone()
             .or_else(|| config.api_key_env.clone());

@@ -1,10 +1,12 @@
 pub mod filesystem;
 pub mod http;
 pub mod memory;
+pub mod net_utils;
 pub mod notify;
+pub mod path_utils;
 pub mod registry;
 pub mod rig_wrapper;
 pub mod schedule;
 pub mod shell;
 pub mod traits;
-pub mod vision;
+pub mod multimodal_looker;

@@ -24,6 +24,7 @@ pub struct Config {
     pub routing: Option<RoutingConfig>,
     pub channels: Option<ChannelsConfig>,
     pub whatsapp: Option<WhatsappConfig>,
+    pub multimodal: Option<MultimodalConfig>,
     pub vision: Option<VisionConfig>,
 }
 
@@ -111,7 +112,10 @@ impl Config {
         let base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
         let provider = self.provider();
-        let vision_config = self.vision.clone();
+        let multimodal_config = self
+            .multimodal
+            .clone()
+            .or_else(|| self.vision.clone().map(MultimodalConfig::from));
         if !is_known_provider(provider) {
             errors.push(format!("unsupported provider '{provider}'"));
         }
@@ -280,37 +284,44 @@ impl Config {
             }
         }
 
-        if let Some(vision) = &vision_config {
-            if let Some(model_id) = &vision.model_id {
+        if let Some(multimodal) = &multimodal_config {
+            if let Some(model_id) = &multimodal.model_id {
                 if let Some(models) = &self.models {
                     if !models.iter().any(|model| model.id == *model_id) {
                         errors.push(format!(
-                            "vision.model_id '{model_id}' not found in models"
+                            "multimodal.model_id '{model_id}' not found in models"
                         ));
                     }
                 } else {
-                    errors.push("vision.model_id set without models".to_string());
+                    errors.push("multimodal.model_id set without models".to_string());
                 }
             }
-            if let Some(provider) = &vision.provider {
+            if let Some(provider) = &multimodal.provider {
                 if !is_known_provider(provider) {
-                    errors.push(format!("vision has unsupported provider '{provider}'"));
+                    errors.push(format!("multimodal has unsupported provider '{provider}'"));
                 }
             }
-            if let Some(model) = &vision.model {
+            if let Some(model) = &multimodal.model {
                 if model.trim().is_empty() {
-                    errors.push("vision model cannot be empty".to_string());
+                    errors.push("multimodal model cannot be empty".to_string());
                 }
             }
-            if vision.model_id.is_none()
-                && vision.provider.is_none()
-                && vision.model.is_none()
+            if multimodal.model_id.is_none()
+                && multimodal.provider.is_none()
+                && multimodal.model.is_none()
             {
-                warnings.push("vision config set without model_id or provider/model".to_string());
+                warnings.push(
+                    "multimodal config set without model_id or provider/model".to_string(),
+                );
             }
-            if let Some(max_image) = vision.max_image_size_bytes {
+            if let Some(max_media) = multimodal.max_media_size_bytes {
+                if max_media == 0 {
+                    warnings.push("multimodal max_media_size_bytes is 0".to_string());
+                }
+            }
+            if let Some(max_image) = multimodal.max_image_size_bytes {
                 if max_image == 0 {
-                    warnings.push("vision max_image_size_bytes is 0".to_string());
+                    warnings.push("multimodal max_image_size_bytes is 0".to_string());
                 }
             }
         }
@@ -355,8 +366,8 @@ impl Config {
             }
         }
 
-        if let Some(vision) = &vision_config {
-            if let Some(model_id) = &vision.model_id {
+        if let Some(multimodal) = &multimodal_config {
+            if let Some(model_id) = &multimodal.model_id {
                 if let Some(models) = &self.models {
                     if let Some(model) = models.iter().find(|model| model.id == *model_id) {
                         let provider_name = model.provider.as_deref().unwrap_or(provider);
@@ -369,15 +380,15 @@ impl Config {
                             && std::env::var(&env_name).is_err()
                         {
                             errors.push(format!(
-                                "missing API key in env '{env_name}' for vision model '{model_id}'"
+                                "missing API key in env '{env_name}' for multimodal model '{model_id}'"
                             ));
                         }
                     }
                 }
-            } else if let Some(provider_name) = vision.provider.as_deref().or(Some(provider)) {
+            } else if let Some(provider_name) = multimodal.provider.as_deref().or(Some(provider)) {
                 let env_name = resolve_provider_env(
                     provider_name,
-                    vision
+                    multimodal
                         .api_key_env
                         .as_deref()
                         .or(self.api_key_env.as_deref()),
@@ -386,7 +397,9 @@ impl Config {
                     && checked_envs.insert(env_name.clone())
                     && std::env::var(&env_name).is_err()
                 {
-                    errors.push(format!("missing API key in env '{env_name}' for vision"));
+                    errors.push(format!(
+                        "missing API key in env '{env_name}' for multimodal"
+                    ));
                 }
             }
         }
@@ -503,6 +516,29 @@ pub struct WhatsappConfig {
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
+pub struct MultimodalConfig {
+    pub model_id: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub base_url: Option<String>,
+    pub api_key_env: Option<String>,
+    pub system_prompt: Option<String>,
+    pub max_media_size_bytes: Option<u64>,
+    pub max_image_size_bytes: Option<u64>,
+}
+
+impl MultimodalConfig {
+    pub fn max_media_size_bytes(&self) -> u64 {
+        self.max_media_size_bytes.unwrap_or(20 * 1024 * 1024)
+    }
+
+    pub fn max_image_size_bytes(&self) -> u64 {
+        self.max_image_size_bytes
+            .unwrap_or_else(|| self.max_media_size_bytes())
+    }
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
 pub struct VisionConfig {
     pub model_id: Option<String>,
     pub provider: Option<String>,
@@ -510,12 +546,22 @@ pub struct VisionConfig {
     pub base_url: Option<String>,
     pub api_key_env: Option<String>,
     pub system_prompt: Option<String>,
+    pub max_media_size_bytes: Option<u64>,
     pub max_image_size_bytes: Option<u64>,
 }
 
-impl VisionConfig {
-    pub fn max_image_size_bytes(&self) -> u64 {
-        self.max_image_size_bytes.unwrap_or(10 * 1024 * 1024)
+impl From<VisionConfig> for MultimodalConfig {
+    fn from(value: VisionConfig) -> Self {
+        Self {
+            model_id: value.model_id,
+            provider: value.provider,
+            model: value.model,
+            base_url: value.base_url,
+            api_key_env: value.api_key_env,
+            system_prompt: value.system_prompt,
+            max_media_size_bytes: value.max_media_size_bytes,
+            max_image_size_bytes: value.max_image_size_bytes,
+        }
     }
 }
 
