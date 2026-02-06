@@ -99,16 +99,19 @@ impl JobExecutor {
         execution.execution_time_ms = Some((finished_at - started_at).num_milliseconds());
 
         let completion_message = match &outcome {
-            ExecutionOutcome::Completed { response } => response.clone(),
+            ExecutionOutcome::Completed { response, .. } => response.clone(),
             ExecutionOutcome::Failed { error } => Some(format!("Job failed: {error}")),
             ExecutionOutcome::Timeout => Some("Job timed out".to_string()),
             ExecutionOutcome::Cancelled => Some("Job cancelled".to_string()),
-            ExecutionOutcome::Notified { .. } => None,
         };
-        let should_notify = !matches!(outcome, ExecutionOutcome::Notified { .. });
+        let should_notify = matches!(outcome, ExecutionOutcome::Completed { .. });
+        let agent_notified = matches!(outcome, ExecutionOutcome::Completed { agent_notified: true, .. });
 
         match outcome {
-            ExecutionOutcome::Completed { response } => {
+            ExecutionOutcome::Completed {
+                response,
+                agent_notified,
+            } => {
                 execution.status = ExecutionStatus::Completed;
                 execution.result_summary = response.map(|value| truncate(&value, 512));
                 job.execution_count = job.execution_count.saturating_add(1);
@@ -119,6 +122,9 @@ impl JobExecutor {
                 job = apply_next_run(job, finished_at);
                 if should_disable(&job) {
                     job.enabled = false;
+                }
+                if agent_notified {
+                    execution.result_summary = Some("notification sent by notify tool".to_string());
                 }
             }
             ExecutionOutcome::Failed { error } => {
@@ -151,19 +157,6 @@ impl JobExecutor {
                 execution.status = ExecutionStatus::Cancelled;
                 execution.error = Some("job cancelled".to_string());
             }
-            ExecutionOutcome::Notified { ref id } => {
-                execution.status = ExecutionStatus::Completed;
-                execution.result_summary = Some(format!("notification queued {id}"));
-                job.execution_count = job.execution_count.saturating_add(1);
-                job.last_run_at = Some(finished_at);
-                job.consecutive_failures = 0;
-                job.last_error = None;
-                job.backoff_until = None;
-                job = apply_next_run(job, finished_at);
-                if should_disable(&job) {
-                    job.enabled = false;
-                }
-            }
         }
 
         job.claimed_at = None;
@@ -179,7 +172,7 @@ impl JobExecutor {
         }
 
         if let Some(channel_id) = job.channel_id.clone() {
-            if should_notify {
+            if should_notify && !agent_notified {
                 let notification_text =
                     completion_message.unwrap_or_else(|| "Job completed".to_string());
                 self.enqueue_notification(&job.user_id, &channel_id, notification_text)
@@ -208,18 +201,6 @@ impl JobExecutor {
         let scoped_kernel = scoped_kernel.with_prompt_profile(profile);
         let notification_service = self.notifications.read().await.clone();
         let scoped_kernel = scoped_kernel.with_notifications(notification_service.clone());
-
-        if let Some(service) = notification_service.as_ref()
-            && let Some(channel_id) = scoped_kernel.context().channel_id.clone()
-        {
-            let request = crate::notifications::channel::NotificationRequest {
-                user_id: job.user_id.clone(),
-                channel_id,
-                message: job.task_prompt.clone(),
-            };
-            let id = service.enqueue(request).await;
-            return ExecutionOutcome::Notified { id };
-        }
 
         let agent = if let Some(router) = self.router.as_ref()
             && !router.is_empty()
@@ -258,13 +239,22 @@ impl JobExecutor {
                 };
             }
         };
+        let prompt = format!(
+            "[Scheduled Job]\n\nYou are executing a scheduled background job. There is no interactive user.\n- Perform the task immediately and autonomously.\n- Do NOT ask clarifying questions; make reasonable assumptions.\n- If the user expects a reminder or an alert, use the notify tool to send the message.\n- If you fetch data or perform actions, summarize the result in the notification or final response.\n\nTask:\n{}",
+            job.task_prompt
+        );
         let response = agent
-            .prompt_with_turns_retry(job.task_prompt.clone(), 8, DEFAULT_PROVIDER_RETRIES)
+            .prompt_with_turns_retry(prompt, 8, DEFAULT_PROVIDER_RETRIES)
             .await;
+        let agent_notified = scoped_kernel
+            .context()
+            .notify_tool_used
+            .load(std::sync::atomic::Ordering::Relaxed);
 
         match response {
             Ok(text) => ExecutionOutcome::Completed {
                 response: Some(text),
+                agent_notified,
             },
             Err(err) => ExecutionOutcome::Failed {
                 error: err.to_string(),
@@ -288,11 +278,13 @@ impl JobExecutor {
 
 #[derive(Debug)]
 enum ExecutionOutcome {
-    Completed { response: Option<String> },
+    Completed {
+        response: Option<String>,
+        agent_notified: bool,
+    },
     Failed { error: String },
     Timeout,
     Cancelled,
-    Notified { id: String },
 }
 
 fn apply_next_run(mut job: ScheduledJob, now: chrono::DateTime<chrono::Utc>) -> ScheduledJob {

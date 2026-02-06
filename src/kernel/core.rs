@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use serde_json::Value;
 
@@ -30,6 +31,7 @@ impl Kernel {
                 jail_root: None,
                 scheduler: None,
                 notifications: None,
+                notify_tool_used: Arc::new(AtomicBool::new(false)),
                 scheduled_job: false,
                 timezone_offset: "+00:00".to_string(),
                 timezone_name: "UTC".to_string(),
@@ -103,6 +105,7 @@ impl Kernel {
         let mut context = self.context.clone();
         context.user_id = user_id;
         context.session_id = session_id;
+        context.notify_tool_used = Arc::new(AtomicBool::new(false));
         Self {
             tool_registry: Arc::clone(&self.tool_registry),
             context,

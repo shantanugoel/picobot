@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use std::sync::atomic::Ordering;
 use serde_json::{Value, json};
 
 use crate::kernel::permissions::Permission;
@@ -79,6 +80,7 @@ impl ToolExecutor for NotifyTool {
             message: message.to_string(),
         };
         let id = service.enqueue(request).await;
+        ctx.notify_tool_used.store(true, Ordering::Relaxed);
         Ok(json!({"status": "queued", "id": id}))
     }
 }

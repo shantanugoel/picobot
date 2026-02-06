@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -25,6 +26,7 @@ pub struct ToolContext {
     pub jail_root: Option<std::path::PathBuf>,
     pub scheduler: Option<Arc<SchedulerService>>,
     pub notifications: Option<Arc<NotificationService>>,
+    pub notify_tool_used: Arc<AtomicBool>,
     pub scheduled_job: bool,
     pub timezone_offset: String,
     pub timezone_name: String,

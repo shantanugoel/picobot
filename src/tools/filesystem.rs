@@ -241,6 +241,7 @@ mod tests {
             jail_root: None,
             scheduler: None,
             notifications: None,
+            notify_tool_used: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             scheduled_job: false,
             timezone_offset: "+00:00".to_string(),
             timezone_name: "UTC".to_string(),
