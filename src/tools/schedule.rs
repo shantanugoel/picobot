@@ -100,10 +100,6 @@ fn create_job(
     ctx: &ToolContext,
     input: &Value,
 ) -> Result<ToolOutput, ToolError> {
-    let name = input
-        .get("name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| ToolError::new("missing name".to_string()))?;
     let schedule_type = input
         .get("schedule_type")
         .and_then(Value::as_str)
@@ -121,6 +117,11 @@ fn create_job(
         .get("task_prompt")
         .and_then(Value::as_str)
         .ok_or_else(|| ToolError::new("missing task_prompt".to_string()))?;
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| default_job_name(task_prompt));
     let session_id = input
         .get("session_id")
         .and_then(Value::as_str)
@@ -220,6 +221,33 @@ fn channel_id_from_session(session_id: &str) -> Option<String> {
     session_id
         .split_once(':')
         .map(|(channel, _)| channel.to_string())
+}
+
+fn default_job_name(task_prompt: &str) -> String {
+    let trimmed = task_prompt.trim();
+    if trimmed.is_empty() {
+        return "scheduled-job".to_string();
+    }
+    let mut out = String::new();
+    let mut last_dash = false;
+    for ch in trimmed.chars() {
+        if out.len() >= 40 {
+            break;
+        }
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            last_dash = false;
+        } else if !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-');
+    if trimmed.is_empty() {
+        "scheduled-job".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn list_jobs(
