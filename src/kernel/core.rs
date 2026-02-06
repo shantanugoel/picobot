@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::kernel::permissions::{CapabilitySet, ChannelPermissionProfile, PermissionPrompter};
 use crate::scheduler::service::SchedulerService;
@@ -149,6 +149,19 @@ impl Kernel {
         input: Value,
         extra_grants: Option<&CapabilitySet>,
     ) -> Result<ToolOutput, ToolError> {
+        if self.context.scheduled_job
+            && self
+                .context
+                .notify_tool_used
+                .load(std::sync::atomic::Ordering::Relaxed)
+            && tool.spec().name != "notify"
+        {
+            tracing::info!(tool = %tool.spec().name, "scheduled job already notified; skipping tool call");
+            return Ok(json!({
+                "status": "skipped",
+                "reason": "scheduled job already notified"
+            }));
+        }
         let span = tracing::info_span!(
             "tool_invoke",
             tool = %tool.spec().name,

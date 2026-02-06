@@ -57,7 +57,11 @@ impl SchedulerService {
         let now = chrono::Utc::now();
         let claim_id = uuid::Uuid::new_v4().to_string();
         let claim_limit = self.config.max_concurrent_jobs().max(1);
-        let lease_secs = (self.config.tick_interval_secs() * 2).max(2);
+        let lease_secs = self
+            .config
+            .job_timeout_secs()
+            .max(self.config.tick_interval_secs().saturating_mul(2))
+            .max(2);
         let jobs = match self
             .store
             .claim_due_jobs(now, claim_limit, &claim_id, lease_secs)
