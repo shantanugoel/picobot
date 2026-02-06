@@ -18,11 +18,11 @@ use crate::providers::factory::{ProviderAgentBuilder, ProviderFactory};
 use crate::tools::filesystem::FilesystemTool;
 use crate::tools::http::HttpTool;
 use crate::tools::memory::MemoryTool;
+use crate::tools::multimodal_looker::MultimodalLookerTool;
 use crate::tools::notify::NotifyTool;
 use crate::tools::registry::ToolRegistry;
 use crate::tools::schedule::ScheduleTool;
 use crate::tools::shell::ShellTool;
-use crate::tools::multimodal_looker::MultimodalLookerTool;
 
 fn build_kernel(
     config: &Config,
@@ -45,10 +45,12 @@ fn build_kernel(
     registry.register(std::sync::Arc::new(NotifyTool::new()))?;
     registry.register(std::sync::Arc::new(MemoryTool::new(session_store.clone())))?;
     let multimodal_agent = ProviderFactory::build_multimodal_agent(config)?;
-    let multimodal_config = config
-        .multimodal
-        .clone()
-        .or_else(|| config.vision.clone().map(crate::config::MultimodalConfig::from));
+    let multimodal_config = config.multimodal.clone().or_else(|| {
+        config
+            .vision
+            .clone()
+            .map(crate::config::MultimodalConfig::from)
+    });
     let max_media_size_bytes = multimodal_config
         .as_ref()
         .map(|config| config.max_media_size_bytes())
@@ -57,11 +59,8 @@ fn build_kernel(
         .as_ref()
         .map(|config| config.max_image_size_bytes())
         .unwrap_or(10 * 1024 * 1024);
-    let multimodal_tool = MultimodalLookerTool::new(
-        multimodal_agent,
-        max_media_size_bytes,
-        max_image_size_bytes,
-    );
+    let multimodal_tool =
+        MultimodalLookerTool::new(multimodal_agent, max_media_size_bytes, max_image_size_bytes);
     registry.register(std::sync::Arc::new(multimodal_tool))?;
     let registry = std::sync::Arc::new(registry);
     let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));

@@ -917,20 +917,19 @@ async fn download_media<T: whatsapp_rust::download::Downloadable>(
         return Ok(None);
     }
     let local_path = path.canonicalize().unwrap_or(path);
-    let (thumbnail_path, thumbnail_size_bytes, thumbnail_mime_type) =
-        match meta.thumbnail_bytes {
-            Some(bytes) if !bytes.is_empty() => {
-                let thumb_path = dir.join("thumbnail.jpg");
-                if std::fs::write(&thumb_path, &bytes).is_ok() {
-                    let thumb_size = Some(bytes.len() as u64);
-                    let thumb_path = thumb_path.canonicalize().unwrap_or(thumb_path);
-                    (Some(thumb_path), thumb_size, Some("image/jpeg".to_string()))
-                } else {
-                    (None, None, None)
-                }
+    let (thumbnail_path, thumbnail_size_bytes, thumbnail_mime_type) = match meta.thumbnail_bytes {
+        Some(bytes) if !bytes.is_empty() => {
+            let thumb_path = dir.join("thumbnail.jpg");
+            if std::fs::write(&thumb_path, &bytes).is_ok() {
+                let thumb_size = Some(bytes.len() as u64);
+                let thumb_path = thumb_path.canonicalize().unwrap_or(thumb_path);
+                (Some(thumb_path), thumb_size, Some("image/jpeg".to_string()))
+            } else {
+                (None, None, None)
             }
-            _ => (None, None, None),
-        };
+        }
+        _ => (None, None, None),
+    };
     Ok(Some(MediaAttachment {
         media_type: meta.media_type,
         mime_type: meta.mime_type,

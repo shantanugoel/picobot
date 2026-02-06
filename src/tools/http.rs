@@ -134,5 +134,3 @@ mod tests {
         assert!(is_private_ip(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
     }
 }
-
- 

@@ -1,6 +1,7 @@
 pub mod filesystem;
 pub mod http;
 pub mod memory;
+pub mod multimodal_looker;
 pub mod net_utils;
 pub mod notify;
 pub mod path_utils;
@@ -9,4 +10,3 @@ pub mod rig_wrapper;
 pub mod schedule;
 pub mod shell;
 pub mod traits;
-pub mod multimodal_looker;

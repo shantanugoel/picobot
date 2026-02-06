@@ -105,7 +105,13 @@ impl JobExecutor {
             ExecutionOutcome::Cancelled => Some("Job cancelled".to_string()),
         };
         let should_notify = matches!(outcome, ExecutionOutcome::Completed { .. });
-        let agent_notified = matches!(outcome, ExecutionOutcome::Completed { agent_notified: true, .. });
+        let agent_notified = matches!(
+            outcome,
+            ExecutionOutcome::Completed {
+                agent_notified: true,
+                ..
+            }
+        );
 
         match outcome {
             ExecutionOutcome::Completed {
@@ -282,7 +288,9 @@ enum ExecutionOutcome {
         response: Option<String>,
         agent_notified: bool,
     },
-    Failed { error: String },
+    Failed {
+        error: String,
+    },
     Timeout,
     Cancelled,
 }

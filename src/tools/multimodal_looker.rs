@@ -2,16 +2,16 @@ use std::path::Path;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use reqwest::Client;
 use serde_json::{Value, json};
 
+use rig::OneOrMany;
 use rig::completion::message::{
     AudioMediaType, DocumentMediaType, ImageDetail, ImageMediaType, Message, MimeType, UserContent,
     VideoMediaType,
 };
-use rig::OneOrMany;
 
 use crate::kernel::permissions::{DomainPattern, PathPattern, Permission};
 use crate::providers::factory::{DEFAULT_PROVIDER_RETRIES, ProviderAgent};
@@ -113,7 +113,10 @@ impl ToolExecutor for MultimodalLookerTool {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .unwrap_or("Analyze the provided media.");
-        let media_hint = input.get("media_type").and_then(Value::as_str).unwrap_or("auto");
+        let media_hint = input
+            .get("media_type")
+            .and_then(Value::as_str)
+            .unwrap_or("auto");
         let detail = input
             .get("detail")
             .and_then(Value::as_str)
@@ -160,8 +163,7 @@ impl ToolExecutor for MultimodalLookerTool {
         if matches!(media_kind, MediaKind::Image) && size > self.max_image_size_bytes {
             return Err(ToolError::new(format!(
                 "image is too large: {} bytes (limit {})",
-                size,
-                self.max_image_size_bytes
+                size, self.max_image_size_bytes
             )));
         }
 
@@ -352,5 +354,10 @@ async fn download_url(
         size_hint = Some(bytes.len() as u64);
     }
     let mime = content_type.ok_or_else(|| ToolError::new("missing content-type".to_string()))?;
-    Ok((bytes.to_vec(), mime, url.to_string(), size_hint.unwrap_or(bytes.len() as u64)))
+    Ok((
+        bytes.to_vec(),
+        mime,
+        url.to_string(),
+        size_hint.unwrap_or(bytes.len() as u64),
+    ))
 }

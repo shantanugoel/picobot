@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use std::sync::atomic::Ordering;
 use serde_json::{Value, json};
+use std::sync::atomic::Ordering;
 
 use crate::kernel::permissions::Permission;
 use crate::notifications::channel::NotificationRequest;

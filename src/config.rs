@@ -310,9 +310,8 @@ impl Config {
                 && multimodal.provider.is_none()
                 && multimodal.model.is_none()
             {
-                warnings.push(
-                    "multimodal config set without model_id or provider/model".to_string(),
-                );
+                warnings
+                    .push("multimodal config set without model_id or provider/model".to_string());
             }
             if let Some(max_media) = multimodal.max_media_size_bytes {
                 if max_media == 0 {

@@ -93,10 +93,12 @@ impl ProviderFactory {
     }
 
     pub fn build_multimodal_agent(config: &Config) -> Result<ProviderAgent> {
-        let multimodal = config
-            .multimodal
-            .clone()
-            .or_else(|| config.vision.clone().map(crate::config::MultimodalConfig::from));
+        let multimodal = config.multimodal.clone().or_else(|| {
+            config
+                .vision
+                .clone()
+                .map(crate::config::MultimodalConfig::from)
+        });
         let Some(multimodal) = multimodal else {
             let fallback = ProviderAgentBuilder::new(config)?;
             return fallback.build_without_tools();
@@ -128,7 +130,10 @@ impl ProviderFactory {
             return builder.build_without_tools();
         }
 
-        let provider = multimodal.provider.as_deref().unwrap_or_else(|| config.provider());
+        let provider = multimodal
+            .provider
+            .as_deref()
+            .unwrap_or_else(|| config.provider());
         let model = multimodal
             .model
             .clone()
@@ -137,7 +142,10 @@ impl ProviderFactory {
             .system_prompt
             .clone()
             .unwrap_or_else(|| config.system_prompt().to_string());
-        let base_url = multimodal.base_url.clone().or_else(|| config.base_url.clone());
+        let base_url = multimodal
+            .base_url
+            .clone()
+            .or_else(|| config.base_url.clone());
         let api_key_env = multimodal
             .api_key_env
             .clone()
@@ -389,7 +397,10 @@ impl ProviderAgentBuilder {
                     builder = builder.base_url(base_url);
                 }
                 let client = builder.build().context("failed to build OpenAI client")?;
-                let agent = client.agent(&self.model).preamble(&self.system_prompt).build();
+                let agent = client
+                    .agent(&self.model)
+                    .preamble(&self.system_prompt)
+                    .build();
                 Ok(ProviderAgent::OpenAI(agent))
             }
             ProviderKind::OpenRouter => {
@@ -398,7 +409,10 @@ impl ProviderAgentBuilder {
                     .ok_or_else(|| anyhow::anyhow!("missing API key in env '{api_key_env}'"))?;
                 let client = rig::providers::openrouter::Client::new(api_key)
                     .context("failed to build OpenRouter client")?;
-                let agent = client.agent(&self.model).preamble(&self.system_prompt).build();
+                let agent = client
+                    .agent(&self.model)
+                    .preamble(&self.system_prompt)
+                    .build();
                 Ok(ProviderAgent::OpenRouter(agent))
             }
             ProviderKind::Gemini => {
@@ -409,7 +423,10 @@ impl ProviderAgentBuilder {
                     .api_key(api_key)
                     .build()
                     .context("failed to build Gemini client")?;
-                let agent = client.agent(&self.model).preamble(&self.system_prompt).build();
+                let agent = client
+                    .agent(&self.model)
+                    .preamble(&self.system_prompt)
+                    .build();
                 Ok(ProviderAgent::Gemini(agent))
             }
         }
