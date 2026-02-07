@@ -251,6 +251,9 @@ The previous implementation is preserved in `reference/` for guidance:
    - [ ] WebSocket control interface for browser actions
    - [ ] Screenshot and DOM extraction support
 
+3. **Web Search Tool**
+    - [ ] Evaluate various options (Google/Exa/Brave anything else? Or should we just use the browser tool but that's likely more heavy?)
+
 3. **Multi modal tool**
    - [x] A tool to understand documents/images etc and do actions as prescribed by the user. Should be able to configure model to be used
 
