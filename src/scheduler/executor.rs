@@ -212,7 +212,7 @@ impl JobExecutor {
             .kernel
             .clone_with_context(Some(job.user_id.clone()), job.session_id.clone())
             .with_capabilities(job.capabilities.clone())
-            .with_scheduled_job_mode(true)
+            .with_execution_mode(crate::tools::traits::ExecutionMode::ScheduledJob)
             .with_channel_id(job.channel_id.clone());
         let channel_id = job
             .channel_id

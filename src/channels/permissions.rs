@@ -60,6 +60,9 @@ fn default_pre_authorized() -> CapabilitySet {
     set.insert(Permission::MemoryWrite {
         scope: MemoryScope::Session,
     });
+    set.insert(Permission::Notify {
+        channel: "*".to_string(),
+    });
     set
 }
 

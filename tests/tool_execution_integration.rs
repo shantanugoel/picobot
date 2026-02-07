@@ -159,12 +159,16 @@ fn build_scheduler(temp_dir: &std::path::Path) -> SchedulerService {
 }
 
 #[tokio::test]
-#[ignore = "enabled after identity binding is enforced"]
 async fn notify_rejects_cross_user_override() {
     let mut registry = ToolRegistry::new();
     registry.register(Arc::new(NotifyTool::new())).unwrap();
     let registry = Arc::new(registry);
+    let mut capabilities = CapabilitySet::empty();
+    capabilities.insert(Permission::Notify {
+        channel: "*".to_string(),
+    });
     let kernel = Kernel::new(Arc::clone(&registry))
+        .with_capabilities(capabilities)
         .with_notifications(Some(Arc::new(build_notifications())))
         .with_channel_id(Some("repl".to_string()))
         .clone_with_context(Some("alice".to_string()), Some("repl:session".to_string()));
@@ -179,12 +183,16 @@ async fn notify_rejects_cross_user_override() {
 }
 
 #[tokio::test]
-#[ignore = "enabled after identity binding is enforced"]
 async fn notify_rejects_cross_channel_override() {
     let mut registry = ToolRegistry::new();
     registry.register(Arc::new(NotifyTool::new())).unwrap();
     let registry = Arc::new(registry);
+    let mut capabilities = CapabilitySet::empty();
+    capabilities.insert(Permission::Notify {
+        channel: "*".to_string(),
+    });
     let kernel = Kernel::new(Arc::clone(&registry))
+        .with_capabilities(capabilities)
         .with_notifications(Some(Arc::new(build_notifications())))
         .with_channel_id(Some("repl".to_string()))
         .clone_with_context(Some("alice".to_string()), Some("repl:session".to_string()));
@@ -199,7 +207,6 @@ async fn notify_rejects_cross_channel_override() {
 }
 
 #[tokio::test]
-#[ignore = "enabled after identity binding is enforced"]
 async fn schedule_rejects_cross_user_override() {
     let mut registry = ToolRegistry::new();
     registry.register(Arc::new(ScheduleTool::new())).unwrap();
@@ -234,7 +241,6 @@ async fn schedule_rejects_cross_user_override() {
 }
 
 #[tokio::test]
-#[ignore = "enabled after notify permissions are required"]
 async fn notify_requires_permission() {
     let mut registry = ToolRegistry::new();
     registry.register(Arc::new(NotifyTool::new())).unwrap();

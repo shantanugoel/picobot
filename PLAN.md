@@ -194,8 +194,8 @@ The previous implementation is preserved in `reference/` for guidance:
    - [x] Log approval decisions with context for interactive channels. Files: `src/kernel/core.rs`, `src/channels/repl.rs`, `src/channels/permissions.rs`.
 
 2. **Permission Boundary Hardening**
-   - [ ] Bind `user_id`/`channel_id`/`session_id` to `ToolContext` for user-initiated calls (deny cross-user/channel overrides in tools like `schedule` and `notify`). Approach: reject identity overrides from tool input unless explicit system/admin execution mode is set. Files: `src/tools/schedule.rs`, `src/tools/notify.rs`, `src/kernel/core.rs`, `src/channels/api.rs`, `src/channels/repl.rs`, `src/channels/whatsapp.rs`.
-   - [ ] Add explicit permission for `notify` in `CapabilitySet`/channel profiles (remove implicit always-allowed behavior). Approach: add notification permission type, parse from config, and enforce in Kernel before enqueueing notifications. Files: `src/kernel/permissions.rs`, `src/config.rs`, `src/channels/permissions.rs`, `src/tools/notify.rs`.
+    - [x] Bind `user_id`/`channel_id`/`session_id` to `ToolContext` for user-initiated calls (deny cross-user/channel overrides in tools like `schedule` and `notify`). Approach: reject identity overrides from tool input unless explicit system/admin execution mode is set. Files: `src/tools/schedule.rs`, `src/tools/notify.rs`, `src/kernel/core.rs`, `src/channels/api.rs`, `src/channels/repl.rs`, `src/channels/whatsapp.rs`.
+    - [x] Add explicit permission for `notify` in `CapabilitySet`/channel profiles (remove implicit always-allowed behavior). Approach: add notification permission type, parse from config, and enforce in Kernel before enqueueing notifications. Files: `src/kernel/permissions.rs`, `src/config.rs`, `src/channels/permissions.rs`, `src/tools/notify.rs`.
 
 3. **Server Channel Hardening (Current API Surface)**
    - [ ] Evolve current Axum API from open `/prompt` into a versioned authenticated REST surface. Files: `src/channels/api.rs`, `src/main.rs`.

@@ -15,6 +15,25 @@ pub struct ToolSpec {
     pub schema: Value,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ExecutionMode {
+    #[default]
+    User,
+    ScheduledJob,
+    System,
+    Admin,
+}
+
+impl ExecutionMode {
+    pub fn allows_identity_override(self) -> bool {
+        matches!(self, ExecutionMode::System | ExecutionMode::Admin)
+    }
+
+    pub fn is_scheduled_job(self) -> bool {
+        matches!(self, ExecutionMode::ScheduledJob)
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Clone)]
 pub struct ToolContext {
@@ -27,7 +46,7 @@ pub struct ToolContext {
     pub scheduler: Option<Arc<SchedulerService>>,
     pub notifications: Option<Arc<NotificationService>>,
     pub notify_tool_used: Arc<AtomicBool>,
-    pub scheduled_job: bool,
+    pub execution_mode: ExecutionMode,
     pub timezone_offset: String,
     pub timezone_name: String,
 }

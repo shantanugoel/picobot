@@ -30,6 +30,8 @@ model = "gpt-4o-mini"
 # default_model = "fast"
 
 # --- Optional permissions (global defaults) ---
+# Note: PicoBot uses a default-deny model. Only explicitly listed permissions
+# (or channel pre_authorized defaults) are allowed.
 [permissions.filesystem]
 # Optional
 read_paths = ["./data/**", "./picobot.example.toml"]
@@ -48,6 +50,10 @@ allowed_commands = ["git", "rg"]
 [permissions.schedule]
 # Optional
 allowed_actions = ["create", "list", "cancel"]
+
+[permissions.notify]
+# Optional: Channels the bot may notify (use "*" for all).
+allowed_channels = ["whatsapp"]
 
 # --- Optional scheduler configuration ---
 [scheduler]
@@ -100,7 +106,7 @@ allow_user_prompts = false
 
 [channels.profiles.whatsapp]
 # Optional
-pre_authorized = ["memory:read:session", "memory:write:session"]
+pre_authorized = ["memory:read:session", "memory:write:session", "notify:whatsapp"]
 allow_user_prompts = false
 prompt_timeout_secs = 30
 

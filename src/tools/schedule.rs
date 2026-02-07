@@ -72,7 +72,7 @@ impl ToolExecutor for ScheduleTool {
     }
 
     async fn execute(&self, ctx: &ToolContext, input: Value) -> Result<ToolOutput, ToolError> {
-        if ctx.scheduled_job {
+        if ctx.execution_mode.is_scheduled_job() {
             return Err(ToolError::new(
                 "schedule tool is disabled during scheduled job execution; use notify for reminders instead"
                     .to_string(),
@@ -122,16 +122,52 @@ fn create_job(
         .and_then(Value::as_str)
         .map(|value| value.to_string())
         .unwrap_or_else(|| default_job_name(task_prompt));
-    let session_id = input
+    let input_session = input
         .get("session_id")
         .and_then(Value::as_str)
-        .map(|value| value.to_string())
-        .or_else(|| ctx.session_id.clone());
+        .map(|value| value.to_string());
+    if !ctx.execution_mode.allows_identity_override()
+        && let Some(input_session) = input_session.as_deref()
+    {
+        match ctx.session_id.as_deref() {
+            Some(ctx_session) if ctx_session == input_session => {}
+            Some(ctx_session) => {
+                tracing::warn!(
+                    event = "identity_mismatch",
+                    tool = "schedule",
+                    field = "session_id",
+                    input = %input_session,
+                    context = %ctx_session,
+                    "schedule session_id does not match context"
+                );
+                return Err(ToolError::new(
+                    "session_id does not match context".to_string(),
+                ));
+            }
+            None => {
+                tracing::warn!(
+                    event = "identity_mismatch",
+                    tool = "schedule",
+                    field = "session_id",
+                    input = %input_session,
+                    context = "missing",
+                    "schedule session_id missing from context"
+                );
+                return Err(ToolError::new("missing session_id in context".to_string()));
+            }
+        }
+    }
+    let session_id = input_session.or_else(|| ctx.session_id.clone());
     let input_user = input
         .get("user_id")
         .and_then(Value::as_str)
         .map(|value| value.to_string());
-    if let (Some(input_user), Some(ctx_user)) = (input_user.as_deref(), ctx.user_id.as_deref())
+    let ctx_user = ctx
+        .user_id
+        .as_ref()
+        .ok_or_else(|| ToolError::new("missing user_id".to_string()))?;
+    if !ctx.execution_mode.allows_identity_override()
+        && let Some(input_user) = input_user.as_deref()
         && input_user != ctx_user
     {
         tracing::warn!(
@@ -142,26 +178,43 @@ fn create_job(
             context = %ctx_user,
             "schedule user_id does not match context"
         );
+        return Err(ToolError::new("user_id does not match context".to_string()));
     }
-    let user_id = input_user
-        .or_else(|| ctx.user_id.clone())
-        .ok_or_else(|| ToolError::new("missing user_id".to_string()))?;
+    let user_id = input_user.unwrap_or_else(|| ctx_user.to_string());
     let input_channel = input
         .get("channel_id")
         .and_then(Value::as_str)
         .map(|value| value.to_string());
-    if let (Some(input_channel), Some(ctx_channel)) =
-        (input_channel.as_deref(), ctx.channel_id.as_deref())
-        && input_channel != ctx_channel
+    if !ctx.execution_mode.allows_identity_override()
+        && let Some(input_channel) = input_channel.as_deref()
     {
-        tracing::warn!(
-            event = "identity_mismatch",
-            tool = "schedule",
-            field = "channel_id",
-            input = %input_channel,
-            context = %ctx_channel,
-            "schedule channel_id does not match context"
-        );
+        match ctx.channel_id.as_deref() {
+            Some(ctx_channel) if ctx_channel == input_channel => {}
+            Some(ctx_channel) => {
+                tracing::warn!(
+                    event = "identity_mismatch",
+                    tool = "schedule",
+                    field = "channel_id",
+                    input = %input_channel,
+                    context = %ctx_channel,
+                    "schedule channel_id does not match context"
+                );
+                return Err(ToolError::new(
+                    "channel_id does not match context".to_string(),
+                ));
+            }
+            None => {
+                tracing::warn!(
+                    event = "identity_mismatch",
+                    tool = "schedule",
+                    field = "channel_id",
+                    input = %input_channel,
+                    context = "missing",
+                    "schedule channel_id missing from context"
+                );
+                return Err(ToolError::new("missing channel_id in context".to_string()));
+            }
+        }
     }
     let channel_id = input_channel
         .or_else(|| ctx.channel_id.clone())

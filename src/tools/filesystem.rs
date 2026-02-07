@@ -187,7 +187,7 @@ fn normalize_path(path: &Path) -> PathBuf {
 mod tests {
     use super::{FilesystemTool, normalize_path, resolve_path};
     use crate::kernel::permissions::{CapabilitySet, Permission};
-    use crate::tools::traits::{ToolContext, ToolExecutor};
+    use crate::tools::traits::{ExecutionMode, ToolContext, ToolExecutor};
     use serde_json::json;
 
     #[test]
@@ -242,7 +242,7 @@ mod tests {
             scheduler: None,
             notifications: None,
             notify_tool_used: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            scheduled_job: false,
+            execution_mode: ExecutionMode::User,
             timezone_offset: "+00:00".to_string(),
             timezone_name: "UTC".to_string(),
         };

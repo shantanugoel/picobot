@@ -204,6 +204,12 @@ pub async fn run(
     };
     profile.pre_authorized.insert(media_perm.clone());
     profile.max_allowed.insert(media_perm);
+    profile.pre_authorized.insert(Permission::Notify {
+        channel: "whatsapp".to_string(),
+    });
+    profile.max_allowed.insert(Permission::Notify {
+        channel: "whatsapp".to_string(),
+    });
     let base_kernel = kernel
         .with_prompt_profile(profile)
         .with_channel_id(Some("whatsapp".to_string()));

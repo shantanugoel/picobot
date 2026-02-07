@@ -30,6 +30,9 @@ pub enum Permission {
     Schedule {
         action: String,
     },
+    Notify {
+        channel: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -153,6 +156,16 @@ impl CapabilitySet {
             }
         }
 
+        if let Some(notify) = &config.notify
+            && !notify.allowed_channels.is_empty()
+        {
+            for channel in &notify.allowed_channels {
+                set.insert(Permission::Notify {
+                    channel: channel.clone(),
+                });
+            }
+        }
+
         set
     }
 
@@ -250,6 +263,7 @@ impl std::fmt::Display for Permission {
                 write!(f, "memory:write:{}", memory_scope_label(*scope))
             }
             Permission::Schedule { action } => write!(f, "schedule:{}", action),
+            Permission::Notify { channel } => write!(f, "notify:{}", channel),
         }
     }
 }
@@ -302,6 +316,9 @@ impl Permission {
                 Permission::MemoryWrite { scope: needed },
             ) => granted.covers(*needed),
             (Permission::Schedule { action: granted }, Permission::Schedule { action: needed }) => {
+                granted == "*" || granted == needed
+            }
+            (Permission::Notify { channel: granted }, Permission::Notify { channel: needed }) => {
                 granted == "*" || granted == needed
             }
             _ => false,
@@ -373,6 +390,14 @@ impl std::str::FromStr for Permission {
             }
             return Ok(Permission::Schedule {
                 action: action.to_string(),
+            });
+        }
+        if let Some(channel) = value.strip_prefix("notify:") {
+            if channel.is_empty() {
+                return Err("notify permission requires a channel".to_string());
+            }
+            return Ok(Permission::Notify {
+                channel: channel.to_string(),
             });
         }
         Err(format!("invalid permission '{value}'"))
@@ -512,6 +537,12 @@ mod tests {
     }
 
     #[test]
+    fn permission_from_str_parses_notify() {
+        let permission = Permission::from_str("notify:whatsapp").unwrap();
+        assert!(matches!(permission, Permission::Notify { .. }));
+    }
+
+    #[test]
     fn memory_scope_covers_global() {
         let global = Permission::MemoryRead {
             scope: MemoryScope::Global,
@@ -544,6 +575,7 @@ mod tests {
             network: None,
             shell: None,
             schedule: None,
+            notify: None,
         };
         let base = PathBuf::from("/tmp/picobot");
         let set = CapabilitySet::from_config_with_base(&config, &base);
@@ -635,6 +667,15 @@ mod tests {
     }
 
     #[test]
+    fn notify_permission_display_roundtrip() {
+        let permission = Permission::Notify {
+            channel: "whatsapp".to_string(),
+        };
+        let parsed = Permission::from_str(&permission.to_string()).unwrap();
+        assert_eq!(permission, parsed);
+    }
+
+    #[test]
     fn is_auto_granted_session_memory_requires_session_id() {
         let permission = Permission::MemoryRead {
             scope: MemoryScope::Session,
@@ -649,7 +690,7 @@ mod tests {
             scheduler: None,
             notifications: None,
             notify_tool_used: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            scheduled_job: false,
+            execution_mode: crate::tools::traits::ExecutionMode::User,
             timezone_offset: "+00:00".to_string(),
             timezone_name: "UTC".to_string(),
         };

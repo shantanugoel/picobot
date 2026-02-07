@@ -40,10 +40,23 @@ impl ToolExecutor for NotifyTool {
 
     fn required_permissions(
         &self,
-        _ctx: &ToolContext,
-        _input: &Value,
+        ctx: &ToolContext,
+        input: &Value,
     ) -> Result<Vec<Permission>, ToolError> {
-        Ok(Vec::new())
+        let channel = input
+            .get("channel_id")
+            .and_then(Value::as_str)
+            .map(|value| value.to_string())
+            .or_else(|| ctx.channel_id.clone())
+            .or_else(|| {
+                ctx.session_id.as_deref().and_then(|value| {
+                    value
+                        .split_once(':')
+                        .map(|(channel, _)| channel.to_string())
+                })
+            })
+            .unwrap_or_else(|| "*".to_string());
+        Ok(vec![Permission::Notify { channel }])
     }
 
     async fn execute(&self, ctx: &ToolContext, input: Value) -> Result<ToolOutput, ToolError> {
@@ -55,7 +68,12 @@ impl ToolExecutor for NotifyTool {
             .get("user_id")
             .and_then(Value::as_str)
             .map(|value| value.to_string());
-        if let (Some(input_user), Some(ctx_user)) = (input_user.as_deref(), ctx.user_id.as_deref())
+        let ctx_user = ctx
+            .user_id
+            .as_ref()
+            .ok_or_else(|| ToolError::new("missing user_id".to_string()))?;
+        if !ctx.execution_mode.allows_identity_override()
+            && let Some(input_user) = input_user.as_deref()
             && input_user != ctx_user
         {
             tracing::warn!(
@@ -66,17 +84,27 @@ impl ToolExecutor for NotifyTool {
                 context = %ctx_user,
                 "notify user_id does not match context"
             );
+            return Err(ToolError::new("user_id does not match context".to_string()));
         }
-        let user_id = input_user
-            .or_else(|| ctx.user_id.clone())
-            .ok_or_else(|| ToolError::new("missing user_id".to_string()))?;
+        let user_id = input_user.unwrap_or_else(|| ctx_user.to_string());
         let input_channel = input
             .get("channel_id")
             .and_then(Value::as_str)
             .map(|value| value.to_string());
-        if let (Some(input_channel), Some(ctx_channel)) =
-            (input_channel.as_deref(), ctx.channel_id.as_deref())
-            && input_channel != ctx_channel
+        let ctx_channel = ctx
+            .channel_id
+            .clone()
+            .or_else(|| {
+                ctx.session_id.as_deref().and_then(|value| {
+                    value
+                        .split_once(':')
+                        .map(|(channel, _)| channel.to_string())
+                })
+            })
+            .ok_or_else(|| ToolError::new("missing channel_id".to_string()))?;
+        if !ctx.execution_mode.allows_identity_override()
+            && let Some(input_channel) = input_channel.as_deref()
+            && input_channel != ctx_channel.as_str()
         {
             tracing::warn!(
                 event = "identity_mismatch",
@@ -86,6 +114,9 @@ impl ToolExecutor for NotifyTool {
                 context = %ctx_channel,
                 "notify channel_id does not match context"
             );
+            return Err(ToolError::new(
+                "channel_id does not match context".to_string(),
+            ));
         }
         let channel_id = input_channel
             .or_else(|| ctx.channel_id.clone())

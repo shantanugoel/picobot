@@ -101,7 +101,7 @@ default_model = "fast"
 
 ### Permissions (Optional)
 
-Global permission allowlists (used as defaults).
+PicoBot follows a default-deny model: tools and resources are only accessible if explicitly allowlisted. Global permissions serve as defaults for all channels.
 
 ```toml
 [permissions.filesystem]
@@ -117,7 +117,14 @@ allowed_commands = ["git", "rg"]
 
 [permissions.schedule]
 allowed_actions = ["create", "list", "cancel"]
+
+[permissions.notify]
+allowed_channels = ["whatsapp"]
 ```
+
+Notes:
+- If `[permissions]` is omitted in `picobot.toml`, file/network/shell/schedule/notify are denied.
+- Memory permissions for session/user are auto-granted when those IDs are present in the tool context.
 
 ### Scheduler (Optional)
 
@@ -144,6 +151,10 @@ base_backoff_ms = 200
 max_backoff_ms = 5000
 ```
 
+Notes:
+- The `notify` tool requires `[permissions.notify]` to include the target channel.
+- Notifications are only delivered for channels with a notification backend (currently WhatsApp).
+
 ### Memory (Optional)
 
 ```toml
@@ -158,7 +169,7 @@ include_tool_messages = true
 
 ### Channels & Permission Profiles (Optional)
 
-Each channel can override permissions and prompt settings.
+Each channel can override permissions and prompt settings. Identity is bound to the current context; notify/schedule calls cannot override `user_id` or `channel_id` unless running in system/admin mode.
 
 ```toml
 [channels.profiles.repl]
@@ -169,6 +180,10 @@ prompt_timeout_secs = 60
 
 [channels.profiles.api]
 pre_authorized = ["memory:read:session", "memory:write:session"]
+allow_user_prompts = false
+
+[channels.profiles.whatsapp]
+pre_authorized = ["memory:read:session", "memory:write:session", "notify:whatsapp"]
 allow_user_prompts = false
 ```
 

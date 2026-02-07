@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use crate::kernel::permissions::{CapabilitySet, ChannelPermissionProfile, PermissionPrompter};
 use crate::scheduler::service::SchedulerService;
 use crate::tools::registry::ToolRegistry;
-use crate::tools::traits::{ToolContext, ToolError, ToolExecutor, ToolOutput};
+use crate::tools::traits::{ExecutionMode, ToolContext, ToolError, ToolExecutor, ToolOutput};
 
 #[derive(Debug, Clone, Copy)]
 enum DecisionSource {
@@ -41,7 +41,7 @@ impl Kernel {
                 scheduler: None,
                 notifications: None,
                 notify_tool_used: Arc::new(AtomicBool::new(false)),
-                scheduled_job: false,
+                execution_mode: ExecutionMode::User,
                 timezone_offset: "+00:00".to_string(),
                 timezone_name: "UTC".to_string(),
             },
@@ -105,8 +105,9 @@ impl Kernel {
         self
     }
 
-    pub fn with_scheduled_job_mode(mut self, scheduled_job: bool) -> Self {
-        self.context.scheduled_job = scheduled_job;
+    #[allow(dead_code)]
+    pub fn with_execution_mode(mut self, mode: ExecutionMode) -> Self {
+        self.context.execution_mode = mode;
         self
     }
 
@@ -158,7 +159,7 @@ impl Kernel {
         input: Value,
         extra_grants: Option<&CapabilitySet>,
     ) -> Result<ToolOutput, ToolError> {
-        if self.context.scheduled_job
+        if self.context.execution_mode.is_scheduled_job()
             && self
                 .context
                 .notify_tool_used
@@ -171,7 +172,7 @@ impl Kernel {
                 user_id = ?self.context.user_id,
                 session_id = ?self.context.session_id,
                 channel_id = ?self.context.channel_id,
-                scheduled = self.context.scheduled_job,
+                scheduled = self.context.execution_mode.is_scheduled_job(),
                 reason = "scheduled_job_already_notified",
                 "scheduled job already notified; skipping tool call"
             );
@@ -186,7 +187,7 @@ impl Kernel {
             user_id = ?self.context.user_id,
             session_id = ?self.context.session_id,
             channel_id = ?self.context.channel_id,
-            scheduled = self.context.scheduled_job,
+            scheduled = self.context.execution_mode.is_scheduled_job(),
         );
         let _enter = span.enter();
         self.tool_registry.validate_input(tool, &input)?;
@@ -200,7 +201,7 @@ impl Kernel {
             user_id = ?self.context.user_id,
             session_id = ?self.context.session_id,
             channel_id = ?self.context.channel_id,
-            scheduled = self.context.scheduled_job,
+            scheduled = self.context.execution_mode.is_scheduled_job(),
             "tool usage requested"
         );
         let any_mode = tool.spec().name.as_str() == "schedule";
@@ -260,7 +261,7 @@ impl Kernel {
                 user_id = ?self.context.user_id,
                 session_id = ?self.context.session_id,
                 channel_id = ?self.context.channel_id,
-                scheduled = self.context.scheduled_job,
+                scheduled = self.context.execution_mode.is_scheduled_job(),
                 decision = "allowed",
                 decision_source = ?source,
                 permissions = ?required,
@@ -273,7 +274,7 @@ impl Kernel {
                 user_id = ?self.context.user_id,
                 session_id = ?self.context.session_id,
                 channel_id = ?self.context.channel_id,
-                scheduled = self.context.scheduled_job,
+                scheduled = self.context.execution_mode.is_scheduled_job(),
                 decision = "denied",
                 decision_source = "none",
                 permissions = ?required,
@@ -299,7 +300,7 @@ impl Kernel {
                     user_id = ?self.context.user_id,
                     session_id = ?self.context.session_id,
                     channel_id = ?self.context.channel_id,
-                    scheduled = self.context.scheduled_job,
+                    scheduled = self.context.execution_mode.is_scheduled_job(),
                     outcome = "success",
                     "tool execution succeeded"
                 ),
@@ -309,7 +310,7 @@ impl Kernel {
                     user_id = ?self.context.user_id,
                     session_id = ?self.context.session_id,
                     channel_id = ?self.context.channel_id,
-                    scheduled = self.context.scheduled_job,
+                    scheduled = self.context.execution_mode.is_scheduled_job(),
                     outcome = "error",
                     error = %err,
                     "tool execution failed"
@@ -325,7 +326,7 @@ impl Kernel {
                     user_id = ?self.context.user_id,
                     session_id = ?self.context.session_id,
                     channel_id = ?self.context.channel_id,
-                    scheduled = self.context.scheduled_job,
+                    scheduled = self.context.execution_mode.is_scheduled_job(),
                     outcome = "success",
                     "tool execution succeeded"
                 ),
@@ -335,7 +336,7 @@ impl Kernel {
                     user_id = ?self.context.user_id,
                     session_id = ?self.context.session_id,
                     channel_id = ?self.context.channel_id,
-                    scheduled = self.context.scheduled_job,
+                    scheduled = self.context.execution_mode.is_scheduled_job(),
                     outcome = "error",
                     error = %err,
                     "tool execution failed"
@@ -358,12 +359,12 @@ impl Kernel {
                     None => return Err(err),
                 };
                 if !self.prompt_profile.allow_user_prompts
-                    || self.context.scheduled_job
+                    || self.context.execution_mode.is_scheduled_job()
                     || required
                         .iter()
                         .all(|permission| permission.is_auto_granted(&self.context))
                 {
-                    let reason = if self.context.scheduled_job {
+                    let reason = if self.context.execution_mode.is_scheduled_job() {
                         "scheduled_job"
                     } else if !self.prompt_profile.allow_user_prompts {
                         "prompts_disabled"
@@ -781,7 +782,7 @@ mod tests {
         let kernel = Kernel::new(Arc::clone(&registry))
             .with_prompt_profile(prompt_profile_for(&required))
             .with_prompter(Some(prompter_dyn))
-            .with_scheduled_job_mode(true);
+            .with_execution_mode(crate::tools::traits::ExecutionMode::ScheduledJob);
 
         let result = kernel
             .invoke_tool_with_prompt_by_name("dummy", json!({}))
