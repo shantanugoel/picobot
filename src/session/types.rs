@@ -31,6 +31,19 @@ pub struct StoredMessage {
     pub token_estimate: Option<i64>,
 }
 
+#[derive(Debug, Clone)]
+pub struct UsageEvent {
+    pub session_id: Option<String>,
+    pub channel_id: Option<String>,
+    pub user_id: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub total_tokens: u64,
+    pub cached_input_tokens: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum MessageType {
     System,

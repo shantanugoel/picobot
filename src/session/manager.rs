@@ -1,9 +1,9 @@
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 
 use crate::kernel::permissions::CapabilitySet;
 use crate::session::db::SqliteStore;
 use crate::session::error::{SessionDbError, SessionDbResult};
-use crate::session::types::{MessageType, Session, SessionState, StoredMessage};
+use crate::session::types::{MessageType, Session, SessionState, StoredMessage, UsageEvent};
 
 #[derive(Debug, Clone)]
 pub struct SessionManager {
@@ -74,6 +74,11 @@ impl SessionManager {
     ) -> SessionDbResult<Vec<StoredMessage>> {
         self.store
             .with_connection(|conn| load_messages(conn, session_id, limit))
+    }
+
+    pub fn record_usage(&self, event: &UsageEvent) -> SessionDbResult<()> {
+        self.store
+            .with_connection(|conn| insert_usage_event(conn, event))
     }
 }
 
@@ -224,6 +229,29 @@ fn load_messages(
     }
     messages.sort_by_key(|message| message.seq_order);
     Ok(messages)
+}
+
+fn insert_usage_event(conn: &Connection, event: &UsageEvent) -> SessionDbResult<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO usage_events
+         (session_id, channel_id, user_id, provider, model, input_tokens, output_tokens, total_tokens, cached_input_tokens, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            event.session_id,
+            event.channel_id,
+            event.user_id,
+            event.provider,
+            event.model,
+            event.input_tokens as i64,
+            event.output_tokens as i64,
+            event.total_tokens as i64,
+            event.cached_input_tokens as i64,
+            now,
+        ],
+    )
+    .map_err(|err| SessionDbError::QueryFailed(err.to_string()))?;
+    Ok(())
 }
 
 fn parse_datetime(value: String) -> SessionDbResult<chrono::DateTime<chrono::Utc>> {

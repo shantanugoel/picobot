@@ -133,6 +133,26 @@ impl SqliteStore {
             CREATE INDEX IF NOT EXISTS idx_schedule_executions_job ON schedule_executions(job_id, started_at);",
         )
         .map_err(|err| SessionDbError::MigrationFailed(err.to_string()))?;
+        if let Err(err) = conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS usage_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+                channel_id TEXT,
+                user_id TEXT,
+                provider TEXT,
+                model TEXT,
+                input_tokens INTEGER NOT NULL,
+                output_tokens INTEGER NOT NULL,
+                total_tokens INTEGER NOT NULL,
+                cached_input_tokens INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_usage_events_user_created ON usage_events(user_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_usage_events_channel_created ON usage_events(channel_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_usage_events_session_created ON usage_events(session_id, created_at);"
+        ) {
+            return Err(SessionDbError::MigrationFailed(err.to_string()));
+        }
         if let Err(err) = conn.execute(
             "ALTER TABLE schedules ADD COLUMN created_by_system INTEGER NOT NULL DEFAULT 0",
             [],

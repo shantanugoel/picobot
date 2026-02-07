@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use rig::agent::Agent;
 use rig::client::CompletionClient;
-use rig::completion::Prompt;
+use rig::completion::{Prompt, Usage};
 use rig::providers::{gemini, openai, openrouter};
 use rig::tool::ToolDyn;
 use tokio::time::sleep;
@@ -441,6 +441,22 @@ pub enum ProviderAgent {
 }
 
 impl ProviderAgent {
+    pub fn provider_name(&self) -> &'static str {
+        match self {
+            ProviderAgent::OpenAI(_) => "openai",
+            ProviderAgent::OpenRouter(_) => "openrouter",
+            ProviderAgent::Gemini(_) => "gemini",
+        }
+    }
+
+    pub fn model_name(&self) -> Option<String> {
+        match self {
+            ProviderAgent::OpenAI(agent) => Some(agent.model.model.clone()),
+            ProviderAgent::OpenRouter(agent) => Some(agent.model.model.clone()),
+            ProviderAgent::Gemini(agent) => Some(agent.model.model.clone()),
+        }
+    }
+
     #[allow(dead_code)]
     pub async fn prompt(&self, prompt: impl Into<String>) -> anyhow::Result<String> {
         let prompt = prompt.into();
@@ -449,6 +465,34 @@ impl ProviderAgent {
             ProviderAgent::OpenRouter(agent) => Ok(agent.prompt(&prompt).await?),
             ProviderAgent::Gemini(agent) => Ok(agent.prompt(&prompt).await?),
         }
+    }
+
+    #[allow(dead_code)]
+    pub async fn prompt_with_usage(
+        &self,
+        prompt: impl Into<String>,
+        max_turns: usize,
+    ) -> anyhow::Result<(String, Usage)> {
+        let prompt = prompt.into();
+        let response = match self {
+            ProviderAgent::OpenAI(agent) => agent.prompt(&prompt).extended_details().max_turns(max_turns).await?,
+            ProviderAgent::OpenRouter(agent) => agent.prompt(&prompt).extended_details().max_turns(max_turns).await?,
+            ProviderAgent::Gemini(agent) => agent.prompt(&prompt).extended_details().max_turns(max_turns).await?,
+        };
+        Ok((response.output, response.total_usage))
+    }
+
+    pub async fn prompt_message_with_usage(
+        &self,
+        message: rig::completion::message::Message,
+        max_turns: usize,
+    ) -> anyhow::Result<(String, Usage)> {
+        let response = match self {
+            ProviderAgent::OpenAI(agent) => agent.prompt(message.clone()).extended_details().max_turns(max_turns).await?,
+            ProviderAgent::OpenRouter(agent) => agent.prompt(message.clone()).extended_details().max_turns(max_turns).await?,
+            ProviderAgent::Gemini(agent) => agent.prompt(message.clone()).extended_details().max_turns(max_turns).await?,
+        };
+        Ok((response.output, response.total_usage))
     }
 
     async fn prompt_with_turns_once(
@@ -497,6 +541,38 @@ impl ProviderAgent {
         }
     }
 
+    pub async fn prompt_with_turns_retry_usage(
+        &self,
+        prompt: impl Into<String>,
+        max_turns: usize,
+        max_retries: usize,
+    ) -> Result<(String, Usage), ProviderError> {
+        let prompt = prompt.into();
+        let mut attempt = 0;
+        loop {
+            match self.prompt_with_usage(&prompt, max_turns).await {
+                Ok(response) => return Ok(response),
+                Err(err) => {
+                    let mapped = ProviderError::from_anyhow(err);
+                    if attempt >= max_retries || !mapped.is_retryable() {
+                        return Err(mapped);
+                    }
+                    let backoff = mapped
+                        .retry_after()
+                        .unwrap_or_else(|| backoff_delay(attempt));
+                    tracing::warn!(
+                        attempt = attempt + 1,
+                        max_retries,
+                        error = %mapped,
+                        "provider call failed, retrying"
+                    );
+                    sleep(backoff).await;
+                    attempt += 1;
+                }
+            }
+        }
+    }
+
     pub async fn prompt_message_with_retry(
         &self,
         message: rig::completion::message::Message,
@@ -513,6 +589,38 @@ impl ProviderAgent {
                 Ok(output) => return Ok(output),
                 Err(err) => {
                     let mapped = ProviderError::from_anyhow(err.into());
+                    if attempt >= max_retries || !mapped.is_retryable() {
+                        return Err(mapped);
+                    }
+                    let backoff = mapped
+                        .retry_after()
+                        .unwrap_or_else(|| backoff_delay(attempt));
+                    tracing::warn!(
+                        attempt = attempt + 1,
+                        max_retries,
+                        error = %mapped,
+                        "provider call failed, retrying"
+                    );
+                    sleep(backoff).await;
+                    attempt += 1;
+                }
+            }
+        }
+    }
+
+    pub async fn prompt_message_with_retry_usage(
+        &self,
+        message: rig::completion::message::Message,
+        max_turns: usize,
+        max_retries: usize,
+    ) -> Result<(String, Usage), ProviderError> {
+        let mut attempt = 0;
+        loop {
+            let response = self.prompt_message_with_usage(message.clone(), max_turns).await;
+            match response {
+                Ok(output) => return Ok(output),
+                Err(err) => {
+                    let mapped = ProviderError::from_anyhow(err);
                     if attempt >= max_retries || !mapped.is_retryable() {
                         return Err(mapped);
                     }

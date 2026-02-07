@@ -256,7 +256,7 @@ The previous implementation is preserved in `reference/` for guidance:
    - [ ] Screenshot and DOM extraction support. Files: `src/tools/browser/*.rs`.
 
 5. **Web Search Tool**
-    - [ ] Evaluate options (Google/Exa/Brave vs browser-tool-backed search) and define a narrow safe first implementation. Files: `src/tools/search.rs` (new), `src/config.rs`, `README.md`.
+    - [ ] Evaluate options (Google/Exa/Brave vs browser-tool-backed search) and define a good implementation which possibly works for LLMs better than raw html. Files: `src/tools/search.rs` (new), `src/config.rs`, `README.md`.
 
 6. **Multi modal tool**
    - [x] A tool to understand documents/images etc and do actions as prescribed by the user. Should be able to configure model to be used

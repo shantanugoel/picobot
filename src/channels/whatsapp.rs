@@ -398,7 +398,10 @@ pub async fn run(
                     Ok(response) => response,
                     Err(err) => {
                         tracing::error!(error = %err, "prompt failed");
-                        format!("Sorry, something went wrong: {err}")
+                        PromptWithUsageResult {
+                            response: format!("Sorry, something went wrong: {err}"),
+                            usage: rig::completion::Usage::new(),
+                        }
                     }
                 };
             tracing::info!(
@@ -406,12 +409,29 @@ pub async fn run(
                 channel_id = "whatsapp",
                 user_id = %user_id,
                 session_id = %session.id,
-                response_len = response.len(),
+                response_len = response.response.len(),
+                input_tokens = response.usage.input_tokens,
+                output_tokens = response.usage.output_tokens,
+                total_tokens = response.usage.total_tokens,
                 "whatsapp prompt completed"
             );
+            let usage_event = crate::session::types::UsageEvent {
+                session_id: Some(session.id.clone()),
+                channel_id: Some("whatsapp".to_string()),
+                user_id: Some(user_id.clone()),
+                provider: Some(agent.provider_name().to_string()),
+                model: agent.model_name(),
+                input_tokens: response.usage.input_tokens,
+                output_tokens: response.usage.output_tokens,
+                total_tokens: response.usage.total_tokens,
+                cached_input_tokens: response.usage.cached_input_tokens,
+            };
+            if let Err(err) = session_manager.record_usage(&usage_event) {
+                tracing::warn!(error = %err, "failed to record usage");
+            }
             let assistant_message = StoredMessage {
                 message_type: MessageType::Assistant,
-                content: response.clone(),
+                content: response.response.clone(),
                 tool_call_id: None,
                 seq_order,
                 token_estimate: None,
@@ -423,7 +443,7 @@ pub async fn run(
                 tracing::warn!(error = %err, "failed to update session activity");
             }
 
-            let _ = outbound.send(&user_id, &response).await;
+            let _ = outbound.send(&user_id, &response.response).await;
         });
     }
 
@@ -485,15 +505,21 @@ fn normalize_whatsapp_id(sender: &str) -> &str {
     sender.split_once('@').map(|(id, _)| id).unwrap_or(sender)
 }
 
+struct PromptWithUsageResult {
+    response: String,
+    usage: rig::completion::Usage,
+}
+
 async fn prompt_with_agent(
     agent: &ProviderAgent,
     prompt: &str,
     max_turns: usize,
-) -> Result<String> {
-    agent
-        .prompt_with_turns_retry(prompt.to_string(), max_turns, DEFAULT_PROVIDER_RETRIES)
+) -> Result<PromptWithUsageResult> {
+    let (response, usage) = agent
+        .prompt_with_turns_retry_usage(prompt.to_string(), max_turns, DEFAULT_PROVIDER_RETRIES)
         .await
-        .map_err(|err| anyhow::anyhow!(err))
+        .map_err(|err| anyhow::anyhow!(err))?;
+    Ok(PromptWithUsageResult { response, usage })
 }
 
 async fn run_whatsapp_loop(

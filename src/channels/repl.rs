@@ -9,7 +9,7 @@ use crate::providers::factory::ProviderAgentBuilder;
 use anyhow::{Context, Result};
 use futures::StreamExt;
 use rig::agent::{Agent, MultiTurnStreamItem, Text};
-use rig::completion::{CompletionModel, GetTokenUsage};
+use rig::completion::{CompletionModel, GetTokenUsage, Usage};
 use rig::streaming::{StreamedAssistantContent, StreamedUserContent, StreamingPrompt};
 use rig::wasm_compat::WasmCompatSend;
 
@@ -18,17 +18,23 @@ use crate::session::memory::MemoryRetriever;
 use crate::session::types::{MessageType, StoredMessage};
 use async_trait::async_trait;
 
+struct StreamedPromptResult {
+    response: String,
+    usage: Usage,
+}
+
 async fn stream_prompt_to_stdout<M>(
     agent: &Agent<M>,
     prompt: &str,
     max_turns: usize,
-) -> Result<String>
+) -> Result<StreamedPromptResult>
 where
     M: CompletionModel + 'static,
     <M as CompletionModel>::StreamingResponse: WasmCompatSend + GetTokenUsage,
 {
     let mut response_stream = agent.stream_prompt(prompt).multi_turn(max_turns).await;
     let mut acc = String::new();
+    let mut usage = Usage::new();
     let mut printed_any = false;
     let mut stdout = io::stdout();
 
@@ -60,6 +66,7 @@ where
             }
             Ok(MultiTurnStreamItem::FinalResponse(final_response)) => {
                 acc = final_response.response().to_string();
+                usage = final_response.usage();
             }
             Err(err) => return Err(anyhow::anyhow!(err)),
             _ => {}
@@ -69,7 +76,10 @@ where
     if printed_any {
         println!();
     }
-    Ok(acc)
+    Ok(StreamedPromptResult {
+        response: acc,
+        usage,
+    })
 }
 
 struct ReplPrompter;
@@ -287,18 +297,35 @@ pub async fn run(
                 continue;
             }
         };
+        let usage_event = crate::session::types::UsageEvent {
+            session_id: Some(session.id.clone()),
+            channel_id: kernel.context().channel_id.clone(),
+            user_id: Some(session.user_id.clone()),
+            provider: Some(agent.provider_name().to_string()),
+            model: agent.model_name(),
+            input_tokens: response.usage.input_tokens,
+            output_tokens: response.usage.output_tokens,
+            total_tokens: response.usage.total_tokens,
+            cached_input_tokens: response.usage.cached_input_tokens,
+        };
+        if let Err(err) = session_manager.record_usage(&usage_event) {
+            tracing::warn!(error = %err, "failed to record usage");
+        }
         tracing::info!(
             event = "channel_prompt_complete",
             channel_id = "repl",
             user_id = %session.user_id,
             session_id = %session.id,
-            response_len = response.len(),
+            response_len = response.response.len(),
+            input_tokens = response.usage.input_tokens,
+            output_tokens = response.usage.output_tokens,
+            total_tokens = response.usage.total_tokens,
             "repl prompt completed"
         );
 
         let assistant_message = StoredMessage {
             message_type: MessageType::Assistant,
-            content: response,
+            content: response.response,
             tool_call_id: None,
             seq_order,
             token_estimate: None,

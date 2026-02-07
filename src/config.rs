@@ -270,13 +270,12 @@ impl Config {
 
         if let Some(permissions) = &self.permissions
             && let Some(network) = &permissions.network
+            && let Some(limit) = network.max_response_bytes
         {
-            if let Some(limit) = network.max_response_bytes {
-                if limit == 0 {
-                    warnings.push("network max_response_bytes is 0".to_string());
-                } else if limit > 200 * 1024 * 1024 {
-                    warnings.push("network max_response_bytes is very large".to_string());
-                }
+            if limit == 0 {
+                warnings.push("network max_response_bytes is 0".to_string());
+            } else if limit > 200 * 1024 * 1024 {
+                warnings.push("network max_response_bytes is very large".to_string());
             }
         }
 

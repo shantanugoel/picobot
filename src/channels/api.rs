@@ -138,7 +138,7 @@ async fn prompt_handler(
     let scoped_kernel = Arc::new(
         state
             .kernel
-            .clone_with_context(Some(user_id.clone()), Some(session_id))
+            .clone_with_context(Some(user_id.clone()), Some(session_id.clone()))
             .with_channel_id(Some("api".to_string()))
             .with_prompt_profile(profile),
     );
@@ -158,21 +158,42 @@ async fn prompt_handler(
         "api prompt received"
     );
     let response = agent
-        .prompt_with_turns_retry(
+        .prompt_with_turns_retry_usage(
             payload.prompt.clone(),
             state.max_turns,
             DEFAULT_PROVIDER_RETRIES,
         )
         .await
         .map_err(map_provider_error)?;
+    let usage_session_id = match state.session_manager.get_session(&session_id) {
+        Ok(Some(_)) => Some(session_id.clone()),
+        _ => None,
+    };
+    let usage_event = crate::session::types::UsageEvent {
+        session_id: usage_session_id,
+        channel_id: Some("api".to_string()),
+        user_id: Some(user_id.clone()),
+        provider: Some(agent.provider_name().to_string()),
+        model: agent.model_name(),
+        input_tokens: response.1.input_tokens,
+        output_tokens: response.1.output_tokens,
+        total_tokens: response.1.total_tokens,
+        cached_input_tokens: response.1.cached_input_tokens,
+    };
+    if let Err(err) = state.session_manager.record_usage(&usage_event) {
+        tracing::warn!(error = %err, "failed to record usage");
+    }
     tracing::info!(
         event = "channel_prompt_complete",
         channel_id = "api",
         user_id = %user_id,
-        response_len = response.len(),
+        response_len = response.0.len(),
+        input_tokens = response.1.input_tokens,
+        output_tokens = response.1.output_tokens,
+        total_tokens = response.1.total_tokens,
         "api prompt completed"
     );
-    Ok(Json(PromptResponse { response }))
+    Ok(Json(PromptResponse { response: response.0 }))
 }
 
 async fn prompt_message_handler(
@@ -278,21 +299,38 @@ async fn prompt_message_handler(
         "api prompt received"
     );
     let response = agent
-        .prompt_with_turns_retry(prompt_to_send, state.max_turns, DEFAULT_PROVIDER_RETRIES)
+        .prompt_with_turns_retry_usage(prompt_to_send, state.max_turns, DEFAULT_PROVIDER_RETRIES)
         .await
         .map_err(map_provider_error)?;
+    let usage_event = crate::session::types::UsageEvent {
+        session_id: Some(session.id.clone()),
+        channel_id: Some("api".to_string()),
+        user_id: Some(user_id.clone()),
+        provider: Some(agent.provider_name().to_string()),
+        model: agent.model_name(),
+        input_tokens: response.1.input_tokens,
+        output_tokens: response.1.output_tokens,
+        total_tokens: response.1.total_tokens,
+        cached_input_tokens: response.1.cached_input_tokens,
+    };
+    if let Err(err) = state.session_manager.record_usage(&usage_event) {
+        tracing::warn!(error = %err, "failed to record usage");
+    }
     tracing::info!(
         event = "channel_prompt_complete",
         channel_id = "api",
         user_id = %user_id,
         session_id = %session_id,
-        response_len = response.len(),
+        response_len = response.0.len(),
+        input_tokens = response.1.input_tokens,
+        output_tokens = response.1.output_tokens,
+        total_tokens = response.1.total_tokens,
         "api prompt completed"
     );
 
     let assistant_message = StoredMessage {
         message_type: MessageType::Assistant,
-        content: response.clone(),
+        content: response.0.clone(),
         tool_call_id: None,
         seq_order,
         token_estimate: None,
@@ -308,7 +346,7 @@ async fn prompt_message_handler(
     }
 
     Ok(Json(PromptMessageResponse {
-        response,
+        response: response.0,
         session_id,
     }))
 }

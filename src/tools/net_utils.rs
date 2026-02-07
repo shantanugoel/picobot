@@ -84,12 +84,12 @@ pub async fn read_response_bytes(
             "{kind} is too large: limit is 0 bytes"
         )));
     }
-    if let Some(length) = response.content_length() {
-        if length > max_bytes {
-            return Err(ToolError::new(format!(
-                "{kind} is too large: {length} bytes (limit {max_bytes})"
-            )));
-        }
+    if let Some(length) = response.content_length()
+        && length > max_bytes
+    {
+        return Err(ToolError::new(format!(
+            "{kind} is too large: {length} bytes (limit {max_bytes})"
+        )));
     }
 
     let capacity = response
