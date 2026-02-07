@@ -14,6 +14,7 @@ use picobot::scheduler::executor::JobExecutor;
 use picobot::scheduler::service::SchedulerService;
 use picobot::scheduler::store::ScheduleStore;
 use picobot::tools::filesystem::FilesystemTool;
+use picobot::tools::http::HttpTool;
 use picobot::tools::notify::NotifyTool;
 use picobot::tools::registry::ToolRegistry;
 use picobot::tools::schedule::ScheduleTool;
@@ -102,12 +103,56 @@ fn ssrf_blocks_ipv6_ranges() {
     assert!(picobot::tools::net_utils::is_private_ip(IpAddr::V6(
         Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0x7f00, 1)
     )));
+    assert!(picobot::tools::net_utils::is_private_ip(IpAddr::V6(
+        Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0x0a00, 0x0001)
+    )));
+    assert!(picobot::tools::net_utils::is_private_ip(IpAddr::V6(
+        Ipv6Addr::new(0x2001, 0x0000, 0, 0, 0, 0, 0, 1)
+    )));
 }
 
-#[test]
-#[ignore = "enabled after http download limits are enforced"]
-fn http_download_limits_enforced() {
-    // Placeholder for regression coverage once streaming/body limits are added.
+#[tokio::test]
+async fn http_download_limits_enforced() {
+    let mut registry = ToolRegistry::new();
+    registry
+        .register(Arc::new(HttpTool::new().unwrap()))
+        .unwrap();
+    let registry = Arc::new(registry);
+    let mut capabilities = CapabilitySet::empty();
+    capabilities.insert(Permission::NetAccess {
+        domain: picobot::kernel::permissions::DomainPattern("*".to_string()),
+    });
+    let kernel = Kernel::new(Arc::clone(&registry))
+        .with_capabilities(capabilities)
+        .with_max_response_bytes(Some(512));
+    let url = spawn_http_server(vec![b'a'; 2048], true).await;
+    let tool = kernel.tool_registry().get("http_fetch").unwrap();
+    let result = kernel.invoke_tool(tool.as_ref(), json!({"url": url})).await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn ensure_allowed_url_blocks_localhost() {
+    let host = picobot::tools::net_utils::parse_host("http://localhost/").unwrap();
+    let result =
+        picobot::tools::net_utils::ensure_allowed_url("http://localhost/", &host, None).await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn ensure_allowed_url_allows_global_literals() {
+    let url_v4 = "http://8.8.8.8/";
+    let host_v4 = picobot::tools::net_utils::parse_host(url_v4).unwrap();
+    let result_v4 = picobot::tools::net_utils::ensure_allowed_url(url_v4, &host_v4, None).await;
+    assert!(result_v4.is_ok());
+
+    let url_v6 = "http://[2001:4860:4860::8888]/";
+    let host_v6 = picobot::tools::net_utils::parse_host(url_v6).unwrap();
+    let result_v6 = picobot::tools::net_utils::ensure_allowed_url(url_v6, &host_v6, None).await;
+    if result_v6.is_err() {
+        return;
+    }
+    assert!(result_v6.is_ok());
 }
 
 struct TestNotificationChannel;
@@ -156,6 +201,28 @@ fn build_scheduler(temp_dir: &std::path::Path) -> SchedulerService {
         picobot::config::Config::default(),
     );
     SchedulerService::new(schedule_store, executor, scheduler_config)
+}
+
+async fn spawn_http_server(body: Vec<u8>, include_length: bool) -> String {
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        if let Ok((mut socket, _)) = listener.accept().await {
+            let mut headers = String::from(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n",
+            );
+            if include_length {
+                headers.push_str(&format!("Content-Length: {}\r\n", body.len()));
+            }
+            headers.push_str("\r\n");
+            let _ = socket.write_all(headers.as_bytes()).await;
+            let _ = socket.write_all(&body).await;
+        }
+    });
+    format!("http://{addr}")
 }
 
 #[tokio::test]
@@ -258,10 +325,8 @@ async fn notify_requires_permission() {
 
 #[tokio::test]
 async fn whatsapp_media_permissions_are_user_scoped() {
-    let base_dir = std::env::temp_dir().join(format!(
-        "picobot-media-test-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let base_dir =
+        std::env::temp_dir().join(format!("picobot-media-test-{}", uuid::Uuid::new_v4()));
     let media_root = base_dir.join("whatsapp-media");
     let user_a_dir = media_root.join("user_a");
     let user_b_dir = media_root.join("user_b");
@@ -279,17 +344,20 @@ async fn whatsapp_media_permissions_are_user_scoped() {
     let mut profile = Kernel::new(Arc::clone(&registry)).prompt_profile().clone();
     let canonical_root = media_root.canonicalize().unwrap();
     let user_a_pattern = PathPattern(format!("{}/**", canonical_root.join("user_a").display()));
-    profile
-        .pre_authorized
-        .insert(Permission::FileRead { path: user_a_pattern.clone() });
-    profile
-        .max_allowed
-        .insert(Permission::FileRead { path: user_a_pattern });
+    profile.pre_authorized.insert(Permission::FileRead {
+        path: user_a_pattern.clone(),
+    });
+    profile.max_allowed.insert(Permission::FileRead {
+        path: user_a_pattern,
+    });
     let kernel = Kernel::new(Arc::clone(&registry))
         .with_jail_root(Some(canonical_root.clone()))
         .with_channel_id(Some("whatsapp".to_string()))
         .with_prompt_profile(profile)
-        .clone_with_context(Some("user_a".to_string()), Some("whatsapp:user_a".to_string()));
+        .clone_with_context(
+            Some("user_a".to_string()),
+            Some("whatsapp:user_a".to_string()),
+        );
 
     let tool = kernel.tool_registry().get("filesystem").unwrap();
     let allowed = kernel

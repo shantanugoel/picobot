@@ -49,6 +49,7 @@ pub struct ToolContext {
     pub execution_mode: ExecutionMode,
     pub timezone_offset: String,
     pub timezone_name: String,
+    pub max_response_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone)]

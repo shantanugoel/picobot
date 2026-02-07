@@ -81,6 +81,10 @@ impl Config {
         self.api.clone().unwrap_or_default()
     }
 
+    pub fn network(&self) -> NetworkPermissions {
+        self.permissions().network.clone().unwrap_or_default()
+    }
+
     pub fn permissions(&self) -> PermissionsConfig {
         self.permissions.clone().unwrap_or_default()
     }
@@ -247,6 +251,18 @@ impl Config {
                     warnings.push("api.rate_limit.requests_per_minute is 0".to_string());
                 } else if limit > 10_000 {
                     warnings.push("api.rate_limit.requests_per_minute is very large".to_string());
+                }
+            }
+        }
+
+        if let Some(permissions) = &self.permissions
+            && let Some(network) = &permissions.network
+        {
+            if let Some(limit) = network.max_response_bytes {
+                if limit == 0 {
+                    warnings.push("network max_response_bytes is 0".to_string());
+                } else if limit > 200 * 1024 * 1024 {
+                    warnings.push("network max_response_bytes is very large".to_string());
                 }
             }
         }
@@ -473,6 +489,7 @@ pub struct FilesystemPermissions {
 #[derive(Debug, Deserialize, Default, Clone)]
 pub struct NetworkPermissions {
     pub allowed_domains: Vec<String>,
+    pub max_response_bytes: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]

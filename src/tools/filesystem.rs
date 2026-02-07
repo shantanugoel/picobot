@@ -113,8 +113,8 @@ impl ToolExecutor for FilesystemTool {
 #[cfg(test)]
 mod tests {
     use super::FilesystemTool;
-    use crate::tools::path_utils::{normalize_path, resolve_path};
     use crate::kernel::permissions::{CapabilitySet, Permission};
+    use crate::tools::path_utils::{normalize_path, resolve_path};
     use crate::tools::traits::{ExecutionMode, ToolContext, ToolExecutor};
     use serde_json::json;
 
@@ -128,9 +128,11 @@ mod tests {
     #[test]
     fn resolve_path_expands_relative() {
         let resolved = resolve_path(std::path::Path::new("/tmp"), None, "nested/file.txt").unwrap();
-        assert!(resolved
-            .canonical
-            .ends_with(std::path::Path::new("nested/file.txt")));
+        assert!(
+            resolved
+                .canonical
+                .ends_with(std::path::Path::new("nested/file.txt"))
+        );
     }
 
     #[test]
@@ -175,6 +177,7 @@ mod tests {
             execution_mode: ExecutionMode::User,
             timezone_offset: "+00:00".to_string(),
             timezone_name: "UTC".to_string(),
+            max_response_bytes: None,
         };
 
         let read = tool

@@ -120,6 +120,7 @@ mod tests {
             execution_mode: ExecutionMode::User,
             timezone_offset: "+00:00".to_string(),
             timezone_name: "UTC".to_string(),
+            max_response_bytes: None,
         };
         let required = tool
             .required_permissions(&ctx, &json!({"command": "ls"}))
@@ -135,14 +136,9 @@ mod tests {
     #[tokio::test]
     async fn working_dir_denied_outside_jail_root() {
         let tool = ShellTool::new();
-        let jail_root = std::env::temp_dir().join(format!(
-            "picobot-jail-{}",
-            uuid::Uuid::new_v4()
-        ));
-        let outside = std::env::temp_dir().join(format!(
-            "picobot-outside-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let jail_root = std::env::temp_dir().join(format!("picobot-jail-{}", uuid::Uuid::new_v4()));
+        let outside =
+            std::env::temp_dir().join(format!("picobot-outside-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&jail_root).unwrap();
         std::fs::create_dir_all(&outside).unwrap();
 
@@ -159,6 +155,7 @@ mod tests {
             execution_mode: ExecutionMode::User,
             timezone_offset: "+00:00".to_string(),
             timezone_name: "UTC".to_string(),
+            max_response_bytes: None,
         };
 
         let result = tool

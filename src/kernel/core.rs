@@ -44,6 +44,7 @@ impl Kernel {
                 execution_mode: ExecutionMode::User,
                 timezone_offset: "+00:00".to_string(),
                 timezone_name: "UTC".to_string(),
+                max_response_bytes: None,
             },
             prompt_profile: ChannelPermissionProfile::default(),
             prompter: None,
@@ -101,6 +102,11 @@ impl Kernel {
     pub fn with_timezone(mut self, offset: String, name: String) -> Self {
         self.context.timezone_offset = offset;
         self.context.timezone_name = name;
+        self
+    }
+
+    pub fn with_max_response_bytes(mut self, max_response_bytes: Option<u64>) -> Self {
+        self.context.max_response_bytes = max_response_bytes;
         self
     }
 

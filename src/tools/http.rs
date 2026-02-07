@@ -5,8 +5,10 @@ use reqwest::Client;
 use serde_json::{Value, json};
 
 use crate::kernel::permissions::{DomainPattern, Permission};
-use crate::tools::net_utils::{ensure_allowed_url, parse_host};
+use crate::tools::net_utils::{ensure_allowed_url, parse_host, read_response_bytes};
 use crate::tools::traits::{ToolContext, ToolError, ToolExecutor, ToolOutput, ToolSpec};
+
+const DEFAULT_MAX_RESPONSE_BYTES: u64 = 5 * 1024 * 1024;
 
 #[derive(Debug)]
 pub struct HttpTool {
@@ -103,10 +105,9 @@ impl ToolExecutor for HttpTool {
         }
 
         let status = response.status().as_u16();
-        let text = response
-            .text()
-            .await
-            .map_err(|err| ToolError::new(err.to_string()))?;
+        let max_bytes = ctx.max_response_bytes.unwrap_or(DEFAULT_MAX_RESPONSE_BYTES);
+        let bytes = read_response_bytes(response, max_bytes, "response").await?;
+        let text = String::from_utf8_lossy(&bytes).to_string();
 
         Ok(json!({
             "status": status,

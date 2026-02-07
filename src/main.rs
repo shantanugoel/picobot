@@ -65,6 +65,7 @@ fn build_kernel(
     let registry = std::sync::Arc::new(registry);
     let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let capabilities = CapabilitySet::from_config_with_base(&config.permissions(), &base_dir);
+    let max_response_bytes = config.network().max_response_bytes;
     let jail_root = config
         .permissions()
         .filesystem
@@ -77,7 +78,8 @@ fn build_kernel(
             &config.data_dir().to_string_lossy(),
         ))
         .with_jail_root(jail_root)
-        .with_scheduler(scheduler);
+        .with_scheduler(scheduler)
+        .with_max_response_bytes(max_response_bytes);
     Ok(kernel)
 }
 

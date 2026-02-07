@@ -15,7 +15,7 @@ use rig::completion::message::{
 
 use crate::kernel::permissions::{DomainPattern, PathPattern, Permission};
 use crate::providers::factory::{DEFAULT_PROVIDER_RETRIES, ProviderAgent};
-use crate::tools::net_utils::{ensure_allowed_url, parse_host};
+use crate::tools::net_utils::{ensure_allowed_url, parse_host, read_response_bytes};
 use crate::tools::path_utils::resolve_path;
 use crate::tools::traits::{ToolContext, ToolError, ToolExecutor, ToolOutput, ToolSpec};
 
@@ -132,8 +132,8 @@ impl ToolExecutor for MultimodalLookerTool {
                     self.max_media_size_bytes
                 )));
             }
-            let bytes =
-                std::fs::read(&resolved.canonical).map_err(|err| ToolError::new(err.to_string()))?;
+            let bytes = std::fs::read(&resolved.canonical)
+                .map_err(|err| ToolError::new(err.to_string()))?;
             if bytes.len() as u64 > self.max_media_size_bytes {
                 return Err(ToolError::new(format!(
                     "media is too large: {} bytes (limit {})",
@@ -326,37 +326,13 @@ async fn download_url(
     if response.status().is_redirection() {
         return Err(ToolError::new("redirects are not allowed".to_string()));
     }
-    let mut size_hint = response.content_length();
-    if let Some(length) = size_hint
-        && length > max_size_bytes
-    {
-        return Err(ToolError::new(format!(
-            "media is too large: {length} bytes (limit {max_size_bytes})"
-        )));
-    }
     let content_type = response
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .map(|value| value.split(';').next().unwrap_or(value).trim().to_string());
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|err| ToolError::new(err.to_string()))?;
-    if bytes.len() as u64 > max_size_bytes {
-        return Err(ToolError::new(format!(
-            "media is too large: {} bytes (limit {max_size_bytes})",
-            bytes.len()
-        )));
-    }
-    if size_hint.is_none() {
-        size_hint = Some(bytes.len() as u64);
-    }
+    let bytes = read_response_bytes(response, max_size_bytes, "media").await?;
+    let size_hint = bytes.len() as u64;
     let mime = content_type.ok_or_else(|| ToolError::new("missing content-type".to_string()))?;
-    Ok((
-        bytes.to_vec(),
-        mime,
-        url.to_string(),
-        size_hint.unwrap_or(bytes.len() as u64),
-    ))
+    Ok((bytes.to_vec(), mime, url.to_string(), size_hint))
 }

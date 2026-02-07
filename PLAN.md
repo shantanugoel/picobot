@@ -215,9 +215,9 @@ The previous implementation is preserved in `reference/` for guidance:
    - [x] Remove duplicated path resolution logic and keep one canonical implementation. Files: `src/tools/filesystem.rs`, `src/tools/path_utils.rs`.
 
 6. **Network Hardening & Response Controls**
-   - [ ] Harden SSRF checks for IPv6 and non-global address ranges (loopback/link-local/ULA/etc). Approach: block all non-global resolved addresses and keep scheme/credential restrictions strict. Files: `src/tools/net_utils.rs`, `src/tools/http.rs`, `src/tools/multimodal_looker.rs`.
-   - [ ] Add regression tests for DNS resolution safeguards across IPv4 + IPv6. Files: `src/tools/http.rs`, `src/tools/net_utils.rs`, `tests/tool_execution_integration.rs`.
-   - [ ] Add response-size limits and streaming reads for network tools (`http_fetch`, `multimodal_looker`) to prevent unbounded memory use. Approach: consume response streams in chunks and abort after configured byte cap. Files: `src/tools/http.rs`, `src/tools/multimodal_looker.rs`, `src/config.rs`.
+   - [x] Harden SSRF checks for IPv6 and non-global address ranges (loopback/link-local/ULA/etc). Approach: block all non-global resolved addresses and keep scheme/credential restrictions strict. Files: `src/tools/net_utils.rs`, `src/tools/http.rs`, `src/tools/multimodal_looker.rs`.
+   - [x] Add regression tests for DNS resolution safeguards across IPv4 + IPv6. Files: `src/tools/http.rs`, `src/tools/net_utils.rs`, `tests/tool_execution_integration.rs`.
+   - [x] Add response-size limits and streaming reads for network tools (`http_fetch`, `multimodal_looker`) to prevent unbounded memory use. Approach: consume response streams in chunks and abort after configured byte cap. Files: `src/tools/http.rs`, `src/tools/multimodal_looker.rs`, `src/config.rs`.
 
 7. **Tooling Integrity & Runtime Hygiene**
    - [ ] Reject duplicate tool registrations in `ToolRegistry` (fail fast on duplicate names). Files: `src/tools/registry.rs`, `tests/tool_execution_integration.rs`.
