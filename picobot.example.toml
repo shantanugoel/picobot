@@ -57,6 +57,26 @@ allowed_domains = ["api.github.com"]
 # max_response_bytes = 5242880
 # max_response_chars = 50000
 
+# --- Optional web search tool ---
+# Google Custom Search
+# [search]
+# provider = "google"
+# api_key_env = "GOOGLE_CSE_API_KEY"
+# engine_id = "your-search-engine-id"
+# max_results = 5
+# max_snippet_chars = 2000
+#
+# SearxNG (with fallbacks)
+# [search]
+# provider = "searxng"
+# base_urls = ["https://searx.rhscz.eu", "https://searxng.example.com"]
+# allow_private_base_urls = false
+# searxng_engines = "google,duckduckgo"
+# searxng_categories = "general"
+# searxng_safesearch = 1
+# max_results = 5
+# max_snippet_chars = 2000
+
 [permissions.shell]
 # Optional
 allowed_commands = ["git", "rg"]

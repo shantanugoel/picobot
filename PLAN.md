@@ -256,10 +256,10 @@ The previous implementation is preserved in `reference/` for guidance:
    - [ ] Screenshot and DOM extraction support. Files: `src/tools/browser/*.rs`.
 
 5. **Web Search Tool**
-    - [ ] Evaluate options (Google/Exa/Brave vs browser-tool-backed search) and define a good implementation which possibly works for LLMs better than raw html. Files: `src/tools/search.rs` (new), `src/config.rs`, `README.md`.
+    - [x] Evaluate options (Google/Exa/Brave vs browser-tool-backed search) and define a good implementation which possibly works for LLMs better than raw html. Files: `src/tools/search.rs` (new), `src/config.rs`, `README.md`.
 
 6. **Improve http fetch tool to save tokens and better llm handling**
-    - [ ] Explore ways to reduce the http fetch footprint because currently even a single call takes several 100ks of tokens. Some suggestions to explore, but don't limit yourself to these for your planning:
+    - [x] Explore ways to reduce the http fetch footprint because currently even a single call takes several 100ks of tokens. Some suggestions to explore, but don't limit yourself to these for your planning:
         - Add a new “low‑cost by default” HTTP tool that returns extracted text (readability) and metadata instead of full HTML; cap body size and drop non‑text MIME types
         - Where: src/tools/http.rs (new http_fetch_text or add options), src/tools/net_utils.rs (content‑type checks), src/tools/registry.rs (tool registration), src/config.rs (defaults). 
 

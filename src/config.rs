@@ -40,6 +40,7 @@ pub struct Config {
     pub whatsapp: Option<WhatsappConfig>,
     pub multimodal: Option<MultimodalConfig>,
     pub vision: Option<VisionConfig>,
+    pub search: Option<SearchConfig>,
 }
 
 impl Config {
@@ -404,6 +405,83 @@ impl Config {
             }
         }
 
+        if let Some(search) = &self.search {
+            let provider = search.provider.as_deref().unwrap_or("google");
+            if provider.trim().is_empty() {
+                errors.push("search provider cannot be empty".to_string());
+            }
+            match provider.trim().to_ascii_lowercase().as_str() {
+                "google" => {
+                    if let Some(engine_id) = &search.engine_id {
+                        if engine_id.trim().is_empty() {
+                            errors.push("search.engine_id cannot be empty".to_string());
+                        }
+                    } else {
+                        errors.push("search.engine_id is required".to_string());
+                    }
+                }
+                "searxng" => {
+                    if search.base_url.is_none()
+                        && search
+                            .base_urls
+                            .as_ref()
+                            .map(|urls| urls.is_empty())
+                            .unwrap_or(true)
+                    {
+                        errors.push("search.base_url or search.base_urls is required for searxng"
+                            .to_string());
+                    }
+                    if search.allow_private_base_urls.unwrap_or(false)
+                        && search
+                            .base_urls
+                            .as_ref()
+                            .map(|urls| urls.is_empty())
+                            .unwrap_or(true)
+                        && search
+                            .base_url
+                            .as_ref()
+                            .map(|url| url.trim().is_empty())
+                            .unwrap_or(true)
+                    {
+                        errors.push(
+                            "search.allow_private_base_urls requires base_url or base_urls"
+                                .to_string(),
+                        );
+                    }
+                }
+                other => {
+                    errors.push(format!("unsupported search provider '{other}'"));
+                }
+            }
+            if let Some(base_url) = &search.base_url {
+                if base_url.trim().is_empty() {
+                    errors.push("search.base_url cannot be empty".to_string());
+                }
+            }
+            if let Some(base_urls) = &search.base_urls {
+                if base_urls.iter().any(|value| value.trim().is_empty()) {
+                    errors.push("search.base_urls cannot contain empty entries".to_string());
+                }
+            }
+            if let Some(max_results) = search.max_results {
+                if max_results == 0 {
+                    warnings.push("search.max_results is 0".to_string());
+                } else if max_results > 10 {
+                    warnings.push("search.max_results is unusually high".to_string());
+                }
+            }
+            if let Some(max_snippet_chars) = search.max_snippet_chars {
+                if max_snippet_chars > 10_000 {
+                    warnings.push("search.max_snippet_chars is unusually high".to_string());
+                }
+            }
+            if let Some(max_snippet_chars) = search.max_snippet_chars
+                && max_snippet_chars == 0
+            {
+                warnings.push("search.max_snippet_chars is 0".to_string());
+            }
+        }
+
         if let Some(default_model) = self.default_model_id() {
             if let Some(models) = &self.models {
                 if !models.iter().any(|model| model.id == default_model) {
@@ -478,6 +556,20 @@ impl Config {
                     errors.push(format!(
                         "missing API key in env '{env_name}' for multimodal"
                     ));
+                }
+            }
+        }
+
+        if let Some(search) = &self.search {
+            let provider = search.provider.as_deref().unwrap_or("google");
+            if provider.trim().to_ascii_lowercase() == "google" {
+                let env_name = search
+                    .api_key_env
+                    .as_deref()
+                    .unwrap_or("GOOGLE_CSE_API_KEY")
+                    .to_string();
+                if checked_envs.insert(env_name.clone()) && std::env::var(&env_name).is_err() {
+                    errors.push(format!("missing search API key in env '{env_name}'"));
                 }
             }
         }
@@ -652,6 +744,21 @@ pub struct VisionConfig {
     pub system_prompt: Option<String>,
     pub max_media_size_bytes: Option<u64>,
     pub max_image_size_bytes: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct SearchConfig {
+    pub provider: Option<String>,
+    pub api_key_env: Option<String>,
+    pub engine_id: Option<String>,
+    pub base_url: Option<String>,
+    pub base_urls: Option<Vec<String>>,
+    pub allow_private_base_urls: Option<bool>,
+    pub max_results: Option<usize>,
+    pub max_snippet_chars: Option<usize>,
+    pub searxng_engines: Option<String>,
+    pub searxng_categories: Option<String>,
+    pub searxng_safesearch: Option<u8>,
 }
 
 impl From<VisionConfig> for MultimodalConfig {

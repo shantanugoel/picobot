@@ -226,6 +226,50 @@ Notes:
 - If `[multimodal]` is not set, the tool falls back to the main provider/model.
 - `[vision]` is accepted as a backward-compatible alias for `[multimodal]`.
 
+### Web Search Tool (Optional)
+
+The `web_search` tool queries a configured search provider and returns a short list of results for the assistant to inspect.
+
+Google Custom Search example:
+
+```toml
+[search]
+provider = "google"
+api_key_env = "GOOGLE_CSE_API_KEY"
+engine_id = "your-search-engine-id"
+max_results = 5
+max_snippet_chars = 2000
+
+[permissions.network]
+allowed_domains = ["www.googleapis.com"]
+```
+
+SearxNG example (with fallbacks):
+
+```toml
+[search]
+provider = "searxng"
+base_urls = [
+  "https://searx.rhscz.eu",
+  "https://searxng.example.com"
+]
+allow_private_base_urls = false
+searxng_engines = "google,duckduckgo"
+searxng_categories = "general"
+searxng_safesearch = 1
+max_results = 5
+max_snippet_chars = 2000
+
+[permissions.network]
+allowed_domains = ["searx.rhscz.eu", "searxng.example.com"]
+```
+
+Notes:
+- Google requires a Programmable Search Engine id (`engine_id` / "cx") and an API key.
+- SearxNG needs at least one `base_url` or `base_urls` entry.
+- Set `allow_private_base_urls = true` if your SearxNG instance is on a private LAN or localhost.
+- The tool only returns metadata. Use `http_fetch` for full page content.
+
 ## Environment Variables
 
 | Variable | Purpose |
@@ -236,3 +280,4 @@ Notes:
 | `PICOBOT_USER_ID` | REPL user id |
 | `PICOBOT_SESSION_ID` | REPL session id |
 | `PICOBOT_CONFIG` | Path to config file |
+| `GOOGLE_CSE_API_KEY` | Google Custom Search API key |
