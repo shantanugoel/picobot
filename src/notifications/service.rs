@@ -14,10 +14,6 @@ impl NotificationService {
         Self { queue, channel }
     }
 
-    pub fn queue(&self) -> &NotificationQueue {
-        &self.queue
-    }
-
     pub async fn enqueue(&self, request: NotificationRequest) -> String {
         self.queue.enqueue(request).await
     }
@@ -25,37 +21,86 @@ impl NotificationService {
     pub async fn worker_loop(&self) {
         loop {
             let mut item = self.queue.pop().await;
-            self.queue
+            let channel_id = self.channel.channel_id();
+            if let Some(record) = self
+                .queue
                 .record_status(&item.id, NotificationStatus::Sending, item.attempts, None)
-                .await;
+                .await
+            {
+                tracing::debug!(
+                    event = "notification_status",
+                    transport_channel_id = %channel_id,
+                    channel_id = %record.channel_id,
+                    user_id = %record.user_id,
+                    status = ?record.status,
+                    attempts = record.attempts,
+                    "notification marked sending"
+                );
+            }
             match self.channel.send(item.request.clone()).await {
                 Ok(_) => {
-                    self.queue
+                    if let Some(record) = self
+                        .queue
                         .record_status(&item.id, NotificationStatus::Sent, item.attempts + 1, None)
-                        .await;
+                        .await
+                    {
+                        tracing::debug!(
+                            event = "notification_status",
+                            transport_channel_id = %channel_id,
+                            channel_id = %record.channel_id,
+                            user_id = %record.user_id,
+                            status = ?record.status,
+                            attempts = record.attempts,
+                            "notification sent"
+                        );
+                    }
                 }
                 Err(err) => {
                     item.attempts += 1;
                     let err_text = err.to_string();
                     if item.attempts >= self.queue.config().max_attempts {
-                        self.queue
+                        if let Some(record) = self
+                            .queue
                             .record_status(
                                 &item.id,
                                 NotificationStatus::Failed,
                                 item.attempts,
                                 Some(err_text),
                             )
-                            .await;
+                            .await
+                        {
+                            tracing::warn!(
+                                event = "notification_failed",
+                                transport_channel_id = %channel_id,
+                                channel_id = %record.channel_id,
+                                user_id = %record.user_id,
+                                status = ?record.status,
+                                attempts = record.attempts,
+                                "notification delivery failed"
+                            );
+                        }
                         continue;
                     }
-                    self.queue
+                    if let Some(record) = self
+                        .queue
                         .record_status(
                             &item.id,
                             NotificationStatus::Pending,
                             item.attempts,
                             Some(err_text),
                         )
-                        .await;
+                        .await
+                    {
+                        tracing::debug!(
+                            event = "notification_retry",
+                            transport_channel_id = %channel_id,
+                            channel_id = %record.channel_id,
+                            user_id = %record.user_id,
+                            status = ?record.status,
+                            attempts = record.attempts,
+                            "notification scheduled for retry"
+                        );
+                    }
                     self.queue.retry(item).await;
                 }
             }

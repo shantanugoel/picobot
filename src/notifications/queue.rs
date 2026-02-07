@@ -121,14 +121,16 @@ impl NotificationQueue {
         status: NotificationStatus,
         attempts: usize,
         last_error: Option<String>,
-    ) {
+    ) -> Option<NotificationRecord> {
         let mut guard = self.records.lock().await;
         if let Some(record) = guard.iter_mut().find(|record| record.id == id) {
             record.status = status;
             record.attempts = attempts;
             record.last_error = last_error;
             record.updated_at = chrono::Utc::now();
+            return Some(record.clone());
         }
+        None
     }
 
     pub async fn retry(&self, item: QueueItem) {

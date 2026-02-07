@@ -7,6 +7,7 @@ pub enum SessionDbError {
     #[error("Database query failed: {0}")]
     QueryFailed(String),
     #[error("Database busy")]
+    #[allow(dead_code)]
     Busy,
 }
 

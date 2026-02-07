@@ -9,6 +9,7 @@ pub struct NotificationRequest {
 
 #[async_trait]
 pub trait NotificationChannel: Send + Sync {
+    #[allow(dead_code)]
     fn channel_id(&self) -> &str;
     async fn send(&self, request: NotificationRequest) -> Result<(), anyhow::Error>;
 }

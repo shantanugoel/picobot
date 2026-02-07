@@ -220,9 +220,9 @@ The previous implementation is preserved in `reference/` for guidance:
    - [x] Add response-size limits and streaming reads for network tools (`http_fetch`, `multimodal_looker`) to prevent unbounded memory use. Approach: consume response streams in chunks and abort after configured byte cap. Files: `src/tools/http.rs`, `src/tools/multimodal_looker.rs`, `src/config.rs`.
 
 7. **Tooling Integrity & Runtime Hygiene**
-   - [ ] Reject duplicate tool registrations in `ToolRegistry` (fail fast on duplicate names). Files: `src/tools/registry.rs`, `tests/tool_execution_integration.rs`.
-   - [ ] Remove duplicated WhatsApp sender filtering path to keep one enforcement point and one audit trail. Files: `src/channels/whatsapp.rs`.
-   - [ ] Resolve current dead-code warnings for security-relevant paths and diagnostics structs/traits. Files: `src/channels/whatsapp.rs`, `src/notifications/channel.rs`, `src/notifications/queue.rs`, `src/notifications/service.rs`, `src/session/error.rs`.
+    - [x] Reject duplicate tool registrations in `ToolRegistry` (fail fast on duplicate names). Files: `src/tools/registry.rs`, `tests/tool_execution_integration.rs`.
+    - [x] Remove duplicated WhatsApp sender filtering path to keep one enforcement point and one audit trail. Files: `src/channels/whatsapp.rs`.
+    - [x] Resolve current dead-code warnings for security-relevant paths and diagnostics structs/traits. Files: `src/channels/whatsapp.rs`, `src/notifications/channel.rs`, `src/notifications/queue.rs`, `src/notifications/service.rs`, `src/session/error.rs`.
 
 8. **Prompt & Tool Contract Hardening**
    - [ ] Update system prompt to be robust, concise, toolcalling/action-oriented, and security-hardened for PicoBot as an execution assistant (not only an answer bot). Files: `src/config.rs`, `picobot.example.toml`, `README.md`.

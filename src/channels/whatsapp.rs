@@ -99,9 +99,11 @@ impl WhatsAppBackend for WhatsappRustBackend {
 
 #[derive(Debug, Clone)]
 pub struct InboundMessage {
+    #[allow(dead_code)]
     pub channel_id: String,
     pub user_id: String,
     pub text: String,
+    #[allow(dead_code)]
     pub message_id: Option<String>,
     pub attachments: Vec<MediaAttachment>,
 }
@@ -130,34 +132,14 @@ pub enum MediaType {
 
 pub struct WhatsAppInboundAdapter {
     backend: Arc<dyn WhatsAppBackend>,
-    allowed_senders: Option<Vec<String>>,
 }
 
 impl WhatsAppInboundAdapter {
-    pub fn new(backend: Arc<dyn WhatsAppBackend>, allowed_senders: Option<Vec<String>>) -> Self {
-        Self {
-            backend,
-            allowed_senders,
-        }
+    pub fn new(backend: Arc<dyn WhatsAppBackend>) -> Self {
+        Self { backend }
     }
 
     pub async fn subscribe(&self) -> Pin<Box<dyn Stream<Item = InboundMessage> + Send>> {
-        if let Some(allowed) = self.allowed_senders.clone() {
-            let stream = self.backend.inbound_stream().filter_map(move |message| {
-                let allowed = allowed.clone();
-                async move {
-                    let user = message.user_id.clone();
-                    if is_allowed_sender(&user, &allowed) {
-                        tracing::info!(user = %user, "WhatsApp received message");
-                        Some(message)
-                    } else {
-                        tracing::info!(user = %user, "WhatsApp ignored message (not in allowlist)");
-                        None
-                    }
-                }
-            });
-            return Box::pin(stream);
-        }
         self.backend.inbound_stream()
     }
 }
@@ -241,7 +223,7 @@ pub async fn run(
         }
     });
 
-    let inbound = WhatsAppInboundAdapter::new(Arc::clone(&backend), allowed_senders);
+    let inbound = WhatsAppInboundAdapter::new(Arc::clone(&backend));
     let outbound = Arc::new(WhatsAppOutboundSender::new(Arc::clone(&backend)));
     let mut base_kernel = base_kernel;
     if config.notifications().enabled() {
@@ -568,7 +550,12 @@ async fn run_whatsapp_loop(
                         let from = info.source.sender.to_string();
                         if let Some(allowed) = allowed_senders.as_ref()
                             && !is_allowed_sender(&from, allowed) {
-                                tracing::debug!(user = %from, "WhatsApp ignored message (not in allowlist)");
+                                tracing::info!(
+                                    event = "channel_sender_filtered",
+                                    channel_id = "whatsapp",
+                                    user_id = %from,
+                                    "WhatsApp ignored message (not in allowlist)"
+                                );
                                 return;
                             }
                         let text = message.text_content().unwrap_or_default().to_string();
