@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::config::ChannelsConfig;
 use crate::kernel::permissions::{
-    parse_permission_with_base, CapabilitySet, ChannelPermissionProfile, MemoryScope, Permission,
+    CapabilitySet, ChannelPermissionProfile, MemoryScope, Permission, parse_permission_with_base,
 };
 
 pub fn channel_profile(

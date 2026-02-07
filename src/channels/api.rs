@@ -39,7 +39,11 @@ async fn prompt_handler(
     );
     let response = state
         .agent
-        .prompt_with_turns_retry(payload.prompt.clone(), state.max_turns, DEFAULT_PROVIDER_RETRIES)
+        .prompt_with_turns_retry(
+            payload.prompt.clone(),
+            state.max_turns,
+            DEFAULT_PROVIDER_RETRIES,
+        )
         .await
         .map_err(map_provider_error)?;
     tracing::info!(

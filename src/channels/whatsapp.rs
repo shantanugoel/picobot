@@ -558,12 +558,11 @@ async fn run_whatsapp_loop(
                     }
                     Event::Message(message, info) => {
                         let from = info.source.sender.to_string();
-                        if let Some(allowed) = allowed_senders.as_ref() {
-                            if !is_allowed_sender(&from, allowed) {
+                        if let Some(allowed) = allowed_senders.as_ref()
+                            && !is_allowed_sender(&from, allowed) {
                                 tracing::debug!(user = %from, "WhatsApp ignored message (not in allowlist)");
                                 return;
                             }
-                        }
                         let text = message.text_content().unwrap_or_default().to_string();
                         let base = message.get_base_message();
                         let attachments = match extract_media_attachments(

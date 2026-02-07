@@ -477,7 +477,7 @@ impl ProviderAgent {
             match self.prompt_with_turns_once(&prompt, max_turns).await {
                 Ok(response) => return Ok(response),
                 Err(err) => {
-                    let mapped = ProviderError::from_anyhow(err.into());
+                    let mapped = ProviderError::from_anyhow(err);
                     if attempt >= max_retries || !mapped.is_retryable() {
                         return Err(mapped);
                     }

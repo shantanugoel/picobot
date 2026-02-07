@@ -196,13 +196,14 @@ impl JobExecutor {
             "scheduler job execution finished"
         );
 
-        if let Some(channel_id) = job.channel_id.clone() {
-            if should_notify && !agent_notified {
-                let notification_text =
-                    completion_message.unwrap_or_else(|| "Job completed".to_string());
-                self.enqueue_notification(&job.user_id, &channel_id, notification_text)
-                    .await;
-            }
+        if let Some(channel_id) = job.channel_id.clone()
+            && should_notify
+            && !agent_notified
+        {
+            let notification_text =
+                completion_message.unwrap_or_else(|| "Job completed".to_string());
+            self.enqueue_notification(&job.user_id, &channel_id, notification_text)
+                .await;
         }
     }
 

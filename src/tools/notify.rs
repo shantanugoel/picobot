@@ -56,17 +56,16 @@ impl ToolExecutor for NotifyTool {
             .and_then(Value::as_str)
             .map(|value| value.to_string());
         if let (Some(input_user), Some(ctx_user)) = (input_user.as_deref(), ctx.user_id.as_deref())
+            && input_user != ctx_user
         {
-            if input_user != ctx_user {
-                tracing::warn!(
-                    event = "identity_mismatch",
-                    tool = "notify",
-                    field = "user_id",
-                    input = %input_user,
-                    context = %ctx_user,
-                    "notify user_id does not match context"
-                );
-            }
+            tracing::warn!(
+                event = "identity_mismatch",
+                tool = "notify",
+                field = "user_id",
+                input = %input_user,
+                context = %ctx_user,
+                "notify user_id does not match context"
+            );
         }
         let user_id = input_user
             .or_else(|| ctx.user_id.clone())
@@ -77,17 +76,16 @@ impl ToolExecutor for NotifyTool {
             .map(|value| value.to_string());
         if let (Some(input_channel), Some(ctx_channel)) =
             (input_channel.as_deref(), ctx.channel_id.as_deref())
+            && input_channel != ctx_channel
         {
-            if input_channel != ctx_channel {
-                tracing::warn!(
-                    event = "identity_mismatch",
-                    tool = "notify",
-                    field = "channel_id",
-                    input = %input_channel,
-                    context = %ctx_channel,
-                    "notify channel_id does not match context"
-                );
-            }
+            tracing::warn!(
+                event = "identity_mismatch",
+                tool = "notify",
+                field = "channel_id",
+                input = %input_channel,
+                context = %ctx_channel,
+                "notify channel_id does not match context"
+            );
         }
         let channel_id = input_channel
             .or_else(|| ctx.channel_id.clone())

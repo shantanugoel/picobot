@@ -328,12 +328,12 @@ async fn download_url(
         return Err(ToolError::new("redirects are not allowed".to_string()));
     }
     let mut size_hint = response.content_length();
-    if let Some(length) = size_hint {
-        if length > max_size_bytes {
-            return Err(ToolError::new(format!(
-                "media is too large: {length} bytes (limit {max_size_bytes})"
-            )));
-        }
+    if let Some(length) = size_hint
+        && length > max_size_bytes
+    {
+        return Err(ToolError::new(format!(
+            "media is too large: {length} bytes (limit {max_size_bytes})"
+        )));
     }
     let content_type = response
         .headers()

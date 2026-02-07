@@ -131,17 +131,17 @@ fn create_job(
         .get("user_id")
         .and_then(Value::as_str)
         .map(|value| value.to_string());
-    if let (Some(input_user), Some(ctx_user)) = (input_user.as_deref(), ctx.user_id.as_deref()) {
-        if input_user != ctx_user {
-            tracing::warn!(
-                event = "identity_mismatch",
-                tool = "schedule",
-                field = "user_id",
-                input = %input_user,
-                context = %ctx_user,
-                "schedule user_id does not match context"
-            );
-        }
+    if let (Some(input_user), Some(ctx_user)) = (input_user.as_deref(), ctx.user_id.as_deref())
+        && input_user != ctx_user
+    {
+        tracing::warn!(
+            event = "identity_mismatch",
+            tool = "schedule",
+            field = "user_id",
+            input = %input_user,
+            context = %ctx_user,
+            "schedule user_id does not match context"
+        );
     }
     let user_id = input_user
         .or_else(|| ctx.user_id.clone())
@@ -152,17 +152,16 @@ fn create_job(
         .map(|value| value.to_string());
     if let (Some(input_channel), Some(ctx_channel)) =
         (input_channel.as_deref(), ctx.channel_id.as_deref())
+        && input_channel != ctx_channel
     {
-        if input_channel != ctx_channel {
-            tracing::warn!(
-                event = "identity_mismatch",
-                tool = "schedule",
-                field = "channel_id",
-                input = %input_channel,
-                context = %ctx_channel,
-                "schedule channel_id does not match context"
-            );
-        }
+        tracing::warn!(
+            event = "identity_mismatch",
+            tool = "schedule",
+            field = "channel_id",
+            input = %input_channel,
+            context = %ctx_channel,
+            "schedule channel_id does not match context"
+        );
     }
     let channel_id = input_channel
         .or_else(|| ctx.channel_id.clone())

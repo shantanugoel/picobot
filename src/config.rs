@@ -296,15 +296,15 @@ impl Config {
                     errors.push("multimodal.model_id set without models".to_string());
                 }
             }
-            if let Some(provider) = &multimodal.provider {
-                if !is_known_provider(provider) {
-                    errors.push(format!("multimodal has unsupported provider '{provider}'"));
-                }
+            if let Some(provider) = &multimodal.provider
+                && !is_known_provider(provider)
+            {
+                errors.push(format!("multimodal has unsupported provider '{provider}'"));
             }
-            if let Some(model) = &multimodal.model {
-                if model.trim().is_empty() {
-                    errors.push("multimodal model cannot be empty".to_string());
-                }
+            if let Some(model) = &multimodal.model
+                && model.trim().is_empty()
+            {
+                errors.push("multimodal model cannot be empty".to_string());
             }
             if multimodal.model_id.is_none()
                 && multimodal.provider.is_none()
@@ -313,15 +313,15 @@ impl Config {
                 warnings
                     .push("multimodal config set without model_id or provider/model".to_string());
             }
-            if let Some(max_media) = multimodal.max_media_size_bytes {
-                if max_media == 0 {
-                    warnings.push("multimodal max_media_size_bytes is 0".to_string());
-                }
+            if let Some(max_media) = multimodal.max_media_size_bytes
+                && max_media == 0
+            {
+                warnings.push("multimodal max_media_size_bytes is 0".to_string());
             }
-            if let Some(max_image) = multimodal.max_image_size_bytes {
-                if max_image == 0 {
-                    warnings.push("multimodal max_image_size_bytes is 0".to_string());
-                }
+            if let Some(max_image) = multimodal.max_image_size_bytes
+                && max_image == 0
+            {
+                warnings.push("multimodal max_image_size_bytes is 0".to_string());
             }
         }
 
@@ -367,21 +367,21 @@ impl Config {
 
         if let Some(multimodal) = &multimodal_config {
             if let Some(model_id) = &multimodal.model_id {
-                if let Some(models) = &self.models {
-                    if let Some(model) = models.iter().find(|model| model.id == *model_id) {
-                        let provider_name = model.provider.as_deref().unwrap_or(provider);
-                        let env_name = resolve_provider_env(
-                            provider_name,
-                            model.api_key_env.as_deref().or(self.api_key_env.as_deref()),
-                        );
-                        if let Some(env_name) = env_name
-                            && checked_envs.insert(env_name.clone())
-                            && std::env::var(&env_name).is_err()
-                        {
-                            errors.push(format!(
-                                "missing API key in env '{env_name}' for multimodal model '{model_id}'"
-                            ));
-                        }
+                if let Some(models) = &self.models
+                    && let Some(model) = models.iter().find(|model| model.id == *model_id)
+                {
+                    let provider_name = model.provider.as_deref().unwrap_or(provider);
+                    let env_name = resolve_provider_env(
+                        provider_name,
+                        model.api_key_env.as_deref().or(self.api_key_env.as_deref()),
+                    );
+                    if let Some(env_name) = env_name
+                        && checked_envs.insert(env_name.clone())
+                        && std::env::var(&env_name).is_err()
+                    {
+                        errors.push(format!(
+                            "missing API key in env '{env_name}' for multimodal model '{model_id}'"
+                        ));
                     }
                 }
             } else if let Some(provider_name) = multimodal.provider.as_deref().or(Some(provider)) {

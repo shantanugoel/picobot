@@ -363,23 +363,23 @@ impl Kernel {
                         .iter()
                         .all(|permission| permission.is_auto_granted(&self.context))
                 {
-                let reason = if self.context.scheduled_job {
-                    "scheduled_job"
-                } else if !self.prompt_profile.allow_user_prompts {
-                    "prompts_disabled"
-                } else {
-                    "auto_granted"
-                };
-                tracing::debug!(
-                    event = "prompt_skipped",
-                    reason,
-                    tool = %tool.spec().name,
-                    user_id = ?self.context.user_id,
-                    session_id = ?self.context.session_id,
-                    channel_id = ?self.context.channel_id,
-                    permissions = ?required,
-                    "prompt skipped"
-                );
+                    let reason = if self.context.scheduled_job {
+                        "scheduled_job"
+                    } else if !self.prompt_profile.allow_user_prompts {
+                        "prompts_disabled"
+                    } else {
+                        "auto_granted"
+                    };
+                    tracing::debug!(
+                        event = "prompt_skipped",
+                        reason,
+                        tool = %tool.spec().name,
+                        user_id = ?self.context.user_id,
+                        session_id = ?self.context.session_id,
+                        channel_id = ?self.context.channel_id,
+                        permissions = ?required,
+                        "prompt skipped"
+                    );
                     return Err(err);
                 }
                 let promptable = match tool.spec().name.as_str() {
