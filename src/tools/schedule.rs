@@ -398,7 +398,7 @@ fn cancel_job(
         return Err(ToolError::new("job not owned by user".to_string()));
     }
     let cancelled = scheduler
-        .cancel_job(job_id)
+        .cancel_job_and_disable(job_id)
         .map_err(|err| ToolError::new(err.to_string()))?;
     Ok(json!({"status": "cancelled", "running": cancelled}))
 }

@@ -205,7 +205,7 @@ fn run_schedules_cli(_config: &Config, kernel: Kernel, args: &[String]) -> Resul
             let job_id = args
                 .get(1)
                 .ok_or_else(|| anyhow::anyhow!("missing job_id"))?;
-            let cancelled = scheduler.cancel_job(job_id)?;
+            let cancelled = scheduler.cancel_job_and_disable(job_id)?;
             println!("cancelled={cancelled}");
             Ok(())
         }

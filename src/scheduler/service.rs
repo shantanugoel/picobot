@@ -161,6 +161,12 @@ impl SchedulerService {
         Ok(self.executor.cancel_job(job_id))
     }
 
+    pub fn cancel_job_and_disable(&self, job_id: &str) -> SchedulerResult<bool> {
+        let running = self.executor.cancel_job(job_id);
+        let disabled = self.store.disable_job(job_id, chrono::Utc::now())?;
+        Ok(running || disabled)
+    }
+
     #[allow(dead_code)]
     pub fn list_executions_for_job(
         &self,

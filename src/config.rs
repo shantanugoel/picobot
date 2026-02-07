@@ -16,6 +16,7 @@ pub struct Config {
     pub max_turns: Option<usize>,
     pub bind: Option<String>,
     pub data_dir: Option<String>,
+    pub api: Option<ApiConfig>,
     pub permissions: Option<PermissionsConfig>,
     pub scheduler: Option<SchedulerConfig>,
     pub notifications: Option<NotificationsConfig>,
@@ -74,6 +75,10 @@ impl Config {
         dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("picobot")
+    }
+
+    pub fn api(&self) -> ApiConfig {
+        self.api.clone().unwrap_or_default()
     }
 
     pub fn permissions(&self) -> PermissionsConfig {
@@ -212,6 +217,36 @@ impl Config {
                             ));
                         }
                     }
+                }
+            }
+        }
+
+        if let Some(api) = &self.api {
+            if let Some(max_body) = api.max_body_bytes {
+                if max_body == 0 {
+                    warnings.push("api.max_body_bytes is 0".to_string());
+                } else if max_body > 50 * 1024 * 1024 {
+                    warnings.push("api.max_body_bytes is very large".to_string());
+                }
+            }
+            if let Some(auth) = &api.auth {
+                let mut seen = HashSet::new();
+                for key in &auth.api_keys {
+                    if key.trim().is_empty() {
+                        errors.push("api.auth.api_keys contains empty key".to_string());
+                    }
+                    if !seen.insert(key) {
+                        warnings.push("api.auth.api_keys contains duplicate key".to_string());
+                    }
+                }
+            }
+            if let Some(rate) = &api.rate_limit
+                && let Some(limit) = rate.requests_per_minute
+            {
+                if limit == 0 {
+                    warnings.push("api.rate_limit.requests_per_minute is 0".to_string());
+                } else if limit > 10_000 {
+                    warnings.push("api.rate_limit.requests_per_minute is very large".to_string());
                 }
             }
         }
@@ -503,6 +538,29 @@ pub struct ChannelsConfig {
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
+pub struct ApiConfig {
+    pub auth: Option<ApiAuthConfig>,
+    pub rate_limit: Option<ApiRateLimitConfig>,
+    pub max_body_bytes: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct ApiAuthConfig {
+    pub api_keys: Vec<String>,
+}
+
+impl ApiAuthConfig {
+    pub fn api_keys(&self) -> Vec<String> {
+        self.api_keys.clone()
+    }
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct ApiRateLimitConfig {
+    pub requests_per_minute: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
 pub struct ChannelConfig {
     pub pre_authorized: Option<Vec<String>>,
     pub max_allowed: Option<Vec<String>>,
@@ -577,6 +635,33 @@ impl ChannelConfig {
 
     pub fn prompt_timeout_secs(&self) -> u64 {
         self.prompt_timeout_secs.unwrap_or(30)
+    }
+}
+
+impl ApiConfig {
+    pub fn auth(&self) -> ApiAuthConfig {
+        self.auth.clone().unwrap_or_default()
+    }
+
+    pub fn rate_limit(&self) -> ApiRateLimitConfig {
+        self.rate_limit.clone().unwrap_or_default()
+    }
+
+    pub fn max_body_bytes(&self) -> usize {
+        match self.max_body_bytes {
+            Some(0) | None => 1_048_576,
+            Some(value) => value as usize,
+        }
+    }
+}
+
+impl ApiRateLimitConfig {
+    pub fn requests_per_minute(&self) -> Option<u32> {
+        match self.requests_per_minute {
+            Some(0) => None,
+            Some(value) => Some(value),
+            None => Some(60),
+        }
     }
 }
 

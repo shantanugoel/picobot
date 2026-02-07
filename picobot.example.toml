@@ -86,6 +86,33 @@ enabled = false
 # include_summary_on_truncation = true
 # include_tool_messages = true
 
+# --- Optional API server configuration ---
+[api]
+# Optional
+# max_body_bytes = 1048576
+
+# [api.auth]
+# API keys for authentication.
+# Format: "token:identity" or bare "token".
+# If bare, identity defaults to "api:<token>".
+# If no keys are configured, all requests are anonymous ("api:anon").
+# api_keys = ["sk-demo:api:alice", "sk-demo:api:bob"]
+
+# [api.rate_limit]
+# requests_per_minute = 60
+# Set to 0 to disable rate limiting.
+
+# --- API endpoints (reference) ---
+# POST /v1/prompt
+#   Body: { "prompt": "...", "session_id": "api:alice" }
+# POST /v1/chat
+#   Body: { "message": "...", "session_id": "api:alice" }
+# POST /v1/schedules
+#   Body: { "schedule_type": "interval|once|cron", "schedule_expr": "...", "task_prompt": "..." }
+# GET  /v1/schedules
+# POST /v1/schedules/{job_id}/cancel
+# Headers: x-api-key: <token> OR Authorization: Bearer <token>
+
 # --- Optional channel-specific permissions and prompts ---
 [channels.profiles.repl]
 # Optional

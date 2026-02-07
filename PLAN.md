@@ -198,11 +198,11 @@ The previous implementation is preserved in `reference/` for guidance:
     - [x] Add explicit permission for `notify` in `CapabilitySet`/channel profiles (remove implicit always-allowed behavior). Approach: add notification permission type, parse from config, and enforce in Kernel before enqueueing notifications. Files: `src/kernel/permissions.rs`, `src/config.rs`, `src/channels/permissions.rs`, `src/tools/notify.rs`.
 
 3. **Server Channel Hardening (Current API Surface)**
-   - [ ] Evolve current Axum API from open `/prompt` into a versioned authenticated REST surface. Files: `src/channels/api.rs`, `src/main.rs`.
-   - [ ] Add channel authentication/authorization and map authenticated identity into `ToolContext` (no client-controlled impersonation). Files: `src/channels/api.rs`, `src/kernel/core.rs`, `src/tools/traits.rs`.
-   - [ ] Add per-channel rate limits and request body size limits. Files: `src/channels/api.rs`, `src/config.rs`.
-   - [ ] Add secure schedule-management endpoints with owner checks and true cancel behavior. Files: `src/channels/api.rs`, `src/tools/schedule.rs`, `src/scheduler/service.rs`, `src/scheduler/store.rs`.
-   - [ ] Add API integration tests for authz boundaries and anti-impersonation behavior. Files: new `tests/api_integration.rs`.
+    - [x] Evolve current Axum API from open `/prompt` into a versioned authenticated REST surface. Files: `src/channels/api.rs`, `src/main.rs`.
+    - [x] Add channel authentication/authorization and map authenticated identity into `ToolContext` (no client-controlled impersonation). Files: `src/channels/api.rs`, `src/kernel/core.rs`, `src/tools/traits.rs`.
+    - [x] Add per-channel rate limits and request body size limits. Files: `src/channels/api.rs`, `src/config.rs`.
+    - [x] Add secure schedule-management endpoints with owner checks and true cancel behavior. Files: `src/channels/api.rs`, `src/tools/schedule.rs`, `src/scheduler/service.rs`, `src/scheduler/store.rs`.
+    - [x] Add API integration tests for authz boundaries and anti-impersonation behavior. Files: new `tests/api_integration.rs`.
 
 4. **Scheduler & Notification Safety**
    - [ ] Fix schedule cancel semantics so canceling a job also disables/deletes persisted schedule state (not only in-flight cancellation). Approach: owner-verified cancel updates persistent schedule state and optionally stops in-flight run. Files: `src/tools/schedule.rs`, `src/scheduler/service.rs`, `src/scheduler/store.rs`, `src/main.rs`.

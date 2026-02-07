@@ -98,14 +98,12 @@ impl Kernel {
         self
     }
 
-    #[allow(dead_code)]
     pub fn with_timezone(mut self, offset: String, name: String) -> Self {
         self.context.timezone_offset = offset;
         self.context.timezone_name = name;
         self
     }
 
-    #[allow(dead_code)]
     pub fn with_execution_mode(mut self, mode: ExecutionMode) -> Self {
         self.context.execution_mode = mode;
         self

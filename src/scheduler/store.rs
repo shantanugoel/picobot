@@ -97,6 +97,27 @@ impl ScheduleStore {
             .map_err(|err| SchedulerError::Store(err.to_string()))
     }
 
+    pub fn disable_job(
+        &self,
+        id: &str,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> SchedulerResult<bool> {
+        let now_value = now.to_rfc3339();
+        let updated = self
+            .store
+            .with_connection(|conn| {
+                let updated = conn
+                    .execute(
+                        "UPDATE schedules SET enabled = 0, updated_at = ?1 WHERE id = ?2 AND enabled = 1",
+                        params![now_value, id],
+                    )
+                    .map_err(|err| SessionDbError::QueryFailed(err.to_string()))?;
+                Ok(updated)
+            })
+            .map_err(|err| SchedulerError::Store(err.to_string()))?;
+        Ok(updated > 0)
+    }
+
     #[allow(dead_code)]
     pub fn delete_job(&self, id: &str) -> SchedulerResult<()> {
         self.store
