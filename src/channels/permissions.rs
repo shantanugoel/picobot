@@ -12,6 +12,8 @@ pub fn channel_profile(
 ) -> ChannelPermissionProfile {
     let mut profile = ChannelPermissionProfile::default();
     let Some(channel) = config.profiles.get(channel_id) else {
+        profile.pre_authorized = default_pre_authorized();
+        profile.max_allowed = profile.pre_authorized.clone();
         return profile;
     };
     if channel.pre_authorized.is_none() && channel.max_allowed.is_none() {
@@ -78,7 +80,10 @@ mod tests {
     fn channel_profile_default_for_missing_channel() {
         let config = ChannelsConfig::default();
         let profile = channel_profile(&config, "unknown", PathBuf::from("/tmp").as_path());
-        assert!(profile.pre_authorized.permissions().next().is_none());
+        let required = Permission::MemoryRead {
+            scope: MemoryScope::Session,
+        };
+        assert!(profile.pre_authorized.allows(&required));
     }
 
     #[test]

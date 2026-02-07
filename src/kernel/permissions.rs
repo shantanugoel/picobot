@@ -156,16 +156,6 @@ impl CapabilitySet {
             }
         }
 
-        if let Some(notify) = &config.notify
-            && !notify.allowed_channels.is_empty()
-        {
-            for channel in &notify.allowed_channels {
-                set.insert(Permission::Notify {
-                    channel: channel.clone(),
-                });
-            }
-        }
-
         set
     }
 
@@ -575,7 +565,6 @@ mod tests {
             network: None,
             shell: None,
             schedule: None,
-            notify: None,
         };
         let base = PathBuf::from("/tmp/picobot");
         let set = CapabilitySet::from_config_with_base(&config, &base);

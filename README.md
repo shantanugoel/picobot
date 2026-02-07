@@ -117,13 +117,10 @@ allowed_commands = ["git", "rg"]
 
 [permissions.schedule]
 allowed_actions = ["create", "list", "cancel"]
-
-[permissions.notify]
-allowed_channels = ["whatsapp"]
 ```
 
 Notes:
-- If `[permissions]` is omitted in `picobot.toml`, file/network/shell/schedule/notify are denied.
+- If `[permissions]` is omitted in `picobot.toml`, file/network/shell/schedule are denied.
 - Memory permissions for session/user are auto-granted when those IDs are present in the tool context.
 
 ### Scheduler (Optional)
@@ -152,7 +149,7 @@ max_backoff_ms = 5000
 ```
 
 Notes:
-- The `notify` tool requires `[permissions.notify]` to include the target channel.
+- The `notify` tool requires channel permissions (see channel profiles below).
 - Notifications are only delivered for channels with a notification backend (currently WhatsApp).
 
 ### Memory (Optional)
@@ -169,7 +166,7 @@ include_tool_messages = true
 
 ### Channels & Permission Profiles (Optional)
 
-Each channel can override permissions and prompt settings. Identity is bound to the current context; notify/schedule calls cannot override `user_id` or `channel_id` unless running in system/admin mode.
+Each channel can override permissions and prompt settings. If a channel has no profile, it uses the default pre-authorized set (session memory + notify). Identity is bound to the current context; notify/schedule calls cannot override `user_id` or `channel_id` unless running in system/admin mode.
 
 ```toml
 [channels.profiles.repl]

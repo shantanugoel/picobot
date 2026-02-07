@@ -489,7 +489,6 @@ pub struct PermissionsConfig {
     pub network: Option<NetworkPermissions>,
     pub shell: Option<ShellPermissions>,
     pub schedule: Option<SchedulePermissions>,
-    pub notify: Option<NotifyPermissions>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -513,11 +512,6 @@ pub struct ShellPermissions {
 #[derive(Debug, Deserialize, Default, Clone)]
 pub struct SchedulePermissions {
     pub allowed_actions: Vec<String>,
-}
-
-#[derive(Debug, Deserialize, Default, Clone)]
-pub struct NotifyPermissions {
-    pub allowed_channels: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]

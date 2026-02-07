@@ -180,13 +180,7 @@ pub async fn run(
     let media_root = whatsapp_media_root(&config, &whatsapp_config);
 
     let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let mut profile = channel_profile(&config.channels(), "whatsapp", &base_dir);
-    profile.pre_authorized.insert(Permission::Notify {
-        channel: "whatsapp".to_string(),
-    });
-    profile.max_allowed.insert(Permission::Notify {
-        channel: "whatsapp".to_string(),
-    });
+    let profile = channel_profile(&config.channels(), "whatsapp", &base_dir);
     let base_kernel = kernel
         .with_prompt_profile(profile)
         .with_channel_id(Some("whatsapp".to_string()));
@@ -549,15 +543,16 @@ async fn run_whatsapp_loop(
                     Event::Message(message, info) => {
                         let from = info.source.sender.to_string();
                         if let Some(allowed) = allowed_senders.as_ref()
-                            && !is_allowed_sender(&from, allowed) {
-                                tracing::info!(
-                                    event = "channel_sender_filtered",
-                                    channel_id = "whatsapp",
-                                    user_id = %from,
-                                    "WhatsApp ignored message (not in allowlist)"
-                                );
-                                return;
-                            }
+                            && !is_allowed_sender(&from, allowed)
+                        {
+                            tracing::info!(
+                                event = "channel_sender_filtered",
+                                channel_id = "whatsapp",
+                                user_id = %from,
+                                "WhatsApp ignored message (not in allowlist)"
+                            );
+                            return;
+                        }
                         let text = message.text_content().unwrap_or_default().to_string();
                         let base = message.get_base_message();
                         let attachments = match extract_media_attachments(

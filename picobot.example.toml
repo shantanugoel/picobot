@@ -64,10 +64,6 @@ allowed_commands = ["git", "rg"]
 # Optional
 allowed_actions = ["create", "list", "cancel"]
 
-[permissions.notify]
-# Optional: Channels the bot may notify (use "*" for all).
-allowed_channels = ["whatsapp"]
-
 # --- Optional scheduler configuration ---
 [scheduler]
 enabled = false
