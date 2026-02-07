@@ -188,24 +188,49 @@ The previous implementation is preserved in `reference/` for guidance:
 #### Tasks
 
 1. **Execution Isolation**
-   - [ ] Containerized execution for shell tool (ephemeral containers)
-   - [ ] Resource limits and timeouts for tool execution
+   - [ ] Containerized execution for shell tool (ephemeral containers). Approach: execute shell commands through a runner abstraction backed by OCI containers instead of direct host `tokio::process::Command`. Files: `src/tools/shell.rs`, new `src/tools/shell_runner.rs`, `src/config.rs`.
+   - [ ] Resource limits and timeouts for tool execution. Approach: enforce per-tool timeout/memory/output limits in Kernel/tool adapters and return typed timeout/limit errors. Files: `src/kernel/core.rs`, `src/tools/shell.rs`, `src/tools/http.rs`, `src/tools/multimodal_looker.rs`, `src/config.rs`.
+   - [ ] Add response-size limits and streaming reads for network tools (`http_fetch`, `multimodal_looker`) to prevent unbounded memory use. Approach: consume response streams in chunks and abort after configured byte cap. Files: `src/tools/http.rs`, `src/tools/multimodal_looker.rs`, `src/config.rs`.
 
-2. **Sentinel (HITL) for Shell Commands**
-   - [ ] Add command classifier (pattern-based, safe/risky/deny)
-   - [ ] Add approval policy to shell permissions config
-   - [ ] Implement sync approval for various channels
-   - [ ] Add approval timeout and fallback behavior
+2. **Permission Boundary Hardening**
+   - [ ] Bind `user_id`/`channel_id`/`session_id` to `ToolContext` for user-initiated calls (deny cross-user/channel overrides in tools like `schedule` and `notify`). Approach: ignore or reject identity overrides from tool input unless explicit system/admin execution mode is set. Files: `src/tools/schedule.rs`, `src/tools/notify.rs`, `src/kernel/core.rs`, `src/channels/api.rs`, `src/channels/repl.rs`, `src/channels/whatsapp.rs`.
+   - [ ] Add explicit permission for `notify` in `CapabilitySet`/channel profiles (remove implicit always-allowed behavior). Approach: add notification permission type, parse from config, and enforce in Kernel before enqueueing notifications. Files: `src/kernel/permissions.rs`, `src/config.rs`, `src/channels/permissions.rs`, `src/tools/notify.rs`.
+   - [ ] Reject duplicate tool registrations in `ToolRegistry` (fail fast on duplicate names). Approach: return an error when `register()` sees an existing tool name to avoid schema/tool mismatch ambiguity. Files: `src/tools/registry.rs`, `tests/tool_execution_integration.rs`.
 
-3. **Filesystem Hardening**
-   - [ ] Canonicalize/normalize all paths before checks
-   - [ ] Re-check canonical paths at execution time for writes
-   - [ ] Check if incoming media/documents etc from different users e.g. over whatsapp (or any other channel) have leakage potential to other users via filesystem or shell or other tools
+3. **Sentinel (HITL) for Shell Commands**
+   - [ ] Add command classifier (pattern-based, safe/risky/deny). Approach: classify command + args pre-execution and attach decision metadata to audit logs. Files: `src/tools/shell.rs`, new `src/tools/shell_policy.rs`.
+   - [ ] Add approval policy to shell permissions config. Approach: configurable deny/risky/allow lists and channel-specific overrides. Files: `src/config.rs`, `picobot.example.toml`.
+   - [ ] Implement sync approval for various channels. Approach: use existing prompter path for REPL, and explicit deny or queue-based approval in non-interactive channels. Files: `src/kernel/core.rs`, `src/channels/repl.rs`, `src/channels/api.rs`, `src/channels/whatsapp.rs`.
+   - [ ] Add approval timeout and fallback behavior. Approach: default-deny on timeout for risky commands, configurable per channel. Files: `src/kernel/core.rs`, `src/channels/permissions.rs`, `src/config.rs`.
 
-4. **Audit & Diagnostics**
-   - [ ] Structured audit logs for tool usage
-   - [ ] Log approval decisions with context
-   - [ ] Security-focused documentation updates
+4. **Filesystem Hardening**
+   - [ ] Canonicalize/normalize all paths before checks. Approach: centralize path resolution and jail-root enforcement in one shared helper used by all file-touching tools. Files: `src/tools/path_utils.rs`, `src/tools/filesystem.rs`, `src/tools/multimodal_looker.rs`.
+   - [ ] Re-check canonical paths at execution time for writes. Approach: repeat resolved path and jail checks right before write/open to reduce TOCTOU window. Files: `src/tools/filesystem.rs`.
+   - [ ] Check if incoming media/documents etc from different users e.g. over whatsapp (or any other channel) have leakage potential to other users via filesystem or shell or other tools. Approach: enforce per-session/user media boundaries and ensure no broad read grants are inherited. Files: `src/channels/whatsapp.rs`, `src/tools/multimodal_looker.rs`, `src/tools/shell.rs`, `src/channels/permissions.rs`.
+   - [ ] Remove duplicated path resolution logic and keep one canonical implementation. Files: `src/tools/filesystem.rs`, `src/tools/path_utils.rs`.
+
+5. **Network Hardening**
+   - [ ] Harden SSRF checks for IPv6 and non-global address ranges (loopback/link-local/ULA/etc). Approach: block all non-global resolved addresses and keep scheme/credential restrictions strict. Files: `src/tools/net_utils.rs`, `src/tools/http.rs`, `src/tools/multimodal_looker.rs`.
+   - [ ] Add regression tests for DNS resolution safeguards across IPv4 + IPv6. Files: `src/tools/http.rs`, `src/tools/net_utils.rs`, `tests/tool_execution_integration.rs`.
+
+6. **Scheduler & Notification Safety**
+   - [ ] Fix schedule cancel semantics so canceling a job also disables/deletes persisted schedule state (not only in-flight cancellation). Approach: owner-verified cancel should update persistent schedule state and optionally stop in-flight run. Files: `src/tools/schedule.rs`, `src/scheduler/service.rs`, `src/scheduler/store.rs`, `src/main.rs`.
+   - [ ] Bound notification queue in-memory record growth (retention cap/TTL or persistence-backed pruning). Files: `src/notifications/queue.rs`, `src/notifications/service.rs`.
+
+7. **Audit & Diagnostics**
+   - [ ] Structured audit logs for tool usage. Approach: include actor identity, channel/session, tool name, decision, and outcome. Files: `src/kernel/core.rs`, `src/channels/*`, `src/scheduler/executor.rs`.
+   - [ ] Log permission denials for identity mismatch, SSRF blocks, and restricted notification attempts. Files: `src/kernel/core.rs`, `src/tools/net_utils.rs`, `src/tools/notify.rs`, `src/tools/schedule.rs`.
+   - [ ] Log approval decisions with context. Files: `src/kernel/core.rs`, `src/channels/repl.rs`, `src/channels/permissions.rs`.
+   - [ ] Add security regression tests (cross-user spoofing, cancel semantics, SSRF, download limits, duplicate tool registration). Files: `tests/kernel_integration.rs`, `tests/tool_execution_integration.rs`, `tests/scheduler_integration.rs`.
+   - [ ] Security-focused documentation updates. Files: `README.md`, `picobot.example.toml`, `AGENTS.md`.
+
+8. **Codebase Cleanup (Security-Adjacent)**
+   - [ ] Remove duplicated WhatsApp sender filtering path to keep one enforcement point and one audit trail. Files: `src/channels/whatsapp.rs`.
+   - [ ] Resolve current dead-code warnings for security-relevant paths and diagnostics structs/traits. Files: `src/channels/whatsapp.rs`, `src/notifications/channel.rs`, `src/notifications/queue.rs`, `src/notifications/service.rs`, `src/session/error.rs`.
+
+9. **Prompts**
+    - [ ] Update system prompt to be more robust, ensure toolcalling/action oritented "concierge" agent instead of relying on training data all the time, security hardened, concise and not overly verbose and anything else that you think would be needed for an agent like picobot that is useful as a handy man to the user and not just an answer bot
+    - [ ] Review and update descriptions etc for the tools to make them more robust
 
 ### Phase 5: Server Channels & Advanced Tools (Future)
 
@@ -214,8 +239,12 @@ The previous implementation is preserved in `reference/` for guidance:
 #### Tasks
 
 1. **Server Core** (`src/channels/`)
-   - [ ] Implement Axum-based REST API
-   - [ ] WebSocket server for real-time streaming tokens
+   - [ ] Implement Axum-based REST API. Approach: evolve current `/prompt` into versioned authenticated API surface instead of single open endpoint. Files: `src/channels/api.rs`, `src/main.rs`.
+   - [ ] WebSocket server for real-time streaming tokens. Files: new `src/channels/websocket.rs`, `src/main.rs`.
+   - [ ] Add channel authentication/authorization and map authenticated identity into `ToolContext` (no client-controlled impersonation). Files: `src/channels/api.rs`, `src/kernel/core.rs`, `src/tools/traits.rs`.
+   - [ ] Add per-channel rate limits and request body size limits. Files: `src/channels/api.rs`, `src/config.rs`.
+   - [ ] Add secure schedule-management endpoints with owner checks and true cancel behavior. Files: `src/channels/api.rs`, `src/tools/schedule.rs`, `src/scheduler/service.rs`, `src/scheduler/store.rs`.
+   - [ ] Add API integration tests for authz boundaries and anti-impersonation behavior. Files: new `tests/api_integration.rs`.
 
 2. **Remote Browser Tool**
    - [ ] Containerized headless Chrome/Chromium
