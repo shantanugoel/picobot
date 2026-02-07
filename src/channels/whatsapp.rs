@@ -302,6 +302,14 @@ pub async fn run(
             let _user_guard = user_lock.lock().await;
             let user_id = message.user_id.clone();
             let session_id = format!("whatsapp:{user_id}");
+            tracing::info!(
+                event = "channel_prompt",
+                channel_id = "whatsapp",
+                user_id = %user_id,
+                session_id = %session_id,
+                prompt_len = message.text.len(),
+                "whatsapp prompt received"
+            );
             let session = match session_manager.get_session(&session_id) {
                 Ok(Some(session)) => session,
                 Ok(None) => match session_manager.create_session(
@@ -409,6 +417,14 @@ pub async fn run(
                         format!("Sorry, something went wrong: {err}")
                     }
                 };
+            tracing::info!(
+                event = "channel_prompt_complete",
+                channel_id = "whatsapp",
+                user_id = %user_id,
+                session_id = %session.id,
+                response_len = response.len(),
+                "whatsapp prompt completed"
+            );
             let assistant_message = StoredMessage {
                 message_type: MessageType::Assistant,
                 content: response.clone(),

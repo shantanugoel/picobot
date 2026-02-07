@@ -126,7 +126,7 @@ impl ToolExecutor for MultimodalLookerTool {
 
         let (bytes, mime_type, label, size) = if is_url(source) {
             let host = parse_host(source)?;
-            ensure_allowed_url(source, &host).await?;
+            ensure_allowed_url(source, &host, Some(ctx)).await?;
             download_url(&self.client, source, self.max_media_size_bytes).await?
         } else {
             let resolved = resolve_path(&ctx.working_dir, ctx.jail_root.as_deref(), source)?;

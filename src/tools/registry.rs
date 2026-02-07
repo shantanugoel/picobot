@@ -23,6 +23,11 @@ impl ToolRegistry {
 
     pub fn register(&mut self, tool: Arc<dyn ToolExecutor>) -> Result<(), ToolError> {
         let name = tool.spec().name.clone();
+        if self.schemas.contains_key(&name) {
+            return Err(ToolError::new(format!(
+                "duplicate tool registration for '{name}'",
+            )));
+        }
         let schema = tool.spec().schema.clone();
         let validator = jsonschema::validator_for(&schema)
             .map_err(|err| ToolError::new(format!("invalid schema for '{name}': {err}")))?;

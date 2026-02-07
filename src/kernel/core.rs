@@ -8,6 +8,15 @@ use crate::scheduler::service::SchedulerService;
 use crate::tools::registry::ToolRegistry;
 use crate::tools::traits::{ToolContext, ToolError, ToolExecutor, ToolOutput};
 
+#[derive(Debug, Clone, Copy)]
+enum DecisionSource {
+    Capabilities,
+    ExtraGrants,
+    PreAuthorized,
+    SessionGrants,
+    AutoGranted,
+}
+
 #[derive(Clone)]
 pub struct Kernel {
     tool_registry: Arc<ToolRegistry>,
@@ -156,7 +165,16 @@ impl Kernel {
                 .load(std::sync::atomic::Ordering::Relaxed)
             && tool.spec().name != "notify"
         {
-            tracing::info!(tool = %tool.spec().name, "scheduled job already notified; skipping tool call");
+            tracing::info!(
+                event = "tool_skipped",
+                tool = %tool.spec().name,
+                user_id = ?self.context.user_id,
+                session_id = ?self.context.session_id,
+                channel_id = ?self.context.channel_id,
+                scheduled = self.context.scheduled_job,
+                reason = "scheduled_job_already_notified",
+                "scheduled job already notified; skipping tool call"
+            );
             return Ok(json!({
                 "status": "skipped",
                 "reason": "scheduled job already notified"
@@ -176,36 +194,91 @@ impl Kernel {
         let required = self
             .tool_registry
             .required_permissions(tool, &self.context, &input)?;
-        let allowed = match tool.spec().name.as_str() {
-            "schedule" => {
-                self.context.capabilities.allows_any(&required)
-                    || extra_grants
-                        .map(|grants| grants.allows_any(&required))
-                        .unwrap_or(false)
-                    || self.prompt_profile.pre_authorized.allows_any(&required)
-                    || self
-                        .session_grants
-                        .read()
-                        .map(|grants| grants.allows_any(&required))
-                        .unwrap_or(false)
+        tracing::info!(
+            event = "tool_usage",
+            tool = %tool.spec().name,
+            user_id = ?self.context.user_id,
+            session_id = ?self.context.session_id,
+            channel_id = ?self.context.channel_id,
+            scheduled = self.context.scheduled_job,
+            "tool usage requested"
+        );
+        let any_mode = tool.spec().name.as_str() == "schedule";
+        let decision_source = if any_mode {
+            if self.context.capabilities.allows_any(&required) {
+                Some(DecisionSource::Capabilities)
+            } else if extra_grants
+                .map(|grants| grants.allows_any(&required))
+                .unwrap_or(false)
+            {
+                Some(DecisionSource::ExtraGrants)
+            } else if self.prompt_profile.pre_authorized.allows_any(&required) {
+                Some(DecisionSource::PreAuthorized)
+            } else if self
+                .session_grants
+                .read()
+                .map(|grants| grants.allows_any(&required))
+                .unwrap_or(false)
+            {
+                Some(DecisionSource::SessionGrants)
+            } else if required
+                .iter()
+                .all(|permission| permission.is_auto_granted(&self.context))
+            {
+                Some(DecisionSource::AutoGranted)
+            } else {
+                None
             }
-            _ => {
-                self.context.capabilities.allows_all(&required)
-                    || extra_grants
-                        .map(|grants| grants.allows_all(&required))
-                        .unwrap_or(false)
-                    || self.prompt_profile.pre_authorized.allows_all(&required)
-                    || self
-                        .session_grants
-                        .read()
-                        .map(|grants| grants.allows_all(&required))
-                        .unwrap_or(false)
-            }
-        } || required
+        } else if self.context.capabilities.allows_all(&required) {
+            Some(DecisionSource::Capabilities)
+        } else if extra_grants
+            .map(|grants| grants.allows_all(&required))
+            .unwrap_or(false)
+        {
+            Some(DecisionSource::ExtraGrants)
+        } else if self.prompt_profile.pre_authorized.allows_all(&required) {
+            Some(DecisionSource::PreAuthorized)
+        } else if self
+            .session_grants
+            .read()
+            .map(|grants| grants.allows_all(&required))
+            .unwrap_or(false)
+        {
+            Some(DecisionSource::SessionGrants)
+        } else if required
             .iter()
-            .all(|permission| permission.is_auto_granted(&self.context));
-        if !allowed {
-            tracing::warn!(permissions = ?required, "tool permission denied");
+            .all(|permission| permission.is_auto_granted(&self.context))
+        {
+            Some(DecisionSource::AutoGranted)
+        } else {
+            None
+        };
+        if let Some(source) = decision_source {
+            tracing::info!(
+                event = "tool_decision",
+                tool = %tool.spec().name,
+                user_id = ?self.context.user_id,
+                session_id = ?self.context.session_id,
+                channel_id = ?self.context.channel_id,
+                scheduled = self.context.scheduled_job,
+                decision = "allowed",
+                decision_source = ?source,
+                permissions = ?required,
+                "tool permission granted"
+            );
+        } else {
+            tracing::warn!(
+                event = "tool_decision",
+                tool = %tool.spec().name,
+                user_id = ?self.context.user_id,
+                session_id = ?self.context.session_id,
+                channel_id = ?self.context.channel_id,
+                scheduled = self.context.scheduled_job,
+                decision = "denied",
+                decision_source = "none",
+                permissions = ?required,
+                "tool permission denied"
+            );
             return Err(ToolError::permission_denied(
                 format!("permission denied for tool '{}'", tool.spec().name),
                 required,
@@ -219,18 +292,54 @@ impl Kernel {
             let mut scoped = self.context.clone();
             scoped.capabilities = Arc::new(merged);
             let output = tool.execute(&scoped, input).await;
-            if let Err(err) = &output {
-                tracing::error!(error = %err, "tool execution failed");
-            } else {
-                tracing::info!("tool execution succeeded");
+            match &output {
+                Ok(_) => tracing::info!(
+                    event = "tool_outcome",
+                    tool = %tool.spec().name,
+                    user_id = ?self.context.user_id,
+                    session_id = ?self.context.session_id,
+                    channel_id = ?self.context.channel_id,
+                    scheduled = self.context.scheduled_job,
+                    outcome = "success",
+                    "tool execution succeeded"
+                ),
+                Err(err) => tracing::error!(
+                    event = "tool_outcome",
+                    tool = %tool.spec().name,
+                    user_id = ?self.context.user_id,
+                    session_id = ?self.context.session_id,
+                    channel_id = ?self.context.channel_id,
+                    scheduled = self.context.scheduled_job,
+                    outcome = "error",
+                    error = %err,
+                    "tool execution failed"
+                ),
             }
             output
         } else {
             let output = tool.execute(&self.context, input).await;
-            if let Err(err) = &output {
-                tracing::error!(error = %err, "tool execution failed");
-            } else {
-                tracing::info!("tool execution succeeded");
+            match &output {
+                Ok(_) => tracing::info!(
+                    event = "tool_outcome",
+                    tool = %tool.spec().name,
+                    user_id = ?self.context.user_id,
+                    session_id = ?self.context.session_id,
+                    channel_id = ?self.context.channel_id,
+                    scheduled = self.context.scheduled_job,
+                    outcome = "success",
+                    "tool execution succeeded"
+                ),
+                Err(err) => tracing::error!(
+                    event = "tool_outcome",
+                    tool = %tool.spec().name,
+                    user_id = ?self.context.user_id,
+                    session_id = ?self.context.session_id,
+                    channel_id = ?self.context.channel_id,
+                    scheduled = self.context.scheduled_job,
+                    outcome = "error",
+                    error = %err,
+                    "tool execution failed"
+                ),
             }
             output
         }
@@ -254,6 +363,23 @@ impl Kernel {
                         .iter()
                         .all(|permission| permission.is_auto_granted(&self.context))
                 {
+                let reason = if self.context.scheduled_job {
+                    "scheduled_job"
+                } else if !self.prompt_profile.allow_user_prompts {
+                    "prompts_disabled"
+                } else {
+                    "auto_granted"
+                };
+                tracing::debug!(
+                    event = "prompt_skipped",
+                    reason,
+                    tool = %tool.spec().name,
+                    user_id = ?self.context.user_id,
+                    session_id = ?self.context.session_id,
+                    channel_id = ?self.context.channel_id,
+                    permissions = ?required,
+                    "prompt skipped"
+                );
                     return Err(err);
                 }
                 let promptable = match tool.spec().name.as_str() {
@@ -261,12 +387,43 @@ impl Kernel {
                     _ => self.prompt_profile.max_allowed.allows_all(required),
                 };
                 if !promptable {
+                    tracing::debug!(
+                        event = "prompt_skipped",
+                        reason = "not_in_max_allowed",
+                        tool = %tool.spec().name,
+                        user_id = ?self.context.user_id,
+                        session_id = ?self.context.session_id,
+                        channel_id = ?self.context.channel_id,
+                        permissions = ?required,
+                        "prompt skipped"
+                    );
                     return Err(err);
                 }
                 let prompter = match self.prompter.as_ref() {
                     Some(prompter) => prompter.clone(),
-                    None => return Err(err),
+                    None => {
+                        tracing::debug!(
+                            event = "prompt_skipped",
+                            reason = "no_prompter",
+                            tool = %tool.spec().name,
+                            user_id = ?self.context.user_id,
+                            session_id = ?self.context.session_id,
+                            channel_id = ?self.context.channel_id,
+                            permissions = ?required,
+                            "prompt skipped"
+                        );
+                        return Err(err);
+                    }
                 };
+                tracing::info!(
+                    event = "prompt_issued",
+                    tool = %tool.spec().name,
+                    user_id = ?self.context.user_id,
+                    session_id = ?self.context.session_id,
+                    channel_id = ?self.context.channel_id,
+                    permissions = ?required,
+                    "prompt issued"
+                );
                 let decision = prompter
                     .prompt(
                         tool.spec().name.as_str(),
@@ -276,6 +433,15 @@ impl Kernel {
                     .await;
                 match decision {
                     Some(crate::kernel::permissions::PromptDecision::AllowOnce) => {
+                        tracing::info!(
+                            event = "prompt_decision",
+                            tool = %tool.spec().name,
+                            user_id = ?self.context.user_id,
+                            session_id = ?self.context.session_id,
+                            channel_id = ?self.context.channel_id,
+                            decision = "allow_once",
+                            "prompt decision"
+                        );
                         let mut grants = CapabilitySet::from_permissions(required);
                         for permission in self.prompt_profile.pre_authorized.permissions() {
                             grants.insert(permission.clone());
@@ -284,6 +450,15 @@ impl Kernel {
                             .await
                     }
                     Some(crate::kernel::permissions::PromptDecision::AllowSession) => {
+                        tracing::info!(
+                            event = "prompt_decision",
+                            tool = %tool.spec().name,
+                            user_id = ?self.context.user_id,
+                            session_id = ?self.context.session_id,
+                            channel_id = ?self.context.channel_id,
+                            decision = "allow_session",
+                            "prompt decision"
+                        );
                         if let Ok(mut session_grants) = self.session_grants.write() {
                             for permission in required {
                                 session_grants.insert(permission.clone());
@@ -291,7 +466,30 @@ impl Kernel {
                         }
                         self.invoke_tool(tool, input).await
                     }
-                    _ => Err(err),
+                    Some(crate::kernel::permissions::PromptDecision::Deny) => {
+                        tracing::info!(
+                            event = "prompt_decision",
+                            tool = %tool.spec().name,
+                            user_id = ?self.context.user_id,
+                            session_id = ?self.context.session_id,
+                            channel_id = ?self.context.channel_id,
+                            decision = "deny",
+                            "prompt decision"
+                        );
+                        Err(err)
+                    }
+                    None => {
+                        tracing::info!(
+                            event = "prompt_decision",
+                            tool = %tool.spec().name,
+                            user_id = ?self.context.user_id,
+                            session_id = ?self.context.session_id,
+                            channel_id = ?self.context.channel_id,
+                            decision = "timeout",
+                            "prompt decision"
+                        );
+                        Err(err)
+                    }
                 }
             }
         }

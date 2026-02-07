@@ -127,16 +127,44 @@ fn create_job(
         .and_then(Value::as_str)
         .map(|value| value.to_string())
         .or_else(|| ctx.session_id.clone());
-    let user_id = input
+    let input_user = input
         .get("user_id")
         .and_then(Value::as_str)
-        .map(|value| value.to_string())
+        .map(|value| value.to_string());
+    if let (Some(input_user), Some(ctx_user)) = (input_user.as_deref(), ctx.user_id.as_deref()) {
+        if input_user != ctx_user {
+            tracing::warn!(
+                event = "identity_mismatch",
+                tool = "schedule",
+                field = "user_id",
+                input = %input_user,
+                context = %ctx_user,
+                "schedule user_id does not match context"
+            );
+        }
+    }
+    let user_id = input_user
         .or_else(|| ctx.user_id.clone())
         .ok_or_else(|| ToolError::new("missing user_id".to_string()))?;
-    let channel_id = input
+    let input_channel = input
         .get("channel_id")
         .and_then(Value::as_str)
-        .map(|value| value.to_string())
+        .map(|value| value.to_string());
+    if let (Some(input_channel), Some(ctx_channel)) =
+        (input_channel.as_deref(), ctx.channel_id.as_deref())
+    {
+        if input_channel != ctx_channel {
+            tracing::warn!(
+                event = "identity_mismatch",
+                tool = "schedule",
+                field = "channel_id",
+                input = %input_channel,
+                context = %ctx_channel,
+                "schedule channel_id does not match context"
+            );
+        }
+    }
+    let channel_id = input_channel
         .or_else(|| ctx.channel_id.clone())
         .or_else(|| session_id.as_deref().and_then(channel_id_from_session));
     let enabled = input
@@ -306,6 +334,15 @@ fn cancel_job(
         .map_err(|err| ToolError::new(err.to_string()))?
         .ok_or_else(|| ToolError::new("job not found".to_string()))?;
     if job.user_id != *user_id {
+        tracing::warn!(
+            event = "permission_denied",
+            reason = "identity_mismatch",
+            tool = "schedule",
+            job_id = %job_id,
+            input_user = %user_id,
+            owner = %job.user_id,
+            "schedule cancel denied: job not owned by user"
+        );
         return Err(ToolError::new("job not owned by user".to_string()));
     }
     let cancelled = scheduler

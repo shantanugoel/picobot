@@ -120,3 +120,19 @@ async fn kernel_unknown_tool_returns_error() {
         .await;
     assert!(result.is_err());
 }
+
+#[tokio::test]
+async fn kernel_denies_missing_permissions() {
+    let required = vec![read_permission()];
+    let mut registry = ToolRegistry::new();
+    registry
+        .register(Arc::new(StaticTool::new("dummy", required.clone())))
+        .unwrap();
+    let registry = Arc::new(registry);
+
+    let kernel = Kernel::new(registry);
+    let result = kernel
+        .invoke_tool_with_prompt_by_name("dummy", json!({}))
+        .await;
+    assert!(result.is_err());
+}

@@ -30,11 +30,24 @@ async fn prompt_handler(
     State(state): State<AppState>,
     Json(payload): Json<PromptRequest>,
 ) -> Result<Json<PromptResponse>, (StatusCode, String)> {
+    tracing::info!(
+        event = "channel_prompt",
+        channel_id = "api",
+        prompt_len = payload.prompt.len(),
+        max_turns = state.max_turns,
+        "api prompt received"
+    );
     let response = state
         .agent
-        .prompt_with_turns_retry(payload.prompt, state.max_turns, DEFAULT_PROVIDER_RETRIES)
+        .prompt_with_turns_retry(payload.prompt.clone(), state.max_turns, DEFAULT_PROVIDER_RETRIES)
         .await
         .map_err(map_provider_error)?;
+    tracing::info!(
+        event = "channel_prompt_complete",
+        channel_id = "api",
+        response_len = response.len(),
+        "api prompt completed"
+    );
     Ok(Json(PromptResponse { response }))
 }
 
@@ -45,7 +58,11 @@ pub async fn serve(
 ) -> Result<()> {
     let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let profile = channel_profile(&config.channels(), "api", &base_dir);
-    let kernel = Arc::new(kernel.with_prompt_profile(profile));
+    let kernel = Arc::new(
+        kernel
+            .with_prompt_profile(profile)
+            .with_channel_id(Some("api".to_string())),
+    );
     let agent = if let Ok(router) =
         crate::providers::factory::ProviderFactory::build_agent_router(&config)
         && !router.is_empty()

@@ -86,18 +86,38 @@ impl PermissionPrompter for ReplPrompter {
         for permission in permissions {
             println!("- {permission}");
         }
+        tracing::info!(
+            event = "prompt_requested",
+            tool = %tool_name,
+            permissions = ?permissions,
+            timeout_secs,
+            "permission prompt requested"
+        );
         print!("Allow? [o]nce / [s]ession / [n]o (timeout {timeout_secs}s): ");
         let _ = io::stdout().flush();
         let mut input = String::new();
         if io::stdin().read_line(&mut input).is_err() {
+            tracing::warn!(
+                event = "prompt_decision",
+                tool = %tool_name,
+                decision = "input_error",
+                "failed to read prompt input"
+            );
             return None;
         }
-        match input.trim().to_ascii_lowercase().as_str() {
+        let decision = match input.trim().to_ascii_lowercase().as_str() {
             "o" | "once" => Some(PromptDecision::AllowOnce),
             "s" | "session" => Some(PromptDecision::AllowSession),
             "n" | "no" => Some(PromptDecision::Deny),
             _ => None,
-        }
+        };
+        tracing::info!(
+            event = "prompt_decision",
+            tool = %tool_name,
+            decision = ?decision,
+            "permission prompt decision"
+        );
+        decision
     }
 }
 
@@ -240,6 +260,14 @@ pub async fn run(
             }
         }
 
+        tracing::info!(
+            event = "channel_prompt",
+            channel_id = "repl",
+            user_id = %session.user_id,
+            session_id = %session.id,
+            prompt_len = prompt_to_send.len(),
+            "repl prompt received"
+        );
         let response = match &agent {
             crate::providers::factory::ProviderAgent::OpenAI(inner) => {
                 stream_prompt_to_stdout(inner, &prompt_to_send, config.max_turns()).await
@@ -259,6 +287,14 @@ pub async fn run(
                 continue;
             }
         };
+        tracing::info!(
+            event = "channel_prompt_complete",
+            channel_id = "repl",
+            user_id = %session.user_id,
+            session_id = %session.id,
+            response_len = response.len(),
+            "repl prompt completed"
+        );
 
         let assistant_message = StoredMessage {
             message_type: MessageType::Assistant,

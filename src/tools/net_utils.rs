@@ -2,7 +2,7 @@ use std::net::IpAddr;
 
 use reqwest::Url;
 
-use crate::tools::traits::ToolError;
+use crate::tools::traits::{ToolContext, ToolError};
 
 pub(crate) fn parse_host(url: &str) -> Result<String, ToolError> {
     let parsed = Url::parse(url).map_err(|err| ToolError::new(err.to_string()))?;
@@ -16,9 +16,31 @@ pub(crate) fn parse_host(url: &str) -> Result<String, ToolError> {
         .ok_or_else(|| ToolError::new("missing host".to_string()))
 }
 
-pub(crate) async fn ensure_allowed_url(url: &str, host: &str) -> Result<(), ToolError> {
+pub(crate) async fn ensure_allowed_url(
+    url: &str,
+    host: &str,
+    ctx: Option<&ToolContext>,
+) -> Result<(), ToolError> {
     let parsed = Url::parse(url).map_err(|err| ToolError::new(err.to_string()))?;
+    let (user_id, session_id, channel_id) = ctx
+        .map(|ctx| {
+            (
+                ctx.user_id.as_deref(),
+                ctx.session_id.as_deref(),
+                ctx.channel_id.as_deref(),
+            )
+        })
+        .unwrap_or((None, None, None));
     if parsed.username() != "" || parsed.password().is_some() {
+        tracing::warn!(
+            event = "ssrf_blocked",
+            reason = "credentials",
+            host = %host,
+            user_id = ?user_id,
+            session_id = ?session_id,
+            channel_id = ?channel_id,
+            "credentials in URL are not allowed"
+        );
         return Err(ToolError::new(
             "credentials in URL are not allowed".to_string(),
         ));
@@ -29,6 +51,16 @@ pub(crate) async fn ensure_allowed_url(url: &str, host: &str) -> Result<(), Tool
         .map_err(|err| ToolError::new(err.to_string()))?;
     for addr in addrs {
         if is_private_ip(addr.ip()) {
+            tracing::warn!(
+                event = "ssrf_blocked",
+                reason = "private_ip",
+                host = %host,
+                ip = %addr.ip(),
+                user_id = ?user_id,
+                session_id = ?session_id,
+                channel_id = ?channel_id,
+                "SSRF blocked: host resolves to private IP"
+            );
             return Err(ToolError::new(format!(
                 "SSRF blocked: {host} resolves to private IP {}",
                 addr.ip()
@@ -38,7 +70,7 @@ pub(crate) async fn ensure_allowed_url(url: &str, host: &str) -> Result<(), Tool
     Ok(())
 }
 
-pub(crate) fn is_private_ip(ip: IpAddr) -> bool {
+pub fn is_private_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => {
             v4.is_private()
@@ -48,6 +80,18 @@ pub(crate) fn is_private_ip(ip: IpAddr) -> bool {
                 || v4.is_unspecified()
                 || v4.octets()[0] == 169
         }
-        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
+        IpAddr::V6(v6) => {
+            let seg0 = v6.segments()[0];
+            let seg1 = v6.segments()[1];
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || (seg0 & 0xffc0) == 0xfe80
+                || (seg0 & 0xfe00) == 0xfc00
+                || (seg0 == 0x2001 && seg1 == 0x0db8)
+                || v6
+                    .to_ipv4_mapped()
+                    .map(|v4| is_private_ip(IpAddr::V4(v4)))
+                    .unwrap_or(false)
+        }
     }
 }

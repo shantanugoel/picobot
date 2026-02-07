@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::config::ChannelsConfig;
 use crate::kernel::permissions::{
-    CapabilitySet, ChannelPermissionProfile, MemoryScope, Permission, parse_permission_with_base,
+    parse_permission_with_base, CapabilitySet, ChannelPermissionProfile, MemoryScope, Permission,
 };
 
 pub fn channel_profile(
@@ -40,7 +40,12 @@ fn parse_permissions(entries: Option<&Vec<String>>, base_dir: &Path) -> Capabili
                 set.insert(permission);
             }
             Err(err) => {
-                tracing::warn!(permission = %entry, error = %err, "invalid channel permission");
+                tracing::warn!(
+                    event = "permission_parse_error",
+                    permission = %entry,
+                    error = %err,
+                    "invalid channel permission"
+                );
             }
         }
     }

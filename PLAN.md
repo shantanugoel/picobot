@@ -188,10 +188,10 @@ The previous implementation is preserved in `reference/` for guidance:
 #### Tasks (implementation sequence)
 
 1. **Security Regression Harness & Audit Baseline**
-   - [ ] Add security regression tests first (cross-user spoofing, cancel semantics, SSRF, download limits, duplicate tool registration). Files: `tests/kernel_integration.rs`, `tests/tool_execution_integration.rs`, `tests/scheduler_integration.rs`.
-   - [ ] Structured audit logs for tool usage. Approach: include actor identity, channel/session, tool name, decision, and outcome. Files: `src/kernel/core.rs`, `src/channels/*`, `src/scheduler/executor.rs`.
-   - [ ] Log permission denials for identity mismatch, SSRF blocks, and restricted notification attempts. Files: `src/kernel/core.rs`, `src/tools/net_utils.rs`, `src/tools/notify.rs`, `src/tools/schedule.rs`.
-   - [ ] Log approval decisions with context for interactive channels. Files: `src/kernel/core.rs`, `src/channels/repl.rs`, `src/channels/permissions.rs`.
+   - [x] Add security regression tests first (cross-user spoofing, cancel semantics, SSRF, download limits, duplicate tool registration). Files: `tests/kernel_integration.rs`, `tests/tool_execution_integration.rs`, `tests/scheduler_integration.rs`.
+   - [x] Structured audit logs for tool usage. Approach: include actor identity, channel/session, tool name, decision, and outcome. Files: `src/kernel/core.rs`, `src/channels/*`, `src/scheduler/executor.rs`.
+   - [x] Log permission denials for identity mismatch, SSRF blocks, and restricted notification attempts. Files: `src/kernel/core.rs`, `src/tools/net_utils.rs`, `src/tools/notify.rs`, `src/tools/schedule.rs`.
+   - [x] Log approval decisions with context for interactive channels. Files: `src/kernel/core.rs`, `src/channels/repl.rs`, `src/channels/permissions.rs`.
 
 2. **Permission Boundary Hardening**
    - [ ] Bind `user_id`/`channel_id`/`session_id` to `ToolContext` for user-initiated calls (deny cross-user/channel overrides in tools like `schedule` and `notify`). Approach: reject identity overrides from tool input unless explicit system/admin execution mode is set. Files: `src/tools/schedule.rs`, `src/tools/notify.rs`, `src/kernel/core.rs`, `src/channels/api.rs`, `src/channels/repl.rs`, `src/channels/whatsapp.rs`.

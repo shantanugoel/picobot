@@ -63,6 +63,15 @@ impl JobExecutor {
         let execution_id = uuid::Uuid::new_v4().to_string();
         let _job_id = job.id.clone();
         let _user_id = job.user_id.clone();
+        tracing::info!(
+            event = "scheduler_job_start",
+            job_id = %job.id,
+            user_id = %job.user_id,
+            session_id = ?job.session_id,
+            channel_id = ?job.channel_id,
+            schedule_type = ?job.schedule_type,
+            "scheduler job execution started"
+        );
         let started_at = chrono::Utc::now();
         let mut execution = JobExecution {
             id: execution_id,
@@ -176,6 +185,16 @@ impl JobExecutor {
         if let Err(err) = self.store.update_job(&job) {
             tracing::error!(error = %err, "failed to persist job state");
         }
+
+        tracing::info!(
+            event = "scheduler_job_end",
+            job_id = %job.id,
+            user_id = %job.user_id,
+            session_id = ?job.session_id,
+            channel_id = ?job.channel_id,
+            status = ?execution.status,
+            "scheduler job execution finished"
+        );
 
         if let Some(channel_id) = job.channel_id.clone() {
             if should_notify && !agent_notified {

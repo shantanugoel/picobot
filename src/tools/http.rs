@@ -64,7 +64,7 @@ impl ToolExecutor for HttpTool {
         }])
     }
 
-    async fn execute(&self, _ctx: &ToolContext, input: Value) -> Result<ToolOutput, ToolError> {
+    async fn execute(&self, ctx: &ToolContext, input: Value) -> Result<ToolOutput, ToolError> {
         let url = input
             .get("url")
             .and_then(Value::as_str)
@@ -74,7 +74,7 @@ impl ToolExecutor for HttpTool {
         let body = input.get("body").and_then(Value::as_str);
 
         let host = parse_host(url)?;
-        ensure_allowed_url(url, &host).await?;
+        ensure_allowed_url(url, &host, Some(ctx)).await?;
 
         let mut request = match method {
             "GET" => self.client.get(url),

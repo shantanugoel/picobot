@@ -51,16 +51,45 @@ impl ToolExecutor for NotifyTool {
             .get("message")
             .and_then(Value::as_str)
             .ok_or_else(|| ToolError::new("missing message".to_string()))?;
-        let user_id = input
+        let input_user = input
             .get("user_id")
             .and_then(Value::as_str)
-            .map(|value| value.to_string())
+            .map(|value| value.to_string());
+        if let (Some(input_user), Some(ctx_user)) = (input_user.as_deref(), ctx.user_id.as_deref())
+        {
+            if input_user != ctx_user {
+                tracing::warn!(
+                    event = "identity_mismatch",
+                    tool = "notify",
+                    field = "user_id",
+                    input = %input_user,
+                    context = %ctx_user,
+                    "notify user_id does not match context"
+                );
+            }
+        }
+        let user_id = input_user
             .or_else(|| ctx.user_id.clone())
             .ok_or_else(|| ToolError::new("missing user_id".to_string()))?;
-        let channel_id = input
+        let input_channel = input
             .get("channel_id")
             .and_then(Value::as_str)
-            .map(|value| value.to_string())
+            .map(|value| value.to_string());
+        if let (Some(input_channel), Some(ctx_channel)) =
+            (input_channel.as_deref(), ctx.channel_id.as_deref())
+        {
+            if input_channel != ctx_channel {
+                tracing::warn!(
+                    event = "identity_mismatch",
+                    tool = "notify",
+                    field = "channel_id",
+                    input = %input_channel,
+                    context = %ctx_channel,
+                    "notify channel_id does not match context"
+                );
+            }
+        }
+        let channel_id = input_channel
             .or_else(|| ctx.channel_id.clone())
             .or_else(|| {
                 ctx.session_id.as_deref().and_then(|value| {
@@ -70,10 +99,18 @@ impl ToolExecutor for NotifyTool {
                 })
             })
             .ok_or_else(|| ToolError::new("missing channel_id".to_string()))?;
-        let service = ctx
-            .notifications
-            .as_ref()
-            .ok_or_else(|| ToolError::new("notifications not available".to_string()))?;
+        let service = ctx.notifications.as_ref().ok_or_else(|| {
+            tracing::warn!(
+                event = "notification_restricted",
+                reason = "service_unavailable",
+                tool = "notify",
+                user_id = ?ctx.user_id,
+                session_id = ?ctx.session_id,
+                channel_id = ?ctx.channel_id,
+                "notifications not available"
+            );
+            ToolError::new("notifications not available".to_string())
+        })?;
         let request = NotificationRequest {
             user_id: user_id.clone(),
             channel_id: channel_id.clone(),
