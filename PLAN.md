@@ -259,6 +259,8 @@ The previous implementation is preserved in `reference/` for guidance:
 
 4. **Skill System to add new skills via skill files**
     - [ ] A skill system like openclaw but should be very secure. Any code executions should likely be sandboxed to avoid impacting picobot itself or anything on the server its running on.
+    - [ ] Evaluate whether we need a separate code execution tool or it should be part of this itself
+    - [ ] Evaluate persistent vs ephemeral skill system
 
 5. **Deployment**
     - [ ] Dockerize 
