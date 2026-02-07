@@ -271,7 +271,7 @@ impl JobExecutor {
             job.task_prompt
         );
         let response = agent
-            .prompt_with_turns_retry(prompt, 8, DEFAULT_PROVIDER_RETRIES)
+            .prompt_with_turns_retry_usage(prompt, 8, DEFAULT_PROVIDER_RETRIES)
             .await;
         let agent_notified = scoped_kernel
             .context()
@@ -279,10 +279,29 @@ impl JobExecutor {
             .load(std::sync::atomic::Ordering::Relaxed);
 
         match response {
-            Ok(text) => ExecutionOutcome::Completed {
-                response: Some(text),
-                agent_notified,
-            },
+            Ok((text, usage)) => {
+                let usage_event = crate::session::types::UsageEvent {
+                    session_id: job.session_id.clone(),
+                    channel_id: job
+                        .channel_id
+                        .clone()
+                        .or_else(|| Some("scheduler".to_string())),
+                    user_id: Some(job.user_id.clone()),
+                    provider: Some(agent.provider_name().to_string()),
+                    model: agent.model_name(),
+                    input_tokens: usage.input_tokens,
+                    output_tokens: usage.output_tokens,
+                    total_tokens: usage.total_tokens,
+                    cached_input_tokens: usage.cached_input_tokens,
+                };
+                if let Err(err) = self.store.record_usage(&usage_event) {
+                    tracing::warn!(error = %err, "failed to record usage");
+                }
+                ExecutionOutcome::Completed {
+                    response: Some(text),
+                    agent_notified,
+                }
+            }
             Err(err) => ExecutionOutcome::Failed {
                 error: err.to_string(),
             },

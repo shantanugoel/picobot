@@ -23,6 +23,7 @@ use crate::tools::notify::NotifyTool;
 use crate::tools::registry::ToolRegistry;
 use crate::tools::schedule::ScheduleTool;
 use crate::tools::shell::ShellTool;
+use crate::session::manager::SessionManager;
 
 fn build_kernel(
     config: &Config,
@@ -59,8 +60,12 @@ fn build_kernel(
         .as_ref()
         .map(|config| config.max_image_size_bytes())
         .unwrap_or(10 * 1024 * 1024);
-    let multimodal_tool =
-        MultimodalLookerTool::new(multimodal_agent, max_media_size_bytes, max_image_size_bytes);
+    let multimodal_tool = MultimodalLookerTool::new(
+        multimodal_agent,
+        max_media_size_bytes,
+        max_image_size_bytes,
+        SessionManager::new(session_store.clone()),
+    );
     registry.register(std::sync::Arc::new(multimodal_tool))?;
     let registry = std::sync::Arc::new(registry);
     let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));

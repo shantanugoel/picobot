@@ -15,6 +15,8 @@ use rig::completion::message::{
 
 use crate::kernel::permissions::{DomainPattern, PathPattern, Permission};
 use crate::providers::factory::{DEFAULT_PROVIDER_RETRIES, ProviderAgent};
+use crate::session::manager::SessionManager;
+use crate::session::types::UsageEvent;
 use crate::tools::net_utils::{ensure_allowed_url, parse_host, read_response_bytes};
 use crate::tools::path_utils::resolve_path;
 use crate::tools::traits::{ToolContext, ToolError, ToolExecutor, ToolOutput, ToolSpec};
@@ -33,10 +35,16 @@ pub struct MultimodalLookerTool {
     client: Client,
     max_media_size_bytes: u64,
     max_image_size_bytes: u64,
+    session_manager: SessionManager,
 }
 
 impl MultimodalLookerTool {
-    pub fn new(agent: ProviderAgent, max_media_size_bytes: u64, max_image_size_bytes: u64) -> Self {
+    pub fn new(
+        agent: ProviderAgent,
+        max_media_size_bytes: u64,
+        max_image_size_bytes: u64,
+        session_manager: SessionManager,
+    ) -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::none())
@@ -64,6 +72,7 @@ impl MultimodalLookerTool {
             client,
             max_media_size_bytes,
             max_image_size_bytes,
+            session_manager,
         }
     }
 }
@@ -172,11 +181,25 @@ impl ToolExecutor for MultimodalLookerTool {
             .map_err(|_| ToolError::new("failed to build multimodal prompt".to_string()))?;
         let message = Message::User { content };
 
-        let response = self
+        let (response, usage) = self
             .agent
-            .prompt_message_with_retry(message, DEFAULT_PROVIDER_RETRIES)
+            .prompt_message_with_retry_usage(message, 4, DEFAULT_PROVIDER_RETRIES)
             .await
             .map_err(|err| ToolError::new(err.to_string()))?;
+        let usage_event = UsageEvent {
+            session_id: ctx.session_id.clone(),
+            channel_id: ctx.channel_id.clone(),
+            user_id: ctx.user_id.clone(),
+            provider: Some(self.agent.provider_name().to_string()),
+            model: self.agent.model_name(),
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+            total_tokens: usage.total_tokens,
+            cached_input_tokens: usage.cached_input_tokens,
+        };
+        if let Err(err) = self.session_manager.record_usage(&usage_event) {
+            tracing::warn!(error = %err, "failed to record usage");
+        }
 
         Ok(json!({
             "description": response,

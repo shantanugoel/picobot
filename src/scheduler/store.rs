@@ -1,4 +1,4 @@
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 
 use crate::scheduler::error::{SchedulerError, SchedulerResult};
 use crate::scheduler::job::{
@@ -7,6 +7,8 @@ use crate::scheduler::job::{
 };
 use crate::session::db::SqliteStore;
 use crate::session::error::SessionDbError;
+use crate::session::manager::SessionManager;
+use crate::session::types::UsageEvent;
 
 #[derive(Debug, Clone)]
 pub struct ScheduleStore {
@@ -21,6 +23,12 @@ impl ScheduleStore {
     #[allow(dead_code)]
     pub fn store(&self) -> &SqliteStore {
         &self.store
+    }
+
+    pub fn record_usage(&self, event: &UsageEvent) -> SchedulerResult<()> {
+        SessionManager::new(self.store.clone())
+            .record_usage(event)
+            .map_err(|err| SchedulerError::Store(err.to_string()))
     }
 
     pub fn create_job(
@@ -679,7 +687,7 @@ fn parse_execution_status(value: &str) -> Result<ExecutionStatus, SessionDbError
 
 #[cfg(test)]
 mod tests {
-    use super::{ScheduleStore, parse_schedule_type};
+    use super::{parse_schedule_type, ScheduleStore};
     use crate::session::db::SqliteStore;
 
     #[test]
