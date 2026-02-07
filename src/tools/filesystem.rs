@@ -15,7 +15,7 @@ impl FilesystemTool {
         Self {
             spec: ToolSpec {
                 name: "filesystem".to_string(),
-                description: "Read or write local files. Required: operation (read/write) and path. write requires content."
+                description: "Read or write files within the allowed directory. path is relative to the working directory; jail escapes are rejected. write requires content. Returns {content} on read, {status} on write."
                     .to_string(),
                 schema: json!({
                     "type": "object",
@@ -26,7 +26,8 @@ impl FilesystemTool {
                             "enum": ["read", "write"]
                         },
                         "path": {
-                            "type": "string"
+                            "type": "string",
+                            "minLength": 1
                         },
                         "content": {
                             "type": "string"

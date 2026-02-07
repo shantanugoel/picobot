@@ -15,25 +15,21 @@ impl ScheduleTool {
         Self {
             spec: ToolSpec {
                 name: "schedule".to_string(),
-                description: "Create, list, or cancel scheduled jobs. Required: action."
+                description: "Manage scheduled jobs. create requires schedule_type, schedule_expr, task_prompt. list returns your jobs. cancel requires job_id. Only your own jobs are visible/cancellable."
                     .to_string(),
                 schema: json!({
                     "type": "object",
                     "required": ["action"],
                     "properties": {
                         "action": { "type": "string", "enum": ["create", "list", "cancel"] },
-                        "name": { "type": "string" },
+                        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
                         "schedule_type": { "type": "string", "enum": ["interval", "once", "cron"] },
-                        "schedule_expr": { "type": "string", "description": "For interval: seconds or relative duration (e.g. '2 minutes'). For once: relative duration (e.g. '2 minutes') or RFC3339 datetime. For cron: cron expression." },
-                        "task_prompt": { "type": "string", "description": "User-facing message to send when the job runs." },
-                        "session_id": { "type": "string" },
-                        "user_id": { "type": "string" },
-                        "channel_id": { "type": "string" },
+                        "schedule_expr": { "type": "string", "minLength": 1, "description": "For interval: seconds or relative duration (e.g. '2 minutes'). For once: relative duration (e.g. '2 minutes') or RFC3339 datetime. For cron: cron expression." },
+                        "task_prompt": { "type": "string", "minLength": 1, "description": "User-facing message to send when the job runs." },
                         "enabled": { "type": "boolean" },
-                        "max_executions": { "type": "integer", "minimum": 1 },
+                        "max_executions": { "type": "integer", "minimum": 1, "maximum": 10000 },
                         "metadata": { "type": "object" },
-                        "capabilities": { "type": "array", "items": { "type": "string" } },
-                        "job_id": { "type": "string" }
+                        "job_id": { "type": "string", "minLength": 1 }
                     },
                     "additionalProperties": false
                 }),

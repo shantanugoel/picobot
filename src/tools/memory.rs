@@ -17,14 +17,14 @@ impl MemoryTool {
         Self {
             spec: ToolSpec {
                 name: "memory".to_string(),
-                description: "Save, list, or delete user memories. save requires action=save, key, content. list requires action=list. delete requires action=delete, key.".to_string(),
+                description: "Persist, list, or delete user-scoped memories. save requires key and content. list returns all memories. delete requires key. Keys must be lowercase alphanumeric with underscores (max 64 chars).".to_string(),
                 schema: json!({
                     "type": "object",
                     "required": ["action"],
                     "properties": {
                         "action": { "type": "string", "enum": ["save", "list", "delete"] },
-                        "key": { "type": "string" },
-                        "content": { "type": "string" }
+                        "key": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9_]*$" },
+                        "content": { "type": "string", "minLength": 1 }
                     },
                     "additionalProperties": false
                 }),

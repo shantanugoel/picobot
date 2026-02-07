@@ -73,7 +73,7 @@ Use `picobot.example.toml` as a template. Options marked "Optional" have default
 | --- | --- | --- | --- |
 | `provider` | `openai` | Optional | `openai`, `openrouter`, `gemini` |
 | `model` | `gpt-4o-mini` | Optional | Model name for selected provider |
-| `system_prompt` | `You are PicoBot, a helpful assistant.` | Optional | Assistant preamble |
+| `system_prompt` | Security-hardened tool-first prompt | Optional | Assistant preamble (see `picobot.example.toml`) |
 | `max_turns` | `5` | Optional | Max tool-calling iterations |
 | `bind` | `127.0.0.1:8080` | Optional | API server bind address |
 | `data_dir` | OS data dir + `picobot` | Optional | Base path for data/storage |

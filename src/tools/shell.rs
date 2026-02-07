@@ -17,14 +17,14 @@ impl ShellTool {
         Self {
             spec: ToolSpec {
                 name: "shell".to_string(),
-                description: "Execute an allowlisted shell command. Required: command. Optional: args, working_dir."
+                description: "Execute a pre-approved shell command. command must be the binary name only (no shell expressions). args is an array of arguments. Only allowlisted commands will succeed. Optional: working_dir."
                     .to_string(),
                 schema: json!({
                     "type": "object",
                     "required": ["command"],
                     "properties": {
-                        "command": { "type": "string" },
-                        "args": { "type": "array", "items": { "type": "string" } },
+                        "command": { "type": "string", "minLength": 1 },
+                        "args": { "type": "array", "items": { "type": "string" }, "maxItems": 100 },
                         "working_dir": { "type": "string" }
                     },
                     "additionalProperties": false

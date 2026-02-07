@@ -16,14 +16,12 @@ impl NotifyTool {
         Self {
             spec: ToolSpec {
                 name: "notify".to_string(),
-                description: "Send a user notification. Required: message. Optional: channel_id, user_id (defaults to current context). Use this for reminders, alerts, and direct user messages (e.g., 'remind', 'tell', 'notify'). Use inside scheduled jobs instead of scheduling new jobs.".to_string(),
+                description: "Send a notification message to the current user on the current channel. Only requires message. Use for reminders, alerts, and delivering results from scheduled jobs.".to_string(),
                 schema: json!({
                     "type": "object",
                     "required": ["message"],
                     "properties": {
-                        "message": { "type": "string" },
-                        "channel_id": { "type": "string" },
-                        "user_id": { "type": "string" }
+                        "message": { "type": "string", "minLength": 1 }
                     },
                     "additionalProperties": false
                 }),

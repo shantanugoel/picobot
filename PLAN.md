@@ -225,8 +225,8 @@ The previous implementation is preserved in `reference/` for guidance:
     - [x] Resolve current dead-code warnings for security-relevant paths and diagnostics structs/traits. Files: `src/channels/whatsapp.rs`, `src/notifications/channel.rs`, `src/notifications/queue.rs`, `src/notifications/service.rs`, `src/session/error.rs`.
 
 8. **Prompt & Tool Contract Hardening**
-   - [ ] Update system prompt to be robust, concise, toolcalling/action-oriented, and security-hardened for PicoBot as an execution assistant (not only an answer bot). Files: `src/config.rs`, `picobot.example.toml`, `README.md`.
-   - [ ] Review and tighten tool descriptions/parameter contracts to reduce ambiguity and unsafe model behavior. Files: `src/tools/*.rs`, `src/tools/traits.rs`.
+   - [x] Update system prompt to be robust, concise, toolcalling/action-oriented, and security-hardened for PicoBot as an execution assistant (not only an answer bot). Files: `src/config.rs`, `picobot.example.toml`, `README.md`.
+   - [x] Review and tighten tool descriptions/parameter contracts to reduce ambiguity and unsafe model behavior. Files: `src/tools/*.rs`, `src/tools/traits.rs`.
 
 9. **Security Documentation & Config Guidance**
    - [ ] Security-focused documentation updates and config examples for new authz/network constraints. Files: `README.md`, `picobot.example.toml`, `AGENTS.md`.

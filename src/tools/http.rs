@@ -26,15 +26,18 @@ impl HttpTool {
         Ok(Self {
             spec: ToolSpec {
                 name: "http_fetch".to_string(),
-                description: "Fetch a URL with domain allowlist. Required: url. Optional: method (GET/POST), headers, body."
+                description: "Fetch a URL over HTTP. Only allowlisted domains succeed. Redirects are blocked. Returns {status, body}. Optional: method (GET/POST), headers, body."
                     .to_string(),
                 schema: json!({
                     "type": "object",
                     "required": ["url"],
                     "properties": {
-                        "url": { "type": "string" },
+                        "url": { "type": "string", "minLength": 8 },
                         "method": { "type": "string", "enum": ["GET", "POST"] },
-                        "headers": { "type": "object" },
+                        "headers": {
+                            "type": "object",
+                            "additionalProperties": { "type": "string" }
+                        },
                         "body": { "type": "string" }
                     },
                     "additionalProperties": false

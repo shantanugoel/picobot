@@ -45,13 +45,13 @@ impl MultimodalLookerTool {
         Self {
             spec: ToolSpec {
                 name: "multimodal_looker".to_string(),
-                description: "Analyze media (image/audio/video/document) from a local path or URL. Required: source. Optional: question, media_type (image/audio/video/document/auto), mime_type, detail (low/high/auto for images)."
+                description: "Analyze an image, audio, video, or document from a local path or URL. source is required. question guides analysis. Media type is auto-detected from MIME unless overridden."
                     .to_string(),
                 schema: json!({
                     "type": "object",
                     "required": ["source"],
                     "properties": {
-                        "source": { "type": "string" },
+                        "source": { "type": "string", "minLength": 1 },
                         "question": { "type": "string" },
                         "media_type": { "type": "string", "enum": ["image", "audio", "video", "document", "auto"] },
                         "mime_type": { "type": "string" },
