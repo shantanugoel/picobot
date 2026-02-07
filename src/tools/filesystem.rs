@@ -1,9 +1,8 @@
-use std::path::{Path, PathBuf};
-
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use crate::kernel::permissions::{PathPattern, Permission};
+use crate::tools::path_utils::resolve_path;
 use crate::tools::traits::{ToolContext, ToolError, ToolExecutor, ToolOutput, ToolSpec};
 
 #[derive(Debug, Default)]
@@ -61,14 +60,7 @@ impl ToolExecutor for FilesystemTool {
             .ok_or_else(|| ToolError::new("missing path".to_string()))?;
 
         let resolved = resolve_path(&ctx.working_dir, ctx.jail_root.as_deref(), path)?;
-        let canonical = if resolved.exists() {
-            resolved
-                .canonicalize()
-                .map_err(|err| ToolError::new(err.to_string()))?
-        } else {
-            resolved.clone()
-        };
-        let pattern = PathPattern(canonical.to_string_lossy().to_string());
+        let pattern = PathPattern(resolved.canonical.to_string_lossy().to_string());
         let permission = match operation {
             "read" => Permission::FileRead { path: pattern },
             "write" => Permission::FileWrite { path: pattern },
@@ -90,7 +82,7 @@ impl ToolExecutor for FilesystemTool {
         let resolved = resolve_path(&ctx.working_dir, ctx.jail_root.as_deref(), path)?;
         match operation {
             "read" => {
-                let data = std::fs::read_to_string(&resolved)
+                let data = std::fs::read_to_string(&resolved.canonical)
                     .map_err(|err| ToolError::new(err.to_string()))?;
                 Ok(json!({"content": data}))
             }
@@ -99,11 +91,17 @@ impl ToolExecutor for FilesystemTool {
                     .get("content")
                     .and_then(Value::as_str)
                     .ok_or_else(|| ToolError::new("missing content".to_string()))?;
-                if let Some(parent) = resolved.parent() {
+                if let Some(parent) = resolved.canonical.parent() {
                     std::fs::create_dir_all(parent)
                         .map_err(|err| ToolError::new(err.to_string()))?;
                 }
-                std::fs::write(&resolved, content)
+                let re_resolved = resolve_path(&ctx.working_dir, ctx.jail_root.as_deref(), path)?;
+                if re_resolved.canonical != resolved.canonical {
+                    return Err(ToolError::new(
+                        "path changed after directory creation".to_string(),
+                    ));
+                }
+                std::fs::write(&re_resolved.canonical, content)
                     .map_err(|err| ToolError::new(err.to_string()))?;
                 Ok(json!({"status": "ok"}))
             }
@@ -112,80 +110,10 @@ impl ToolExecutor for FilesystemTool {
     }
 }
 
-fn resolve_path(
-    working_dir: &Path,
-    jail_root: Option<&Path>,
-    raw: &str,
-) -> Result<PathBuf, ToolError> {
-    let expanded = if raw.starts_with('~') {
-        if raw == "~" || raw.starts_with("~/") {
-            if let Some(home) = dirs::home_dir() {
-                let trimmed = raw.trim_start_matches('~');
-                home.join(trimmed.trim_start_matches('/'))
-            } else {
-                return Err(ToolError::new("home directory not found".to_string()));
-            }
-        } else {
-            PathBuf::from(raw)
-        }
-    } else {
-        PathBuf::from(raw)
-    };
-
-    let resolved = if expanded.is_absolute() {
-        expanded
-    } else {
-        working_dir.join(expanded)
-    };
-
-    let resolved = normalize_path(&resolved);
-    if let Some(jail_root) = jail_root {
-        let jail_root = jail_root
-            .canonicalize()
-            .map_err(|err| ToolError::new(format!("invalid jail_root: {err}")))?;
-        let candidate = if resolved.exists() {
-            resolved
-                .canonicalize()
-                .map_err(|err| ToolError::new(err.to_string()))?
-        } else if let Some(parent) = resolved.parent() {
-            let parent = parent
-                .canonicalize()
-                .map_err(|err| ToolError::new(err.to_string()))?;
-            match resolved.file_name() {
-                Some(name) => parent.join(name),
-                None => parent,
-            }
-        } else {
-            resolved.clone()
-        };
-        if !candidate.starts_with(&jail_root) {
-            return Err(ToolError::new(format!(
-                "path escapes jail_root: {}",
-                candidate.display()
-            )));
-        }
-    }
-
-    Ok(resolved)
-}
-
-fn normalize_path(path: &Path) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                normalized.pop();
-            }
-            other => normalized.push(other.as_os_str()),
-        }
-    }
-    normalized
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{FilesystemTool, normalize_path, resolve_path};
+    use super::FilesystemTool;
+    use crate::tools::path_utils::{normalize_path, resolve_path};
     use crate::kernel::permissions::{CapabilitySet, Permission};
     use crate::tools::traits::{ExecutionMode, ToolContext, ToolExecutor};
     use serde_json::json;
@@ -200,7 +128,9 @@ mod tests {
     #[test]
     fn resolve_path_expands_relative() {
         let resolved = resolve_path(std::path::Path::new("/tmp"), None, "nested/file.txt").unwrap();
-        assert_eq!(resolved.to_string_lossy(), "/tmp/nested/file.txt");
+        assert!(resolved
+            .canonical
+            .ends_with(std::path::Path::new("nested/file.txt")));
     }
 
     #[test]
@@ -215,7 +145,7 @@ mod tests {
 
         let jail_root = jail_root.canonicalize().unwrap();
         let allowed = resolve_path(&inside, Some(&jail_root), "file.txt").unwrap();
-        let allowed_parent = allowed.parent().unwrap().canonicalize().unwrap();
+        let allowed_parent = allowed.canonical.parent().unwrap().canonicalize().unwrap();
         assert!(allowed_parent.starts_with(&jail_root));
 
         let denied = resolve_path(

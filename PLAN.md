@@ -209,10 +209,10 @@ The previous implementation is preserved in `reference/` for guidance:
    - [x] Bound notification queue in-memory record growth (retention cap/TTL or persistence-backed pruning). Files: `src/notifications/queue.rs`, `src/notifications/service.rs`.
 
 5. **Filesystem & Media Boundary Hardening**
-   - [ ] Canonicalize/normalize all paths before checks. Approach: centralize path resolution and jail-root enforcement in one shared helper used by all file-touching tools. Files: `src/tools/path_utils.rs`, `src/tools/filesystem.rs`, `src/tools/multimodal_looker.rs`.
-   - [ ] Re-check canonical paths at execution time for writes. Approach: repeat resolved path and jail checks right before write/open to reduce TOCTOU window. Files: `src/tools/filesystem.rs`.
-   - [ ] Check if incoming media/documents from different users (WhatsApp/other channels) have leakage potential via filesystem/shell/other tools. Approach: enforce per-session/user media boundaries and avoid broad inherited read grants. Files: `src/channels/whatsapp.rs`, `src/tools/multimodal_looker.rs`, `src/tools/shell.rs`, `src/channels/permissions.rs`.
-   - [ ] Remove duplicated path resolution logic and keep one canonical implementation. Files: `src/tools/filesystem.rs`, `src/tools/path_utils.rs`.
+   - [x] Canonicalize/normalize all paths before checks. Approach: centralize path resolution and jail-root enforcement in one shared helper used by all file-touching tools. Files: `src/tools/path_utils.rs`, `src/tools/filesystem.rs`, `src/tools/multimodal_looker.rs`.
+   - [x] Re-check canonical paths at execution time for writes. Approach: repeat resolved path and jail checks right before write/open to reduce TOCTOU window. Files: `src/tools/filesystem.rs`.
+   - [x] Check if incoming media/documents from different users (WhatsApp/other channels) have leakage potential via filesystem/shell/other tools. Approach: enforce per-session/user media boundaries and avoid broad inherited read grants. Files: `src/channels/whatsapp.rs`, `src/tools/multimodal_looker.rs`, `src/tools/shell.rs`, `src/channels/permissions.rs`.
+   - [x] Remove duplicated path resolution logic and keep one canonical implementation. Files: `src/tools/filesystem.rs`, `src/tools/path_utils.rs`.
 
 6. **Network Hardening & Response Controls**
    - [ ] Harden SSRF checks for IPv6 and non-global address ranges (loopback/link-local/ULA/etc). Approach: block all non-global resolved addresses and keep scheme/credential restrictions strict. Files: `src/tools/net_utils.rs`, `src/tools/http.rs`, `src/tools/multimodal_looker.rs`.

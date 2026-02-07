@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use crate::kernel::permissions::Permission;
+use crate::tools::path_utils::resolve_path;
 use crate::tools::traits::{ToolContext, ToolError, ToolExecutor, ToolOutput, ToolSpec};
 
 #[derive(Debug, Default)]
@@ -66,11 +67,12 @@ impl ToolExecutor for ShellTool {
         let working_dir = input.get("working_dir").and_then(Value::as_str);
 
         let mut cmd = tokio::process::Command::new(command);
-        if let Some(working_dir) = working_dir {
-            cmd.current_dir(working_dir);
+        let effective_dir = if let Some(working_dir) = working_dir {
+            resolve_path(&ctx.working_dir, ctx.jail_root.as_deref(), working_dir)?.canonical
         } else {
-            cmd.current_dir(&ctx.working_dir);
-        }
+            ctx.working_dir.clone()
+        };
+        cmd.current_dir(effective_dir);
         for arg in args {
             if let Some(arg) = arg.as_str() {
                 cmd.arg(arg);
@@ -128,5 +130,50 @@ mod tests {
                 allowed_commands: Some(_)
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn working_dir_denied_outside_jail_root() {
+        let tool = ShellTool::new();
+        let jail_root = std::env::temp_dir().join(format!(
+            "picobot-jail-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let outside = std::env::temp_dir().join(format!(
+            "picobot-outside-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&jail_root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+
+        let ctx = ToolContext {
+            working_dir: jail_root.clone(),
+            capabilities: std::sync::Arc::new(CapabilitySet::empty()),
+            user_id: None,
+            session_id: None,
+            channel_id: None,
+            jail_root: Some(jail_root.clone()),
+            scheduler: None,
+            notifications: None,
+            notify_tool_used: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            execution_mode: ExecutionMode::User,
+            timezone_offset: "+00:00".to_string(),
+            timezone_name: "UTC".to_string(),
+        };
+
+        let result = tool
+            .execute(
+                &ctx,
+                json!({
+                    "command": "echo",
+                    "args": ["hi"],
+                    "working_dir": outside.to_string_lossy()
+                }),
+            )
+            .await;
+        assert!(result.is_err());
+
+        let _ = std::fs::remove_dir_all(&jail_root);
+        let _ = std::fs::remove_dir_all(&outside);
     }
 }

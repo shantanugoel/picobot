@@ -199,11 +199,6 @@ pub async fn run(
 
     let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let mut profile = channel_profile(&config.channels(), "whatsapp", &base_dir);
-    let media_perm = Permission::FileRead {
-        path: PathPattern(format!("{}/**", media_root.display())),
-    };
-    profile.pre_authorized.insert(media_perm.clone());
-    profile.max_allowed.insert(media_perm);
     profile.pre_authorized.insert(Permission::Notify {
         channel: "whatsapp".to_string(),
     });
@@ -303,6 +298,7 @@ pub async fn run(
         let memory_retriever = memory_retriever.clone();
         let memory_config = memory_config.clone();
         let outbound = outbound.clone();
+        let media_root = media_root.clone();
         let base_kernel = base_kernel.clone();
         tokio::spawn(async move {
             let _permit = permit;
@@ -401,7 +397,12 @@ pub async fn run(
             let message_kernel = Arc::new(
                 base_kernel.clone_with_context(Some(user_id.clone()), Some(session.id.clone())),
             );
-            let message_kernel = with_media_permissions(message_kernel, &message.attachments);
+            let message_kernel = with_media_permissions(
+                message_kernel,
+                &media_root,
+                &message.user_id,
+                &message.attachments,
+            );
             let agent = match build_agent_for_kernel(
                 &config,
                 &agent_builder,
@@ -577,6 +578,7 @@ async fn run_whatsapp_loop(
                             base,
                             &media_root,
                             max_media_size_bytes,
+                            &from,
                         )
                         .await
                         {
@@ -703,23 +705,36 @@ fn attachment_label(attachment: &MediaAttachment) -> String {
     parts.join(" ")
 }
 
-fn with_media_permissions(kernel: Arc<Kernel>, attachments: &[MediaAttachment]) -> Arc<Kernel> {
-    if attachments.is_empty() {
-        return kernel;
-    }
+fn with_media_permissions(
+    kernel: Arc<Kernel>,
+    media_root: &Path,
+    user_id: &str,
+    attachments: &[MediaAttachment],
+) -> Arc<Kernel> {
     let mut profile = kernel.prompt_profile().clone();
-    for attachment in attachments {
-        let path = PathPattern(attachment.local_path.to_string_lossy().to_string());
-        profile
-            .pre_authorized
-            .insert(Permission::FileRead { path: path.clone() });
-        profile.max_allowed.insert(Permission::FileRead { path });
-        if let Some(thumbnail_path) = &attachment.thumbnail_path {
-            let path = PathPattern(thumbnail_path.to_string_lossy().to_string());
+    let canonical_root = media_root
+        .canonicalize()
+        .unwrap_or_else(|_| media_root.to_path_buf());
+    let user_root = canonical_root.join(whatsapp_user_folder(user_id));
+    let path = PathPattern(format!("{}/**", user_root.display()));
+    profile
+        .pre_authorized
+        .insert(Permission::FileRead { path: path.clone() });
+    profile.max_allowed.insert(Permission::FileRead { path });
+    if !attachments.is_empty() {
+        for attachment in attachments {
+            let path = PathPattern(attachment.local_path.to_string_lossy().to_string());
             profile
                 .pre_authorized
                 .insert(Permission::FileRead { path: path.clone() });
             profile.max_allowed.insert(Permission::FileRead { path });
+            if let Some(thumbnail_path) = &attachment.thumbnail_path {
+                let path = PathPattern(thumbnail_path.to_string_lossy().to_string());
+                profile
+                    .pre_authorized
+                    .insert(Permission::FileRead { path: path.clone() });
+                profile.max_allowed.insert(Permission::FileRead { path });
+            }
         }
     }
     Arc::new(kernel.as_ref().clone().with_prompt_profile(profile))
@@ -794,6 +809,7 @@ async fn extract_media_attachments(
     message: &waproto::whatsapp::Message,
     media_root: &Path,
     max_media_size_bytes: u64,
+    user_id: &str,
 ) -> Result<Vec<MediaAttachment>> {
     let mut attachments = Vec::new();
     let base = message.get_base_message();
@@ -811,6 +827,7 @@ async fn extract_media_attachments(
                 file_length: msg.file_length,
                 thumbnail_bytes: msg.jpeg_thumbnail.clone(),
             },
+            user_id,
         )
         .await?
     {
@@ -830,6 +847,7 @@ async fn extract_media_attachments(
                 file_length: msg.file_length,
                 thumbnail_bytes: msg.jpeg_thumbnail.clone(),
             },
+            user_id,
         )
         .await?
     {
@@ -849,6 +867,7 @@ async fn extract_media_attachments(
                 file_length: msg.file_length,
                 thumbnail_bytes: None,
             },
+            user_id,
         )
         .await?
     {
@@ -868,6 +887,7 @@ async fn extract_media_attachments(
                 file_length: msg.file_length,
                 thumbnail_bytes: msg.jpeg_thumbnail.clone(),
             },
+            user_id,
         )
         .await?
     {
@@ -887,6 +907,7 @@ async fn extract_media_attachments(
                 file_length: msg.file_length,
                 thumbnail_bytes: None,
             },
+            user_id,
         )
         .await?
     {
@@ -911,6 +932,7 @@ async fn download_media<T: whatsapp_rust::download::Downloadable>(
     media_root: &Path,
     max_media_size_bytes: u64,
     meta: MediaMeta,
+    user_id: &str,
 ) -> Result<Option<MediaAttachment>> {
     if let Some(len) = meta.file_length
         && len > max_media_size_bytes
@@ -918,7 +940,9 @@ async fn download_media<T: whatsapp_rust::download::Downloadable>(
         return Ok(None);
     }
     let extension = file_extension_from_mime(meta.mime_type.as_deref());
-    let dir = media_root.join(Uuid::new_v4().to_string());
+    let dir = media_root
+        .join(whatsapp_user_folder(user_id))
+        .join(Uuid::new_v4().to_string());
     std::fs::create_dir_all(&dir)?;
     let sanitized_name = meta.file_name.as_deref().and_then(sanitize_filename);
     let filename = sanitized_name.clone().unwrap_or_else(|| {
@@ -992,6 +1016,20 @@ fn sanitize_filename(value: &str) -> Option<String> {
     } else {
         Some(name)
     }
+}
+
+fn whatsapp_user_folder(user_id: &str) -> String {
+    let normalized = normalize_whatsapp_id(user_id);
+    normalized
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 fn render_qr_code(payload: &str) -> String {

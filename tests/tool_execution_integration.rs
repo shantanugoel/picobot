@@ -255,3 +255,58 @@ async fn notify_requires_permission() {
         .await;
     assert!(result.is_err());
 }
+
+#[tokio::test]
+async fn whatsapp_media_permissions_are_user_scoped() {
+    let base_dir = std::env::temp_dir().join(format!(
+        "picobot-media-test-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let media_root = base_dir.join("whatsapp-media");
+    let user_a_dir = media_root.join("user_a");
+    let user_b_dir = media_root.join("user_b");
+    std::fs::create_dir_all(&user_a_dir).unwrap();
+    std::fs::create_dir_all(&user_b_dir).unwrap();
+    let user_a_file = user_a_dir.join("a.txt");
+    let user_b_file = user_b_dir.join("b.txt");
+    std::fs::write(&user_a_file, "hello-a").unwrap();
+    std::fs::write(&user_b_file, "hello-b").unwrap();
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(FilesystemTool::new())).unwrap();
+    let registry = Arc::new(registry);
+
+    let mut profile = Kernel::new(Arc::clone(&registry)).prompt_profile().clone();
+    let canonical_root = media_root.canonicalize().unwrap();
+    let user_a_pattern = PathPattern(format!("{}/**", canonical_root.join("user_a").display()));
+    profile
+        .pre_authorized
+        .insert(Permission::FileRead { path: user_a_pattern.clone() });
+    profile
+        .max_allowed
+        .insert(Permission::FileRead { path: user_a_pattern });
+    let kernel = Kernel::new(Arc::clone(&registry))
+        .with_jail_root(Some(canonical_root.clone()))
+        .with_channel_id(Some("whatsapp".to_string()))
+        .with_prompt_profile(profile)
+        .clone_with_context(Some("user_a".to_string()), Some("whatsapp:user_a".to_string()));
+
+    let tool = kernel.tool_registry().get("filesystem").unwrap();
+    let allowed = kernel
+        .invoke_tool(
+            tool.as_ref(),
+            json!({"operation": "read", "path": user_a_file.to_string_lossy()}),
+        )
+        .await;
+    assert!(allowed.is_ok());
+
+    let denied = kernel
+        .invoke_tool(
+            tool.as_ref(),
+            json!({"operation": "read", "path": user_b_file.to_string_lossy()}),
+        )
+        .await;
+    assert!(denied.is_err());
+
+    std::fs::remove_dir_all(&base_dir).ok();
+}

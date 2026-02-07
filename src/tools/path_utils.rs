@@ -2,11 +2,16 @@ use std::path::{Path, PathBuf};
 
 use crate::tools::traits::ToolError;
 
+#[derive(Debug, Clone)]
+pub(crate) struct ResolvedPath {
+    pub canonical: PathBuf,
+}
+
 pub(crate) fn resolve_path(
     working_dir: &Path,
     jail_root: Option<&Path>,
     raw: &str,
-) -> Result<PathBuf, ToolError> {
+) -> Result<ResolvedPath, ToolError> {
     let expanded = if raw.starts_with('~') {
         if raw == "~" || raw.starts_with("~/") {
             if let Some(home) = dirs::home_dir() {
@@ -28,35 +33,21 @@ pub(crate) fn resolve_path(
         working_dir.join(expanded)
     };
 
-    let resolved = normalize_path(&resolved);
+    let normalized = normalize_path(&resolved);
+    let canonical = canonicalize_with_fallback(&normalized)?;
     if let Some(jail_root) = jail_root {
         let jail_root = jail_root
             .canonicalize()
             .map_err(|err| ToolError::new(format!("invalid jail_root: {err}")))?;
-        let candidate = if resolved.exists() {
-            resolved
-                .canonicalize()
-                .map_err(|err| ToolError::new(err.to_string()))?
-        } else if let Some(parent) = resolved.parent() {
-            let parent = parent
-                .canonicalize()
-                .map_err(|err| ToolError::new(err.to_string()))?;
-            match resolved.file_name() {
-                Some(name) => parent.join(name),
-                None => parent,
-            }
-        } else {
-            resolved.clone()
-        };
-        if !candidate.starts_with(&jail_root) {
+        if !canonical.starts_with(&jail_root) {
             return Err(ToolError::new(format!(
                 "path escapes jail_root: {}",
-                candidate.display()
+                canonical.display()
             )));
         }
     }
 
-    Ok(resolved)
+    Ok(ResolvedPath { canonical })
 }
 
 pub(crate) fn normalize_path(path: &Path) -> PathBuf {
@@ -71,4 +62,39 @@ pub(crate) fn normalize_path(path: &Path) -> PathBuf {
         }
     }
     normalized
+}
+
+fn canonicalize_with_fallback(path: &Path) -> Result<PathBuf, ToolError> {
+    if path.exists() {
+        return path
+            .canonicalize()
+            .map_err(|err| ToolError::new(err.to_string()));
+    }
+
+    let mut current = path;
+    let mut remainder: Vec<std::ffi::OsString> = Vec::new();
+    while !current.exists() {
+        if let Some(name) = current.file_name() {
+            remainder.push(name.to_os_string());
+        } else {
+            break;
+        }
+        if let Some(parent) = current.parent() {
+            current = parent;
+        } else {
+            break;
+        }
+    }
+
+    if current.exists() {
+        let mut canonical = current
+            .canonicalize()
+            .map_err(|err| ToolError::new(err.to_string()))?;
+        for part in remainder.iter().rev() {
+            canonical.push(part);
+        }
+        return Ok(canonical);
+    }
+
+    Ok(path.to_path_buf())
 }

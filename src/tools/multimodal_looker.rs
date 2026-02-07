@@ -90,14 +90,7 @@ impl ToolExecutor for MultimodalLookerTool {
             }])
         } else {
             let resolved = resolve_path(&ctx.working_dir, ctx.jail_root.as_deref(), source)?;
-            let canonical = if resolved.exists() {
-                resolved
-                    .canonicalize()
-                    .map_err(|err| ToolError::new(err.to_string()))?
-            } else {
-                resolved.clone()
-            };
-            let pattern = PathPattern(canonical.to_string_lossy().to_string());
+            let pattern = PathPattern(resolved.canonical.to_string_lossy().to_string());
             Ok(vec![Permission::FileRead { path: pattern }])
         }
     }
@@ -130,7 +123,7 @@ impl ToolExecutor for MultimodalLookerTool {
             download_url(&self.client, source, self.max_media_size_bytes).await?
         } else {
             let resolved = resolve_path(&ctx.working_dir, ctx.jail_root.as_deref(), source)?;
-            let size = std::fs::metadata(&resolved)
+            let size = std::fs::metadata(&resolved.canonical)
                 .map_err(|err| ToolError::new(err.to_string()))?
                 .len();
             if size > self.max_media_size_bytes {
@@ -139,7 +132,8 @@ impl ToolExecutor for MultimodalLookerTool {
                     self.max_media_size_bytes
                 )));
             }
-            let bytes = std::fs::read(&resolved).map_err(|err| ToolError::new(err.to_string()))?;
+            let bytes =
+                std::fs::read(&resolved.canonical).map_err(|err| ToolError::new(err.to_string()))?;
             if bytes.len() as u64 > self.max_media_size_bytes {
                 return Err(ToolError::new(format!(
                     "media is too large: {} bytes (limit {})",
@@ -149,9 +143,14 @@ impl ToolExecutor for MultimodalLookerTool {
             }
             let mime_type = mime_override
                 .map(|value| value.to_string())
-                .or_else(|| infer_mime_type(&resolved))
+                .or_else(|| infer_mime_type(&resolved.canonical))
                 .ok_or_else(|| ToolError::new("missing or unsupported mime_type".to_string()))?;
-            (bytes, mime_type, resolved.display().to_string(), size)
+            (
+                bytes,
+                mime_type,
+                resolved.canonical.display().to_string(),
+                size,
+            )
         };
 
         let mime_type = mime_override
