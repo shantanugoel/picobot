@@ -50,6 +50,7 @@ pub struct ToolContext {
     pub timezone_offset: String,
     pub timezone_name: String,
     pub max_response_bytes: Option<u64>,
+    pub max_response_chars: Option<usize>,
 }
 
 #[derive(Debug, Clone)]

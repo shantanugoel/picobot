@@ -279,6 +279,17 @@ impl Config {
             }
         }
 
+        if let Some(permissions) = &self.permissions
+            && let Some(network) = &permissions.network
+            && let Some(limit) = network.max_response_chars
+        {
+            if limit == 0 {
+                warnings.push("network max_response_chars is 0".to_string());
+            } else if limit > 500_000 {
+                warnings.push("network max_response_chars is very large".to_string());
+            }
+        }
+
         if let Some(whatsapp) = &self.whatsapp {
             if let Some(limit) = whatsapp.max_media_size_bytes {
                 if limit == 0 {
@@ -501,6 +512,7 @@ pub struct FilesystemPermissions {
 pub struct NetworkPermissions {
     pub allowed_domains: Vec<String>,
     pub max_response_bytes: Option<u64>,
+    pub max_response_chars: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]

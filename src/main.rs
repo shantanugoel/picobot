@@ -71,6 +71,7 @@ fn build_kernel(
     let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let capabilities = CapabilitySet::from_config_with_base(&config.permissions(), &base_dir);
     let max_response_bytes = config.network().max_response_bytes;
+    let max_response_chars = config.network().max_response_chars;
     let jail_root = config
         .permissions()
         .filesystem
@@ -84,7 +85,8 @@ fn build_kernel(
         ))
         .with_jail_root(jail_root)
         .with_scheduler(scheduler)
-        .with_max_response_bytes(max_response_bytes);
+        .with_max_response_bytes(max_response_bytes)
+        .with_max_response_chars(max_response_chars);
     Ok(kernel)
 }
 

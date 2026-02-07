@@ -45,6 +45,7 @@ impl Kernel {
                 timezone_offset: "+00:00".to_string(),
                 timezone_name: "UTC".to_string(),
                 max_response_bytes: None,
+                max_response_chars: None,
             },
             prompt_profile: ChannelPermissionProfile::default(),
             prompter: None,
@@ -107,6 +108,11 @@ impl Kernel {
 
     pub fn with_max_response_bytes(mut self, max_response_bytes: Option<u64>) -> Self {
         self.context.max_response_bytes = max_response_bytes;
+        self
+    }
+
+    pub fn with_max_response_chars(mut self, max_response_chars: Option<usize>) -> Self {
+        self.context.max_response_chars = max_response_chars;
         self
     }
 

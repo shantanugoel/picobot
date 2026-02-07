@@ -111,6 +111,8 @@ jail_root = "./data"
 
 [permissions.network]
 allowed_domains = ["api.github.com"]
+# max_response_bytes = 5242880
+# max_response_chars = 50000
 
 [permissions.shell]
 allowed_commands = ["git", "rg"]

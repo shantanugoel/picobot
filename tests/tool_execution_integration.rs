@@ -124,7 +124,8 @@ async fn http_download_limits_enforced() {
     });
     let kernel = Kernel::new(Arc::clone(&registry))
         .with_capabilities(capabilities)
-        .with_max_response_bytes(Some(512));
+        .with_max_response_bytes(Some(512))
+        .with_max_response_chars(Some(500));
     let url = spawn_http_server(vec![b'a'; 2048], true).await;
     let tool = kernel.tool_registry().get("http_fetch").unwrap();
     let result = kernel.invoke_tool(tool.as_ref(), json!({"url": url})).await;

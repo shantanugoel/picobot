@@ -683,6 +683,7 @@ mod tests {
             timezone_offset: "+00:00".to_string(),
             timezone_name: "UTC".to_string(),
             max_response_bytes: None,
+            max_response_chars: None,
         };
         assert!(permission.is_auto_granted(&ctx));
     }
