@@ -260,6 +260,11 @@ The previous implementation is preserved in `reference/` for guidance:
 4. **Skill System to add new skills via skill files**
     - [ ] A skill system like openclaw but should be very secure. Any code executions should likely be sandboxed to avoid impacting picobot itself or anything on the server its running on.
 
+5. **Deployment**
+    - [ ] Dockerize 
+    - [ ] Github CI for mac/linux/windows/docker
+    - [ ] Publish release workflow
+
 ## Key Design Decisions
 
 ### 1. KernelBackedTool Pattern
