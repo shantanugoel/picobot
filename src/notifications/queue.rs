@@ -11,6 +11,7 @@ pub struct NotificationQueueConfig {
     pub max_attempts: usize,
     pub base_backoff: Duration,
     pub max_backoff: Duration,
+    pub max_records: usize,
 }
 
 impl Default for NotificationQueueConfig {
@@ -19,6 +20,7 @@ impl Default for NotificationQueueConfig {
             max_attempts: 3,
             base_backoff: Duration::from_millis(200),
             max_backoff: Duration::from_secs(5),
+            max_records: 1000,
         }
     }
 }
@@ -90,6 +92,7 @@ impl NotificationQueue {
         };
         let mut guard = self.records.lock().await;
         guard.push(record);
+        prune_records(&mut guard, self.config.max_records);
         let mut state = self.state.lock().await;
         state.pending.push_back(QueueItem {
             id: id.clone(),
@@ -152,4 +155,33 @@ fn compute_backoff(attempt: usize, config: &NotificationQueueConfig) -> Duration
     let backoff = base.saturating_mul(multiplier);
     let max = config.max_backoff.as_millis() as u64;
     Duration::from_millis(std::cmp::min(backoff, max))
+}
+
+fn prune_records(records: &mut Vec<NotificationRecord>, max_records: usize) {
+    if max_records == 0 {
+        records.clear();
+        return;
+    }
+    if records.len() <= max_records {
+        return;
+    }
+    let mut excess = records.len().saturating_sub(max_records);
+    let mut kept = Vec::with_capacity(records.len());
+    for record in records.drain(..) {
+        if excess > 0
+            && matches!(
+                record.status,
+                NotificationStatus::Sent | NotificationStatus::Failed
+            )
+        {
+            excess -= 1;
+        } else {
+            kept.push(record);
+        }
+    }
+    records.extend(kept);
+    if records.len() > max_records {
+        let drop_count = records.len() - max_records;
+        records.drain(0..drop_count);
+    }
 }

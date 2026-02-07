@@ -254,6 +254,7 @@ pub async fn run(
             max_attempts: config.notifications().max_attempts(),
             base_backoff: Duration::from_millis(config.notifications().base_backoff_ms()),
             max_backoff: Duration::from_millis(config.notifications().max_backoff_ms()),
+            max_records: config.notifications().max_records(),
         };
         let queue = crate::notifications::queue::NotificationQueue::new(queue_config);
         let channel = Arc::new(

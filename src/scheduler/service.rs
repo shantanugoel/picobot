@@ -158,7 +158,7 @@ impl SchedulerService {
     }
 
     pub fn cancel_job(&self, job_id: &str) -> SchedulerResult<bool> {
-        Ok(self.executor.cancel_job(job_id))
+        self.cancel_job_and_disable(job_id)
     }
 
     pub fn cancel_job_and_disable(&self, job_id: &str) -> SchedulerResult<bool> {

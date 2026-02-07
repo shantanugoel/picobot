@@ -171,6 +171,7 @@ impl JobExecutor {
             ExecutionOutcome::Cancelled => {
                 execution.status = ExecutionStatus::Cancelled;
                 execution.error = Some("job cancelled".to_string());
+                job.enabled = false;
             }
         }
 

@@ -71,7 +71,6 @@ fn scheduler_list_by_session_filters_results() {
 }
 
 #[test]
-#[ignore = "enabled after cancel updates persistent schedule state"]
 fn scheduler_cancel_disables_persisted_job() {
     let dir = std::env::temp_dir().join(format!("picobot-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -123,7 +122,9 @@ fn scheduler_cancel_disables_persisted_job() {
     };
     let job = scheduler.create_job(request).expect("create job");
 
-    scheduler.cancel_job(&job.id).expect("cancel job");
+    scheduler
+        .cancel_job_and_disable(&job.id)
+        .expect("cancel job");
 
     let stored = scheduler
         .store()

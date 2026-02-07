@@ -295,6 +295,11 @@ impl Config {
             {
                 warnings.push("notifications base_backoff_ms is 0".to_string());
             }
+            if let Some(max_records) = notifications.max_records
+                && max_records == 0
+            {
+                warnings.push("notifications max_records is 0".to_string());
+            }
         }
 
         let mut seen_ids = HashSet::new();
@@ -504,6 +509,7 @@ pub struct NotificationsConfig {
     pub max_attempts: Option<usize>,
     pub base_backoff_ms: Option<u64>,
     pub max_backoff_ms: Option<u64>,
+    pub max_records: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -724,6 +730,10 @@ impl NotificationsConfig {
 
     pub fn max_backoff_ms(&self) -> u64 {
         self.max_backoff_ms.unwrap_or(5000)
+    }
+
+    pub fn max_records(&self) -> usize {
+        self.max_records.unwrap_or(1000)
     }
 }
 

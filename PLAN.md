@@ -205,8 +205,8 @@ The previous implementation is preserved in `reference/` for guidance:
     - [x] Add API integration tests for authz boundaries and anti-impersonation behavior. Files: new `tests/api_integration.rs`.
 
 4. **Scheduler & Notification Safety**
-   - [ ] Fix schedule cancel semantics so canceling a job also disables/deletes persisted schedule state (not only in-flight cancellation). Approach: owner-verified cancel updates persistent schedule state and optionally stops in-flight run. Files: `src/tools/schedule.rs`, `src/scheduler/service.rs`, `src/scheduler/store.rs`, `src/main.rs`.
-   - [ ] Bound notification queue in-memory record growth (retention cap/TTL or persistence-backed pruning). Files: `src/notifications/queue.rs`, `src/notifications/service.rs`.
+   - [x] Fix schedule cancel semantics so canceling a job also disables/deletes persisted schedule state (not only in-flight cancellation). Approach: owner-verified cancel updates persistent schedule state and optionally stops in-flight run. Files: `src/tools/schedule.rs`, `src/scheduler/service.rs`, `src/scheduler/store.rs`, `src/main.rs`.
+   - [x] Bound notification queue in-memory record growth (retention cap/TTL or persistence-backed pruning). Files: `src/notifications/queue.rs`, `src/notifications/service.rs`.
 
 5. **Filesystem & Media Boundary Hardening**
    - [ ] Canonicalize/normalize all paths before checks. Approach: centralize path resolution and jail-root enforcement in one shared helper used by all file-touching tools. Files: `src/tools/path_utils.rs`, `src/tools/filesystem.rs`, `src/tools/multimodal_looker.rs`.
