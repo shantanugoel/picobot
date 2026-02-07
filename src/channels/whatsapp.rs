@@ -869,7 +869,10 @@ async fn extract_media_attachments(
             max_media_size_bytes,
             MediaMeta {
                 media_type: MediaType::Audio,
-                mime_type: msg.mimetype.clone(),
+                mime_type: msg
+                    .mimetype
+                    .clone()
+                    .or_else(|| Some("audio/ogg".to_string())),
                 file_name: None,
                 caption: None,
                 file_length: msg.file_length,

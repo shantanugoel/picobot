@@ -153,6 +153,7 @@ impl ToolExecutor for MultimodalLookerTool {
             let mime_type = mime_override
                 .map(|value| value.to_string())
                 .or_else(|| infer_mime_type(&resolved.canonical))
+                .or_else(|| sniff_mime_type(&bytes, media_hint))
                 .ok_or_else(|| ToolError::new("missing or unsupported mime_type".to_string()))?;
             (
                 bytes,
@@ -164,6 +165,13 @@ impl ToolExecutor for MultimodalLookerTool {
 
         let mime_type = mime_override
             .map(|value| value.to_string())
+            .or_else(|| {
+                if media_hint == "audio" {
+                    sniff_mime_type(&bytes, media_hint)
+                } else {
+                    None
+                }
+            })
             .unwrap_or(mime_type);
         let media_kind = resolve_media_kind(media_hint, &mime_type)?;
         let detail = detail.unwrap_or(ImageDetail::Auto);
@@ -334,6 +342,16 @@ fn infer_mime_type(path: &Path) -> Option<String> {
         _ => return None,
     };
     Some(mime.to_string())
+}
+
+fn sniff_mime_type(bytes: &[u8], media_hint: &str) -> Option<String> {
+    if media_hint != "audio" {
+        return None;
+    }
+    if bytes.len() >= 4 && &bytes[0..4] == b"OggS" {
+        return Some("audio/ogg".to_string());
+    }
+    None
 }
 
 async fn download_url(
