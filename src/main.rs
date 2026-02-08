@@ -48,11 +48,10 @@ fn build_kernel(
     registry.register(std::sync::Arc::new(ScheduleTool::new()))?;
     registry.register(std::sync::Arc::new(NotifyTool::new()))?;
     registry.register(std::sync::Arc::new(MemoryTool::new(session_store.clone())))?;
-    if let Some(search_config) = &config.search {
-        if let Ok(search_tool) = SearchTool::new(search_config) {
+    if let Some(search_config) = &config.search
+        && let Ok(search_tool) = SearchTool::new(search_config) {
             registry.register(std::sync::Arc::new(search_tool))?;
         }
-    }
     let multimodal_agent = ProviderFactory::build_multimodal_agent(config)?;
     let multimodal_config = config.multimodal.clone().or_else(|| {
         config

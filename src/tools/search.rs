@@ -77,11 +77,10 @@ impl SearchTool {
             SearchProviderKind::Searxng => None,
         };
         let mut base_urls = Vec::new();
-        if let Some(base_url) = config.base_url.as_deref() {
-            if !base_url.trim().is_empty() {
+        if let Some(base_url) = config.base_url.as_deref()
+            && !base_url.trim().is_empty() {
                 base_urls.push(base_url.to_string());
             }
-        }
         if let Some(list) = &config.base_urls {
             for entry in list {
                 if !entry.trim().is_empty() {

@@ -486,16 +486,14 @@ impl Config {
                     errors.push(format!("unsupported search provider '{other}'"));
                 }
             }
-            if let Some(base_url) = &search.base_url {
-                if base_url.trim().is_empty() {
+            if let Some(base_url) = &search.base_url
+                && base_url.trim().is_empty() {
                     errors.push("search.base_url cannot be empty".to_string());
                 }
-            }
-            if let Some(base_urls) = &search.base_urls {
-                if base_urls.iter().any(|value| value.trim().is_empty()) {
+            if let Some(base_urls) = &search.base_urls
+                && base_urls.iter().any(|value| value.trim().is_empty()) {
                     errors.push("search.base_urls cannot contain empty entries".to_string());
                 }
-            }
             if let Some(max_results) = search.max_results {
                 if max_results == 0 {
                     warnings.push("search.max_results is 0".to_string());
@@ -503,11 +501,10 @@ impl Config {
                     warnings.push("search.max_results is unusually high".to_string());
                 }
             }
-            if let Some(max_snippet_chars) = search.max_snippet_chars {
-                if max_snippet_chars > 10_000 {
+            if let Some(max_snippet_chars) = search.max_snippet_chars
+                && max_snippet_chars > 10_000 {
                     warnings.push("search.max_snippet_chars is unusually high".to_string());
                 }
-            }
             if let Some(max_snippet_chars) = search.max_snippet_chars
                 && max_snippet_chars == 0
             {
@@ -595,7 +592,7 @@ impl Config {
 
         if let Some(search) = &self.search {
             let provider = search.provider.as_deref().unwrap_or("google");
-            if provider.trim().to_ascii_lowercase() == "google" {
+            if provider.trim().eq_ignore_ascii_case("google") {
                 let env_name = search
                     .api_key_env
                     .as_deref()

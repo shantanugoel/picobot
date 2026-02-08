@@ -341,9 +341,9 @@ fn plan_body_format(
 
 fn extract_html_content(bytes: &[u8], url: &str) -> HtmlExtraction {
     let html = String::from_utf8_lossy(bytes);
-    if let Ok(mut readability) = Readability::new(html.as_ref(), Some(url), None) {
-        if let Ok(article) = readability.parse() {
-            let text = normalize_text(&article.text_content.to_string());
+    if let Ok(mut readability) = Readability::new(html.as_ref(), Some(url), None)
+        && let Ok(article) = readability.parse() {
+            let text = normalize_text(article.text_content.as_ref());
             if text.len() >= READABILITY_MIN_CHARS {
                 return HtmlExtraction {
                     text,
@@ -351,7 +351,6 @@ fn extract_html_content(bytes: &[u8], url: &str) -> HtmlExtraction {
                 };
             }
         }
-    }
 
     let text = html2text::from_read(bytes, HTML_TEXT_WIDTH)
         .unwrap_or_else(|_| html.to_string());
