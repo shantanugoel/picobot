@@ -129,6 +129,42 @@ impl PermissionPrompter for ReplPrompter {
         );
         decision
     }
+
+    async fn prompt_timeout_extension(
+        &self,
+        tool_name: &str,
+        timeout: std::time::Duration,
+        extension: std::time::Duration,
+        timeout_secs: u64,
+    ) -> Option<bool> {
+        println!(
+            "\nTool '{tool_name}' hit a soft timeout at {:.0}s.",
+            timeout.as_secs_f64()
+        );
+        print!(
+            "Extend by {:.0}s? [y]es / [n]o (timeout {timeout_secs}s): ",
+            extension.as_secs_f64()
+        );
+        let _ = io::stdout().flush();
+        let mut input = String::new();
+        if io::stdin().read_line(&mut input).is_err() {
+            tracing::warn!(
+                event = "prompt_decision",
+                tool = %tool_name,
+                decision = "input_error",
+                "failed to read timeout extension input"
+            );
+            return None;
+        }
+        let approved = matches!(input.trim().to_ascii_lowercase().as_str(), "y" | "yes");
+        tracing::info!(
+            event = "prompt_decision",
+            tool = %tool_name,
+            decision = if approved { "extend" } else { "deny" },
+            "timeout extension decision"
+        );
+        Some(approved)
+    }
 }
 
 pub async fn run(

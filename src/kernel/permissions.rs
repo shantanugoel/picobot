@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::path::Path;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -87,6 +88,16 @@ pub trait PermissionPrompter: Send + Sync {
         permissions: &[Permission],
         timeout_secs: u64,
     ) -> Option<PromptDecision>;
+
+    async fn prompt_timeout_extension(
+        &self,
+        _tool_name: &str,
+        _timeout: Duration,
+        _extension: Duration,
+        _timeout_secs: u64,
+    ) -> Option<bool> {
+        None
+    }
 }
 
 impl CapabilitySet {

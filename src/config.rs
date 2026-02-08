@@ -257,6 +257,42 @@ impl Config {
             {
                 warnings.push("tool_limits default_timeout_secs is 0".to_string());
             }
+            if let Some(ratio) = tool_limits.soft_timeout_ratio {
+                if !ratio.is_finite() {
+                    errors.push(
+                        "tool_limits soft_timeout_ratio must be a finite number"
+                            .to_string(),
+                    );
+                } else if ratio < 0.0 || ratio > 1.0 {
+                    errors.push(
+                        "tool_limits soft_timeout_ratio must be between 0 and 1"
+                            .to_string(),
+                    );
+                }
+            }
+            if let Some(policy) = tool_limits.soft_timeout_policy.as_deref() {
+                let normalized = policy.trim().to_ascii_lowercase();
+                if normalized.is_empty() {
+                    warnings.push("tool_limits soft_timeout_policy is empty".to_string());
+                } else if normalized != "prompt" && normalized != "auto_extend" {
+                    errors.push(format!(
+                        "unsupported tool_limits soft_timeout_policy '{policy}'"
+                    ));
+                }
+            }
+            if let Some(extension) = tool_limits.soft_timeout_extension_secs
+                && extension == 0
+            {
+                warnings.push("tool_limits soft_timeout_extension_secs is 0".to_string());
+            }
+            if tool_limits.soft_timeout_extension_secs.is_some()
+                && tool_limits.soft_timeout_ratio.unwrap_or(0.0) <= 0.0
+            {
+                warnings.push(
+                    "tool_limits soft_timeout_extension_secs set but soft_timeout_ratio is 0"
+                        .to_string(),
+                );
+            }
             if let Some(limit) = tool_limits.max_output_bytes
                 && limit == 0
             {
@@ -717,6 +753,9 @@ pub struct SchedulePermissions {
 #[derive(Debug, Deserialize, Default, Clone)]
 pub struct ToolLimitsConfig {
     pub default_timeout_secs: Option<u64>,
+    pub soft_timeout_ratio: Option<f64>,
+    pub soft_timeout_policy: Option<String>,
+    pub soft_timeout_extension_secs: Option<u64>,
     pub max_output_bytes: Option<usize>,
     pub shell_timeout_secs: Option<u64>,
     pub http_timeout_secs: Option<u64>,

@@ -163,14 +163,6 @@ user_scope = "user"  # none | user | session
 user_root = "data/users/{user_id}"
 ```
 
-## Sequencing (Low Risk to Higher Complexity)
-1. Add `ShellRunner` + `HostRunner` (no behavior change).
-2. Kernel timeout wrapper + config defaults.
-3. Output truncation + kill-on-timeout in HostRunner.
-4. ContainerRunner + config + runtime detection.
-5. Soft-timeout extension flow (optional).
-6. User-scoped filesystem boundaries (recommended, can be parallel once runner/timeout baseline lands).
-
 ## Compatibility & Safety Notes
 - Only shell uses containerization to avoid breaking downloads/media tools.
 - Keep Kernel as the single enforcement point for timeouts/permissions.

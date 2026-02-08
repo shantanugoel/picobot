@@ -62,6 +62,13 @@ impl ShellTool {
         self.limits = limits;
         self
     }
+
+    pub fn with_limits_for_timeout(mut self, max_timeout: std::time::Duration) -> Self {
+        if self.limits.timeout < max_timeout {
+            self.limits.timeout = max_timeout;
+        }
+        self
+    }
 }
 
 impl Default for ShellTool {

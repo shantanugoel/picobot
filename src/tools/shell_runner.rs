@@ -50,6 +50,7 @@ async fn run_command(
     mut cmd: tokio::process::Command,
     limits: &ExecutionLimits,
 ) -> Result<ShellOutput, ToolError> {
+    cmd.kill_on_drop(true);
     let mut child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

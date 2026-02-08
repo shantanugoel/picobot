@@ -3,6 +3,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use serde_json::{Value, json};
+use tokio::time::Instant;
 
 use crate::kernel::permissions::{CapabilitySet, ChannelPermissionProfile, PermissionPrompter};
 use crate::scheduler::service::SchedulerService;
@@ -15,6 +16,120 @@ use crate::tools::traits::{
     ToolExecutor,
     ToolOutput,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SoftTimeoutPolicy {
+    Prompt,
+    AutoExtend,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TimeoutExtensionDecision {
+    Extended,
+    Declined,
+}
+
+pub fn soft_timeout_duration(hard_timeout: Duration, ratio: f64) -> Duration {
+    if hard_timeout.is_zero() || !ratio.is_finite() || ratio <= 0.0 {
+        return Duration::ZERO;
+    }
+    let ratio = if ratio >= 1.0 { 1.0 } else { ratio };
+    let secs = hard_timeout.as_secs_f64() * ratio;
+    if secs <= 0.0 {
+        Duration::ZERO
+    } else {
+        Duration::from_secs_f64(secs)
+    }
+}
+
+#[cfg(test)]
+mod timeout_extension_tests {
+    use super::{SoftTimeoutPolicy, TimeoutExtensionDecision};
+    use super::Kernel;
+    use crate::kernel::permissions::{CapabilitySet, PermissionPrompter};
+    use crate::tools::registry::ToolRegistry;
+    use async_trait::async_trait;
+    use std::sync::Arc;
+
+    #[derive(Clone, Debug)]
+    struct AllowPrompter;
+
+    #[async_trait]
+    impl PermissionPrompter for AllowPrompter {
+        async fn prompt(
+            &self,
+            _tool_name: &str,
+            _permissions: &[crate::kernel::permissions::Permission],
+            _timeout_secs: u64,
+        ) -> Option<crate::kernel::permissions::PromptDecision> {
+            None
+        }
+
+        async fn prompt_timeout_extension(
+            &self,
+            _tool_name: &str,
+            _timeout: std::time::Duration,
+            _extension: std::time::Duration,
+            _timeout_secs: u64,
+        ) -> Option<bool> {
+            Some(true)
+        }
+    }
+
+    #[tokio::test]
+    async fn auto_extend_policy_skips_prompt() {
+        let registry = Arc::new(ToolRegistry::new());
+        let kernel = Kernel::new(registry)
+            .with_capabilities(CapabilitySet::empty())
+            .with_soft_timeouts(0.5, SoftTimeoutPolicy::AutoExtend, None);
+        let decision = kernel
+            .maybe_extend_timeout(
+                "dummy",
+                std::time::Duration::from_secs(10),
+                std::time::Duration::from_secs(5),
+                std::time::Duration::from_secs(5),
+                kernel.context(),
+            )
+            .await;
+        assert!(matches!(decision, TimeoutExtensionDecision::Extended));
+    }
+
+    #[tokio::test]
+    async fn prompt_policy_allows_extension() {
+        let registry = Arc::new(ToolRegistry::new());
+        let kernel = Kernel::new(registry)
+            .with_capabilities(CapabilitySet::empty())
+            .with_prompter(Some(Arc::new(AllowPrompter)));
+        let decision = kernel
+            .maybe_extend_timeout(
+                "dummy",
+                std::time::Duration::from_secs(10),
+                std::time::Duration::from_secs(5),
+                std::time::Duration::from_secs(5),
+                kernel.context(),
+            )
+            .await;
+        assert!(matches!(decision, TimeoutExtensionDecision::Extended));
+    }
+}
+
+#[cfg(test)]
+mod soft_timeout_tests {
+    use super::soft_timeout_duration;
+
+    #[test]
+    fn soft_timeout_zero_when_ratio_zero() {
+        let hard = std::time::Duration::from_secs(60);
+        assert!(soft_timeout_duration(hard, 0.0).is_zero());
+    }
+
+    #[test]
+    fn soft_timeout_clamps_ratio_above_one() {
+        let hard = std::time::Duration::from_secs(10);
+        let soft = soft_timeout_duration(hard, 2.0);
+        assert_eq!(soft, hard);
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 enum DecisionSource {
@@ -34,6 +149,9 @@ pub struct Kernel {
     session_grants: Arc<std::sync::RwLock<CapabilitySet>>,
     default_timeout: Duration,
     tool_timeouts: std::collections::HashMap<String, Duration>,
+    soft_timeout_ratio: f64,
+    soft_timeout_policy: SoftTimeoutPolicy,
+    soft_timeout_extension: Option<Duration>,
 }
 
 impl Kernel {
@@ -62,6 +180,9 @@ impl Kernel {
             session_grants: Arc::new(std::sync::RwLock::new(CapabilitySet::empty())),
             default_timeout: Duration::from_secs(60),
             tool_timeouts: std::collections::HashMap::new(),
+            soft_timeout_ratio: 0.0,
+            soft_timeout_policy: SoftTimeoutPolicy::Prompt,
+            soft_timeout_extension: None,
         }
     }
 
@@ -143,6 +264,18 @@ impl Kernel {
         self
     }
 
+    pub fn with_soft_timeouts(
+        mut self,
+        ratio: f64,
+        policy: SoftTimeoutPolicy,
+        extension: Option<Duration>,
+    ) -> Self {
+        self.soft_timeout_ratio = ratio;
+        self.soft_timeout_policy = policy;
+        self.soft_timeout_extension = extension;
+        self
+    }
+
     pub fn clone_with_context(&self, user_id: Option<String>, session_id: Option<String>) -> Self {
         let mut context = self.context.clone();
         context.user_id = user_id;
@@ -156,6 +289,9 @@ impl Kernel {
             session_grants: Arc::new(std::sync::RwLock::new(CapabilitySet::empty())),
             default_timeout: self.default_timeout,
             tool_timeouts: self.tool_timeouts.clone(),
+            soft_timeout_ratio: self.soft_timeout_ratio,
+            soft_timeout_policy: self.soft_timeout_policy,
+            soft_timeout_extension: self.soft_timeout_extension,
         }
     }
 
@@ -449,12 +585,139 @@ impl Kernel {
             .get(tool.spec().name.as_str())
             .copied()
             .unwrap_or(self.default_timeout);
-        match tokio::time::timeout(timeout, tool.execute(ctx, input)).await {
+        let mut task = Box::pin(tool.execute(ctx, input));
+        let ratio = self.soft_timeout_ratio;
+        let soft_timeout = soft_timeout_duration(timeout, ratio);
+        if soft_timeout.is_zero() {
+            return match tokio::time::timeout(timeout, task).await {
+                Ok(result) => result,
+                Err(_) => Err(ToolError::timeout(format!(
+                    "tool '{}' timed out after {:?}",
+                    tool.spec().name, timeout
+                ))),
+            };
+        }
+
+        let start = Instant::now();
+        let soft_deadline = start + soft_timeout;
+        let hard_deadline = start + timeout;
+        let result = tokio::time::timeout_at(soft_deadline, &mut task).await;
+        if let Ok(result) = result {
+            return result;
+        }
+
+        let extension = self.soft_timeout_extension.unwrap_or(timeout);
+        if extension.is_zero() {
+            return match tokio::time::timeout_at(hard_deadline, &mut task).await {
+                Ok(result) => result,
+                Err(_) => Err(ToolError::timeout(format!(
+                    "tool '{}' timed out after {:?}",
+                    tool.spec().name, timeout
+                ))),
+            };
+        }
+        let decision = self
+            .maybe_extend_timeout(
+                tool.spec().name.as_str(),
+                timeout,
+                soft_timeout,
+                extension,
+                ctx,
+            )
+            .await;
+        let total_timeout = match decision {
+            TimeoutExtensionDecision::Extended => timeout.saturating_add(extension),
+            TimeoutExtensionDecision::Declined => timeout,
+        };
+        let deadline = match decision {
+            TimeoutExtensionDecision::Extended => hard_deadline + extension,
+            TimeoutExtensionDecision::Declined => hard_deadline,
+        };
+        let now = Instant::now();
+        let remaining = deadline.saturating_duration_since(now);
+        if remaining.is_zero() {
+            return Err(ToolError::timeout(format!(
+                "tool '{}' timed out after {:?}",
+                tool.spec().name, total_timeout
+            )));
+        }
+        match tokio::time::timeout_at(now + remaining, task).await {
             Ok(result) => result,
             Err(_) => Err(ToolError::timeout(format!(
                 "tool '{}' timed out after {:?}",
-                tool.spec().name, timeout
+                tool.spec().name, total_timeout
             ))),
+        }
+    }
+
+    async fn maybe_extend_timeout(
+        &self,
+        tool_name: &str,
+        hard_timeout: Duration,
+        soft_timeout: Duration,
+        extension: Duration,
+        ctx: &ToolContext,
+    ) -> TimeoutExtensionDecision {
+        if ctx.execution_mode.is_scheduled_job() {
+            return TimeoutExtensionDecision::Declined;
+        }
+        match self.soft_timeout_policy {
+            SoftTimeoutPolicy::AutoExtend => {
+                tracing::info!(
+                    event = "timeout_extension",
+                    tool = %tool_name,
+                    decision = "auto_extend",
+                    soft_timeout_secs = soft_timeout.as_secs_f64(),
+                    extension_secs = extension.as_secs_f64(),
+                    hard_timeout_secs = hard_timeout.as_secs_f64(),
+                    "tool timeout auto-extended"
+                );
+                TimeoutExtensionDecision::Extended
+            }
+            SoftTimeoutPolicy::Prompt => {
+                let Some(prompter) = self.prompter.as_ref() else {
+                    tracing::info!(
+                        event = "timeout_extension",
+                        tool = %tool_name,
+                        decision = "no_prompter",
+                        "tool timeout extension skipped"
+                    );
+                    return TimeoutExtensionDecision::Declined;
+                };
+                tracing::info!(
+                    event = "timeout_extension_prompt",
+                    tool = %tool_name,
+                    soft_timeout_secs = soft_timeout.as_secs_f64(),
+                    extension_secs = extension.as_secs_f64(),
+                    hard_timeout_secs = hard_timeout.as_secs_f64(),
+                    prompt_timeout_secs = self.prompt_profile.prompt_timeout_secs,
+                    "tool timeout extension prompt"
+                );
+                let decision = tokio::time::timeout(
+                    Duration::from_secs(self.prompt_profile.prompt_timeout_secs),
+                    prompter.prompt_timeout_extension(
+                        tool_name,
+                        soft_timeout,
+                        extension,
+                        self.prompt_profile.prompt_timeout_secs,
+                    ),
+                )
+                .await
+                .ok()
+                .flatten();
+                let approved = matches!(decision, Some(true));
+                tracing::info!(
+                    event = "timeout_extension_decision",
+                    tool = %tool_name,
+                    decision = if approved { "extended" } else { "declined" },
+                    "tool timeout extension decision"
+                );
+                if approved {
+                    TimeoutExtensionDecision::Extended
+                } else {
+                    TimeoutExtensionDecision::Declined
+                }
+            }
         }
     }
 

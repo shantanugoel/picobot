@@ -95,6 +95,9 @@ allowed_commands = ["git", "rg"]
 
 [permissions.tool_limits]
 # default_timeout_secs = 60
+# soft_timeout_ratio = 0.8
+# soft_timeout_policy = "prompt" # prompt | auto_extend
+# soft_timeout_extension_secs = 60
 # max_output_bytes = 1048576
 # shell_timeout_secs = 120
 # http_timeout_secs = 30

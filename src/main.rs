@@ -12,7 +12,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::channels::{api, repl, whatsapp};
 use crate::config::Config;
-use crate::kernel::core::Kernel;
+use crate::kernel::core::{Kernel, SoftTimeoutPolicy};
 use crate::kernel::permissions::CapabilitySet;
 use crate::providers::factory::{ProviderAgentBuilder, ProviderFactory};
 use crate::tools::filesystem::FilesystemTool;
@@ -58,9 +58,19 @@ fn build_kernel(
         working_dir.clone(),
         base_dir.clone(),
     );
+    let (soft_ratio, soft_policy, soft_extension) = build_soft_timeouts(config);
+    let shell_timeout = shell_limits.timeout;
+    let soft_timeout = crate::kernel::core::soft_timeout_duration(shell_timeout, soft_ratio);
+    let extension = soft_extension.unwrap_or(shell_timeout);
+    let max_timeout = if soft_timeout.is_zero() {
+        shell_timeout
+    } else {
+        shell_timeout.saturating_add(extension)
+    };
     registry.register(std::sync::Arc::new(
         ShellTool::with_policy(shell_policy)
             .with_limits(shell_limits)
+            .with_limits_for_timeout(max_timeout)
             .with_runner(shell_runner),
     ))?;
     registry.register(std::sync::Arc::new(HttpTool::new()?))?;
@@ -106,7 +116,8 @@ fn build_kernel(
         .with_scheduler(scheduler)
         .with_max_response_bytes(max_response_bytes)
         .with_max_response_chars(max_response_chars)
-        .with_tool_timeouts(default_timeout, tool_timeouts);
+        .with_tool_timeouts(default_timeout, tool_timeouts)
+        .with_soft_timeouts(soft_ratio, soft_policy, soft_extension);
     Ok(kernel)
 }
 
@@ -183,6 +194,33 @@ fn build_shell_limits(config: &Config) -> ExecutionLimits {
         max_output_bytes,
         max_memory_bytes,
     }
+}
+
+fn build_soft_timeouts(
+    config: &Config,
+) -> (f64, SoftTimeoutPolicy, Option<std::time::Duration>) {
+    let limits = config.permissions().tool_limits;
+    let ratio = limits
+        .as_ref()
+        .and_then(|limits| limits.soft_timeout_ratio)
+        .unwrap_or(0.0);
+    let policy = limits
+        .as_ref()
+        .and_then(|limits| limits.soft_timeout_policy.as_deref())
+        .map(|value| value.trim().to_ascii_lowercase())
+        .map(|value| {
+            if value == "auto_extend" {
+                SoftTimeoutPolicy::AutoExtend
+            } else {
+                SoftTimeoutPolicy::Prompt
+            }
+        })
+        .unwrap_or(SoftTimeoutPolicy::Prompt);
+    let extension = limits
+        .as_ref()
+        .and_then(|limits| limits.soft_timeout_extension_secs)
+        .map(std::time::Duration::from_secs);
+    (ratio, policy, extension)
 }
 
 fn build_shell_runner(

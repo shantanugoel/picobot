@@ -285,6 +285,7 @@ The previous implementation is preserved in `reference/` for guidance:
     - [ ] Currently every message is processed in sequence, which is generally ok but may be a problem if there are long running tasks. Need to think about how to do this.
         -  If we do this, bot needs to be aware of running tasks.
         - One way to potentially achieve these things is via task scheduler, but scheduler currently knows only pending and done state, not executing?
+    - [ ] Need to think about whether we should add a PermissionPrompter / interactive prompts on whatsapp channel
 
 ## Key Design Decisions
 

@@ -322,6 +322,7 @@ mod tests {
                 headers.push_str("\r\n");
                 let _ = socket.write_all(headers.as_bytes()).await;
                 let _ = socket.write_all(&body).await;
+                let _ = socket.shutdown().await;
             }
         });
         format!("http://{addr}")
