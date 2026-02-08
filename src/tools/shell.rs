@@ -1,10 +1,9 @@
-use std::process::Stdio;
-
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use crate::kernel::permissions::Permission;
 use crate::tools::path_utils::resolve_path;
+use crate::tools::shell_runner::{ExecutionLimits, HostRunner, ShellRunner};
 use crate::tools::shell_policy::{ShellPolicy, ShellRisk};
 use crate::tools::traits::{
     PreExecutionDecision,
@@ -16,10 +15,11 @@ use crate::tools::traits::{
     ToolSpec,
 };
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ShellTool {
     spec: ToolSpec,
     policy: ShellPolicy,
+    runner: std::sync::Arc<dyn ShellRunner>,
 }
 
 impl ShellTool {
@@ -41,6 +41,7 @@ impl ShellTool {
                 }),
             },
             policy: ShellPolicy::default(),
+            runner: std::sync::Arc::new(HostRunner),
         }
     }
 
@@ -48,6 +49,17 @@ impl ShellTool {
         let mut tool = Self::new();
         tool.policy = policy;
         tool
+    }
+
+    pub fn with_runner(mut self, runner: std::sync::Arc<dyn ShellRunner>) -> Self {
+        self.runner = runner;
+        self
+    }
+}
+
+impl Default for ShellTool {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -112,34 +124,27 @@ impl ToolExecutor for ShellTool {
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
+        let args = args
+            .iter()
+            .filter_map(|value| value.as_str().map(|arg| arg.to_string()))
+            .collect::<Vec<_>>();
         let working_dir = input.get("working_dir").and_then(Value::as_str);
-
-        let mut cmd = tokio::process::Command::new(command);
         let effective_dir = if let Some(working_dir) = working_dir {
             resolve_path(&ctx.working_dir, ctx.jail_root.as_deref(), working_dir)?.canonical
         } else {
             ctx.working_dir.clone()
         };
-        cmd.current_dir(effective_dir);
-        for arg in args {
-            if let Some(arg) = arg.as_str() {
-                cmd.arg(arg);
-            }
-        }
-        let output = cmd
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await
-            .map_err(|err| ToolError::new(err.to_string()))?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let limits = ExecutionLimits::default();
+        let output = self
+            .runner
+            .run(command, &args, &effective_dir, &limits)
+            .await?;
         Ok(json!({
-            "status": if output.status.success() { "ok" } else { "error" },
-            "exit_code": output.status.code(),
-            "stdout": stdout,
-            "stderr": stderr
+            "status": if output.exit_code == Some(0) { "ok" } else { "error" },
+            "exit_code": output.exit_code,
+            "stdout": output.stdout,
+            "stderr": output.stderr
         }))
     }
 }

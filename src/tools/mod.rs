@@ -10,5 +10,6 @@ pub mod rig_wrapper;
 pub mod schedule;
 pub mod search;
 pub mod shell;
+pub mod shell_runner;
 pub mod shell_policy;
 pub mod traits;
