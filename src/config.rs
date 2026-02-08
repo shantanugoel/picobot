@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 
 use crate::kernel::permissions::parse_permission_with_base;
+use crate::tools::shell_policy::ShellRisk;
 
 const DEFAULT_SYSTEM_PROMPT: &str = r#"You are PicoBot, an execution-oriented assistant with access to tools.
 
@@ -189,6 +190,38 @@ impl Config {
             {
                 if entry.trim().is_empty() {
                     warnings.push("filesystem permission path is empty".to_string());
+                }
+            }
+        }
+
+        if let Some(perms) = &self.permissions
+            && let Some(shell) = &perms.shell
+        {
+            if shell.allowed_commands.iter().any(|command| command.trim().is_empty()) {
+                warnings.push("shell allowed_commands contains empty entry".to_string());
+            }
+            if let Some(policy) = &shell.policy {
+                if let Some(default_risk) = &policy.default_risk
+                    && ShellRisk::parse(default_risk).is_none()
+                {
+                    errors.push(format!(
+                        "shell policy default_risk '{default_risk}' is invalid"
+                    ));
+                }
+                if let Some(patterns) = &policy.deny_patterns
+                    && patterns.iter().any(|pattern| pattern.trim().is_empty())
+                {
+                    warnings.push("shell policy deny_patterns has empty entry".to_string());
+                }
+                if let Some(patterns) = &policy.risky_patterns
+                    && patterns.iter().any(|pattern| pattern.trim().is_empty())
+                {
+                    warnings.push("shell policy risky_patterns has empty entry".to_string());
+                }
+                if let Some(commands) = &policy.safe_commands
+                    && commands.iter().any(|command| command.trim().is_empty())
+                {
+                    warnings.push("shell policy safe_commands has empty entry".to_string());
                 }
             }
         }
@@ -610,6 +643,15 @@ pub struct NetworkPermissions {
 #[derive(Debug, Deserialize, Default, Clone)]
 pub struct ShellPermissions {
     pub allowed_commands: Vec<String>,
+    pub policy: Option<ShellPolicyConfig>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct ShellPolicyConfig {
+    pub default_risk: Option<String>,
+    pub deny_patterns: Option<Vec<String>>,
+    pub risky_patterns: Option<Vec<String>>,
+    pub safe_commands: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]

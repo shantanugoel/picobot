@@ -24,6 +24,7 @@ use crate::tools::registry::ToolRegistry;
 use crate::tools::schedule::ScheduleTool;
 use crate::tools::search::SearchTool;
 use crate::tools::shell::ShellTool;
+use crate::tools::shell_policy::ShellPolicy;
 use crate::session::manager::SessionManager;
 
 fn build_kernel(
@@ -41,7 +42,8 @@ fn build_kernel(
     );
     session_store.touch()?;
     registry.register(std::sync::Arc::new(FilesystemTool::new()))?;
-    registry.register(std::sync::Arc::new(ShellTool::new()))?;
+    let shell_policy = ShellPolicy::from_config(config.permissions().shell.as_ref());
+    registry.register(std::sync::Arc::new(ShellTool::with_policy(shell_policy)))?;
     registry.register(std::sync::Arc::new(HttpTool::new()?))?;
     registry.register(std::sync::Arc::new(ScheduleTool::new()))?;
     registry.register(std::sync::Arc::new(NotifyTool::new()))?;

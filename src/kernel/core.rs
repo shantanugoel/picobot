@@ -6,7 +6,14 @@ use serde_json::{Value, json};
 use crate::kernel::permissions::{CapabilitySet, ChannelPermissionProfile, PermissionPrompter};
 use crate::scheduler::service::SchedulerService;
 use crate::tools::registry::ToolRegistry;
-use crate::tools::traits::{ExecutionMode, ToolContext, ToolError, ToolExecutor, ToolOutput};
+use crate::tools::traits::{
+    ExecutionMode,
+    PreExecutionDecision,
+    ToolContext,
+    ToolError,
+    ToolExecutor,
+    ToolOutput,
+};
 
 #[derive(Debug, Clone, Copy)]
 enum DecisionSource {
@@ -295,6 +302,62 @@ impl Kernel {
                 required,
             ));
         }
+        if let Some(policy) = tool.pre_execution_policy(&self.context, &input)? {
+            let policy_reason = policy.reason.as_deref().unwrap_or("unspecified");
+            let policy_key = policy.policy_key.as_deref().unwrap_or("");
+            match policy.decision {
+                PreExecutionDecision::Allow => {
+                    tracing::info!(
+                        event = "tool_policy_decision",
+                        tool = %tool.spec().name,
+                        user_id = ?self.context.user_id,
+                        session_id = ?self.context.session_id,
+                        channel_id = ?self.context.channel_id,
+                        scheduled = self.context.execution_mode.is_scheduled_job(),
+                        decision = "allow",
+                        reason = %policy_reason,
+                        policy_key = %policy_key,
+                        "tool policy decision"
+                    );
+                }
+                PreExecutionDecision::RequireApproval => {
+                    tracing::warn!(
+                        event = "tool_policy_decision",
+                        tool = %tool.spec().name,
+                        user_id = ?self.context.user_id,
+                        session_id = ?self.context.session_id,
+                        channel_id = ?self.context.channel_id,
+                        scheduled = self.context.execution_mode.is_scheduled_job(),
+                        decision = "requires_approval",
+                        reason = %policy_reason,
+                        policy_key = %policy_key,
+                        "tool policy requires approval"
+                    );
+                    return Err(ToolError::permission_denied(
+                        format!("tool '{}' requires approval", tool.spec().name),
+                        required,
+                    ));
+                }
+                PreExecutionDecision::Deny => {
+                    tracing::warn!(
+                        event = "tool_policy_decision",
+                        tool = %tool.spec().name,
+                        user_id = ?self.context.user_id,
+                        session_id = ?self.context.session_id,
+                        channel_id = ?self.context.channel_id,
+                        scheduled = self.context.execution_mode.is_scheduled_job(),
+                        decision = "deny",
+                        reason = %policy_reason,
+                        policy_key = %policy_key,
+                        "tool policy denied"
+                    );
+                    return Err(ToolError::new(format!(
+                        "tool '{}' denied by policy",
+                        tool.spec().name
+                    )));
+                }
+            }
+        }
         if let Some(grants) = extra_grants {
             let mut merged = self.context.capabilities.as_ref().clone();
             for permission in grants.permissions() {
@@ -521,7 +584,14 @@ mod tests {
         PromptDecision,
     };
     use crate::tools::registry::ToolRegistry;
-    use crate::tools::traits::{ToolContext, ToolError, ToolExecutor, ToolOutput, ToolSpec};
+    use crate::tools::traits::{
+        PreExecutionPolicy,
+        ToolContext,
+        ToolError,
+        ToolExecutor,
+        ToolOutput,
+        ToolSpec,
+    };
 
     #[derive(Debug)]
     struct DummyTool {
@@ -573,6 +643,14 @@ mod tests {
             _input: &serde_json::Value,
         ) -> Result<Vec<Permission>, ToolError> {
             Ok(self.required.clone())
+        }
+
+        fn pre_execution_policy(
+            &self,
+            _ctx: &ToolContext,
+            _input: &serde_json::Value,
+        ) -> Result<Option<PreExecutionPolicy>, ToolError> {
+            Ok(None)
         }
 
         async fn execute(
@@ -645,6 +723,14 @@ mod tests {
             Ok(vec![Permission::FileRead {
                 path: PathPattern("/tmp/allowed.txt".to_string()),
             }])
+        }
+
+        fn pre_execution_policy(
+            &self,
+            _ctx: &ToolContext,
+            _input: &serde_json::Value,
+        ) -> Result<Option<PreExecutionPolicy>, ToolError> {
+            Ok(None)
         }
 
         async fn execute(

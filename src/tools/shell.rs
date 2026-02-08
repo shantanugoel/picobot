@@ -5,11 +5,21 @@ use serde_json::{Value, json};
 
 use crate::kernel::permissions::Permission;
 use crate::tools::path_utils::resolve_path;
-use crate::tools::traits::{ToolContext, ToolError, ToolExecutor, ToolOutput, ToolSpec};
+use crate::tools::shell_policy::{ShellPolicy, ShellRisk};
+use crate::tools::traits::{
+    PreExecutionDecision,
+    PreExecutionPolicy,
+    ToolContext,
+    ToolError,
+    ToolExecutor,
+    ToolOutput,
+    ToolSpec,
+};
 
 #[derive(Debug, Default)]
 pub struct ShellTool {
     spec: ToolSpec,
+    policy: ShellPolicy,
 }
 
 impl ShellTool {
@@ -30,7 +40,14 @@ impl ShellTool {
                     "additionalProperties": false
                 }),
             },
+            policy: ShellPolicy::default(),
         }
+    }
+
+    pub fn with_policy(policy: ShellPolicy) -> Self {
+        let mut tool = Self::new();
+        tool.policy = policy;
+        tool
     }
 }
 
@@ -52,6 +69,37 @@ impl ToolExecutor for ShellTool {
         Ok(vec![Permission::ShellExec {
             allowed_commands: Some(vec![command.to_string()]),
         }])
+    }
+
+    fn pre_execution_policy(
+        &self,
+        _ctx: &ToolContext,
+        input: &Value,
+    ) -> Result<Option<PreExecutionPolicy>, ToolError> {
+        let command = input
+            .get("command")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::new("missing command".to_string()))?;
+        let args = input
+            .get("args")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let args = args
+            .iter()
+            .filter_map(|value| value.as_str().map(|arg| arg.to_string()))
+            .collect::<Vec<_>>();
+        let result = self.policy.classify(command, &args);
+        let decision = match result.risk {
+            ShellRisk::Safe => PreExecutionDecision::Allow,
+            ShellRisk::Risky => PreExecutionDecision::RequireApproval,
+            ShellRisk::Deny => PreExecutionDecision::Deny,
+        };
+        Ok(Some(PreExecutionPolicy {
+            decision,
+            reason: Some(result.reason),
+            policy_key: Some(result.policy_key),
+        }))
     }
 
     async fn execute(&self, ctx: &ToolContext, input: Value) -> Result<ToolOutput, ToolError> {
@@ -101,8 +149,14 @@ mod tests {
     use serde_json::json;
 
     use super::ShellTool;
+    use crate::tools::shell_policy::ShellPolicy;
     use crate::kernel::permissions::{CapabilitySet, Permission};
-    use crate::tools::traits::{ExecutionMode, ToolContext, ToolExecutor};
+    use crate::tools::traits::{
+        ExecutionMode,
+        PreExecutionDecision,
+        ToolContext,
+        ToolExecutor,
+    };
 
     #[test]
     fn required_permissions_wrap_command() {
@@ -174,5 +228,60 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&jail_root);
         let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn pre_execution_policy_requires_approval_for_risky() {
+        let policy = ShellPolicy::default();
+        let tool = ShellTool::with_policy(policy);
+        let ctx = ToolContext {
+            working_dir: std::path::PathBuf::from("/"),
+            capabilities: std::sync::Arc::new(CapabilitySet::empty()),
+            user_id: None,
+            session_id: None,
+            channel_id: None,
+            jail_root: None,
+            scheduler: None,
+            notifications: None,
+            notify_tool_used: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            execution_mode: ExecutionMode::User,
+            timezone_offset: "+00:00".to_string(),
+            timezone_name: "UTC".to_string(),
+            max_response_bytes: None,
+            max_response_chars: None,
+        };
+        let decision = tool
+            .pre_execution_policy(&ctx, &json!({"command": "rm", "args": ["/tmp"]}))
+            .unwrap();
+        assert_eq!(
+            decision.map(|policy| policy.decision),
+            Some(PreExecutionDecision::RequireApproval)
+        );
+    }
+
+    #[test]
+    fn pre_execution_policy_denies_for_blocked_patterns() {
+        let policy = ShellPolicy::default();
+        let tool = ShellTool::with_policy(policy);
+        let ctx = ToolContext {
+            working_dir: std::path::PathBuf::from("/"),
+            capabilities: std::sync::Arc::new(CapabilitySet::empty()),
+            user_id: None,
+            session_id: None,
+            channel_id: None,
+            jail_root: None,
+            scheduler: None,
+            notifications: None,
+            notify_tool_used: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            execution_mode: ExecutionMode::User,
+            timezone_offset: "+00:00".to_string(),
+            timezone_name: "UTC".to_string(),
+            max_response_bytes: None,
+            max_response_chars: None,
+        };
+        let decision = tool
+            .pre_execution_policy(&ctx, &json!({"command": "sh", "args": ["-c", "echo hi"]}))
+            .unwrap();
+        assert_eq!(decision.map(|policy| policy.decision), Some(PreExecutionDecision::Deny));
     }
 }

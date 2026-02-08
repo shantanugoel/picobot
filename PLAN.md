@@ -238,10 +238,10 @@ The previous implementation is preserved in `reference/` for guidance:
 #### Tasks
 
 1. **Shell Governance (Sentinel/HITL)**
-   - [ ] Add command classifier (pattern-based, safe/risky/deny). Approach: classify command + args pre-execution and attach decision metadata to audit logs. Files: `src/tools/shell.rs`, new `src/tools/shell_policy.rs`.
-   - [ ] Add approval policy to shell permissions config. Approach: configurable deny/risky/allow lists and channel-specific overrides. Files: `src/config.rs`, `picobot.example.toml`.
-   - [ ] Implement sync approval for channels that support user prompts. Approach: use prompter path for interactive channels and policy-based behavior for non-interactive channels. Files: `src/kernel/core.rs`, `src/channels/repl.rs`, `src/channels/api.rs`, `src/channels/whatsapp.rs`.
-   - [ ] Add approval timeout and fallback behavior. Approach: default-deny on timeout for risky commands, configurable per channel. Files: `src/kernel/core.rs`, `src/channels/permissions.rs`, `src/config.rs`.
+    - [x] Add command classifier (pattern-based, safe/risky/deny). Approach: classify command + args pre-execution and attach decision metadata to audit logs. Files: `src/tools/shell.rs`, new `src/tools/shell_policy.rs`.
+    - [x] Add approval policy to shell permissions config. Approach: configurable deny/risky/allow lists and channel-specific overrides. Files: `src/config.rs`, `picobot.example.toml`.
+    - [x] Implement sync approval for channels that support user prompts. Approach: use prompter path for interactive channels and policy-based behavior for non-interactive channels. Files: `src/kernel/core.rs`, `src/channels/repl.rs`, `src/channels/api.rs`, `src/channels/whatsapp.rs`.
+    - [x] Add approval timeout and fallback behavior. Approach: default-deny on timeout for risky commands, configurable per channel. Files: `src/kernel/core.rs`, `src/channels/permissions.rs`, `src/config.rs`.
 
 2. **Isolated Runtime for High-Risk Tools**
    - [ ] Containerized execution for shell tool (ephemeral containers). Approach: execute shell commands through a runner abstraction backed by OCI containers instead of direct host `tokio::process::Command`. Files: `src/tools/shell.rs`, new `src/tools/shell_runner.rs`, `src/config.rs`.

@@ -117,6 +117,13 @@ allowed_domains = ["api.github.com"]
 [permissions.shell]
 allowed_commands = ["git", "rg"]
 
+# Optional shell governance policy
+[permissions.shell.policy]
+# default_risk = "safe" # safe | risky | deny
+# deny_patterns = ["rm -rf *", "dd *", "mkfs* *", "fdisk *", "bash *", "sh *"]
+# risky_patterns = ["rm *", "mv *", "chmod *", "git *", "curl *", "wget *"]
+# safe_commands = ["ls", "pwd", "whoami", "date", "echo", "cat", "rg", "find"]
+
 [permissions.schedule]
 allowed_actions = ["create", "list", "cancel"]
 ```

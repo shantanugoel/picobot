@@ -89,6 +89,20 @@ impl std::error::Error for ToolError {}
 
 pub type ToolOutput = Value;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreExecutionDecision {
+    Allow,
+    RequireApproval,
+    Deny,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreExecutionPolicy {
+    pub decision: PreExecutionDecision,
+    pub reason: Option<String>,
+    pub policy_key: Option<String>,
+}
+
 #[async_trait]
 pub trait ToolExecutor: Send + Sync {
     fn spec(&self) -> &ToolSpec;
@@ -97,5 +111,12 @@ pub trait ToolExecutor: Send + Sync {
         ctx: &ToolContext,
         input: &Value,
     ) -> Result<Vec<Permission>, ToolError>;
+    fn pre_execution_policy(
+        &self,
+        _ctx: &ToolContext,
+        _input: &Value,
+    ) -> Result<Option<PreExecutionPolicy>, ToolError> {
+        Ok(None)
+    }
     async fn execute(&self, ctx: &ToolContext, input: Value) -> Result<ToolOutput, ToolError>;
 }
