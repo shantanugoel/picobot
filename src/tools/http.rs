@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
+use dom_smoothie::Readability;
 use reqwest::header::CONTENT_TYPE;
 use reqwest::Client;
 use serde_json::{Map, Value, json};
@@ -12,6 +13,7 @@ use crate::tools::traits::{ToolContext, ToolError, ToolExecutor, ToolOutput, Too
 const DEFAULT_MAX_RESPONSE_BYTES: u64 = 5 * 1024 * 1024;
 const DEFAULT_MAX_RESPONSE_CHARS: usize = 50_000;
 const HTML_TEXT_WIDTH: usize = 120;
+const READABILITY_MIN_CHARS: usize = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OutputFormat {
@@ -58,6 +60,12 @@ impl BodyMode {
             Self::MetadataOnly => "metadata_only",
         }
     }
+}
+
+#[derive(Debug, Clone)]
+struct HtmlExtraction {
+    text: String,
+    title: Option<String>,
 }
 
 #[derive(Debug)]
@@ -206,10 +214,9 @@ impl ToolExecutor for HttpTool {
 
         let (body, truncated, title) = match mode {
             BodyMode::Text if extract_html => {
-                let text = extract_html_text(&bytes);
-                let title = extract_html_title(&bytes);
-                let (body, truncated) = truncate_text(&text, max_body_chars);
-                (Some(body), truncated, title)
+                let extraction = extract_html_content(&bytes, url);
+                let (body, truncated) = truncate_text(&extraction.text, max_body_chars);
+                (Some(body), truncated, extraction.title)
             }
             BodyMode::Text | BodyMode::Raw => {
                 let text = String::from_utf8_lossy(&bytes).to_string();
@@ -332,23 +339,42 @@ fn plan_body_format(
     }
 }
 
-fn extract_html_text(bytes: &[u8]) -> String {
+fn extract_html_content(bytes: &[u8], url: &str) -> HtmlExtraction {
+    let html = String::from_utf8_lossy(bytes);
+    if let Ok(mut readability) = Readability::new(html.as_ref(), Some(url), None) {
+        if let Ok(article) = readability.parse() {
+            let text = normalize_text(&article.text_content.to_string());
+            if text.len() >= READABILITY_MIN_CHARS {
+                return HtmlExtraction {
+                    text,
+                    title: normalize_title(&article.title),
+                };
+            }
+        }
+    }
+
     let text = html2text::from_read(bytes, HTML_TEXT_WIDTH)
-        .unwrap_or_else(|_| String::from_utf8_lossy(bytes).to_string());
-    normalize_text(&text)
+        .unwrap_or_else(|_| html.to_string());
+    HtmlExtraction {
+        text: normalize_text(&text),
+        title: extract_html_title(html.as_ref()),
+    }
 }
 
-fn extract_html_title(bytes: &[u8]) -> Option<String> {
-    let html = String::from_utf8_lossy(bytes);
+fn extract_html_title(html: &str) -> Option<String> {
     let lower = html.to_ascii_lowercase();
     let start = lower.find("<title")?;
     let start_tag = lower[start..].find('>')? + start + 1;
     let end = lower[start_tag..].find("</title>")? + start_tag;
-    let title = html[start_tag..end].trim();
-    if title.is_empty() {
+    normalize_title(html[start_tag..end].trim())
+}
+
+fn normalize_title(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
         None
     } else {
-        Some(title.to_string())
+        Some(trimmed.to_string())
     }
 }
 
@@ -445,7 +471,7 @@ mod tests {
     use crate::tools::net_utils::{is_private_ip, parse_host};
 
     use super::{
-        OutputFormat, extract_html_text, extract_html_title, is_binary_content_type,
+        OutputFormat, extract_html_content, extract_html_title, is_binary_content_type,
         normalize_content_type, plan_body_format, truncate_text,
     };
 
@@ -501,14 +527,14 @@ mod tests {
     #[test]
     fn extract_html_title_reads_title() {
         let html = b"<html><head><title>Example</title></head><body>Hello</body></html>";
-        let title = extract_html_title(html).unwrap();
+        let title = extract_html_title(std::str::from_utf8(html).unwrap()).unwrap();
         assert_eq!(title, "Example");
     }
 
     #[test]
     fn extract_html_text_removes_markup() {
         let html = b"<html><body><h1>Hello</h1><p>World</p></body></html>";
-        let text = extract_html_text(html);
+        let text = extract_html_content(html, "https://example.com").text;
         assert!(text.contains("Hello"));
         assert!(!text.contains("<h1>"));
     }
@@ -531,7 +557,7 @@ mod tests {
     fn tool_output_text(body: &str, output_format: OutputFormat, content_type: &str) -> Value {
         let (mode, extract_html) = plan_body_format(output_format, Some(content_type)).unwrap();
         let text = if extract_html {
-            extract_html_text(body.as_bytes())
+            extract_html_content(body.as_bytes(), "https://example.com").text
         } else {
             body.to_string()
         };
