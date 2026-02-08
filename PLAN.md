@@ -254,6 +254,7 @@ The previous implementation is preserved in `reference/` for guidance:
    - [ ] Containerized headless Chrome/Chromium. Files: new `src/tools/browser/*.rs`, container/runtime configs.
    - [ ] WebSocket control interface for browser actions. Files: `src/channels/websocket.rs`, `src/tools/browser/*.rs`.
    - [ ] Screenshot and DOM extraction support. Files: `src/tools/browser/*.rs`.
+   - [ ] Connectors! (To connect oauth tokens or other ways of login info for any websites)
 
 5. **Web Search Tool**
     - [x] Evaluate options (Google/Exa/Brave vs browser-tool-backed search) and define a good implementation which possibly works for LLMs better than raw html. Files: `src/tools/search.rs` (new), `src/config.rs`, `README.md`.
@@ -278,6 +279,7 @@ The previous implementation is preserved in `reference/` for guidance:
 
 9. **Same User across channels**
     - [ ] Explore what's a good and secure way to have the same user identified and work across different channels so the user can easily work with picobot, e.g. continuing conversations or accessing their files/history etc across channels
+    - [ ] Does it need user auth mechanism?
 
 ## Key Design Decisions
 
