@@ -200,6 +200,29 @@ impl Config {
             if shell.allowed_commands.iter().any(|command| command.trim().is_empty()) {
                 warnings.push("shell allowed_commands contains empty entry".to_string());
             }
+            if let Some(runner) = shell.runner.as_deref() {
+                let normalized = runner.trim().to_ascii_lowercase();
+                if normalized.is_empty() {
+                    warnings.push("shell runner is empty".to_string());
+                } else if normalized != "host" && normalized != "container" {
+                    errors.push(format!("unsupported shell runner '{runner}'"));
+                } else if normalized == "container" {
+                    warnings.push(
+                        "shell runner set to 'container' but container mode is not implemented"
+                            .to_string(),
+                    );
+                }
+            }
+            if let Some(runtime) = shell.container_runtime.as_deref()
+                && runtime.trim().is_empty()
+            {
+                warnings.push("shell container_runtime is empty".to_string());
+            }
+            if let Some(image) = shell.container_image.as_deref()
+                && image.trim().is_empty()
+            {
+                warnings.push("shell container_image is empty".to_string());
+            }
             if let Some(policy) = &shell.policy {
                 if let Some(default_risk) = &policy.default_risk
                     && ShellRisk::parse(default_risk).is_none()
@@ -223,6 +246,36 @@ impl Config {
                 {
                     warnings.push("shell policy safe_commands has empty entry".to_string());
                 }
+            }
+        }
+
+        if let Some(perms) = &self.permissions
+            && let Some(tool_limits) = &perms.tool_limits
+        {
+            if let Some(timeout) = tool_limits.default_timeout_secs
+                && timeout == 0
+            {
+                warnings.push("tool_limits default_timeout_secs is 0".to_string());
+            }
+            if let Some(limit) = tool_limits.max_output_bytes
+                && limit == 0
+            {
+                warnings.push("tool_limits max_output_bytes is 0".to_string());
+            }
+            if let Some(timeout) = tool_limits.shell_timeout_secs
+                && timeout == 0
+            {
+                warnings.push("tool_limits shell_timeout_secs is 0".to_string());
+            }
+            if let Some(timeout) = tool_limits.http_timeout_secs
+                && timeout == 0
+            {
+                warnings.push("tool_limits http_timeout_secs is 0".to_string());
+            }
+            if let Some(timeout) = tool_limits.multimodal_timeout_secs
+                && timeout == 0
+            {
+                warnings.push("tool_limits multimodal_timeout_secs is 0".to_string());
             }
         }
 
@@ -621,6 +674,7 @@ pub struct PermissionsConfig {
     pub network: Option<NetworkPermissions>,
     pub shell: Option<ShellPermissions>,
     pub schedule: Option<SchedulePermissions>,
+    pub tool_limits: Option<ToolLimitsConfig>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -640,6 +694,9 @@ pub struct NetworkPermissions {
 #[derive(Debug, Deserialize, Default, Clone)]
 pub struct ShellPermissions {
     pub allowed_commands: Vec<String>,
+    pub runner: Option<String>,
+    pub container_runtime: Option<String>,
+    pub container_image: Option<String>,
     pub policy: Option<ShellPolicyConfig>,
 }
 
@@ -654,6 +711,15 @@ pub struct ShellPolicyConfig {
 #[derive(Debug, Deserialize, Default, Clone)]
 pub struct SchedulePermissions {
     pub allowed_actions: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct ToolLimitsConfig {
+    pub default_timeout_secs: Option<u64>,
+    pub max_output_bytes: Option<usize>,
+    pub shell_timeout_secs: Option<u64>,
+    pub http_timeout_secs: Option<u64>,
+    pub multimodal_timeout_secs: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]

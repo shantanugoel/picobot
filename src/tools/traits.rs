@@ -57,6 +57,13 @@ pub struct ToolContext {
 pub struct ToolError {
     message: String,
     required: Option<Vec<Permission>>,
+    kind: ToolErrorKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolErrorKind {
+    General,
+    Timeout,
 }
 
 impl ToolError {
@@ -64,6 +71,7 @@ impl ToolError {
         Self {
             message,
             required: None,
+            kind: ToolErrorKind::General,
         }
     }
 
@@ -71,7 +79,20 @@ impl ToolError {
         Self {
             message,
             required: Some(required),
+            kind: ToolErrorKind::General,
         }
+    }
+
+    pub fn timeout(message: String) -> Self {
+        Self {
+            message,
+            required: None,
+            kind: ToolErrorKind::Timeout,
+        }
+    }
+
+    pub fn is_timeout(&self) -> bool {
+        self.kind == ToolErrorKind::Timeout
     }
 
     pub fn required_permissions(&self) -> Option<&[Permission]> {

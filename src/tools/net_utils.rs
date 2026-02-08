@@ -314,12 +314,11 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
             if let Ok((mut socket, _)) = listener.accept().await {
-                let mut headers = String::from(
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n",
-                );
+                let mut headers = String::from("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n");
                 if include_length {
                     headers.push_str(&format!("Content-Length: {}\r\n", body.len()));
                 }
+                headers.push_str("Connection: close\r\n");
                 headers.push_str("\r\n");
                 let _ = socket.write_all(headers.as_bytes()).await;
                 let _ = socket.write_all(&body).await;

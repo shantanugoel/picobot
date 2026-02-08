@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -31,6 +32,8 @@ pub struct Kernel {
     prompt_profile: ChannelPermissionProfile,
     prompter: Option<Arc<dyn PermissionPrompter>>,
     session_grants: Arc<std::sync::RwLock<CapabilitySet>>,
+    default_timeout: Duration,
+    tool_timeouts: std::collections::HashMap<String, Duration>,
 }
 
 impl Kernel {
@@ -57,6 +60,8 @@ impl Kernel {
             prompt_profile: ChannelPermissionProfile::default(),
             prompter: None,
             session_grants: Arc::new(std::sync::RwLock::new(CapabilitySet::empty())),
+            default_timeout: Duration::from_secs(60),
+            tool_timeouts: std::collections::HashMap::new(),
         }
     }
 
@@ -128,6 +133,16 @@ impl Kernel {
         self
     }
 
+    pub fn with_tool_timeouts(
+        mut self,
+        default_timeout: Duration,
+        tool_timeouts: std::collections::HashMap<String, Duration>,
+    ) -> Self {
+        self.default_timeout = default_timeout;
+        self.tool_timeouts = tool_timeouts;
+        self
+    }
+
     pub fn clone_with_context(&self, user_id: Option<String>, session_id: Option<String>) -> Self {
         let mut context = self.context.clone();
         context.user_id = user_id;
@@ -139,6 +154,8 @@ impl Kernel {
             prompt_profile: self.prompt_profile.clone(),
             prompter: self.prompter.clone(),
             session_grants: Arc::new(std::sync::RwLock::new(CapabilitySet::empty())),
+            default_timeout: self.default_timeout,
+            tool_timeouts: self.tool_timeouts.clone(),
         }
     }
 
@@ -365,7 +382,7 @@ impl Kernel {
             }
             let mut scoped = self.context.clone();
             scoped.capabilities = Arc::new(merged);
-            let output = tool.execute(&scoped, input).await;
+            let output = self.execute_with_timeout(tool, &scoped, input).await;
             match &output {
                 Ok(_) => tracing::info!(
                     event = "tool_outcome",
@@ -385,13 +402,14 @@ impl Kernel {
                     channel_id = ?self.context.channel_id,
                     scheduled = self.context.execution_mode.is_scheduled_job(),
                     outcome = "error",
+                    timed_out = err.is_timeout(),
                     error = %err,
                     "tool execution failed"
                 ),
             }
             output
         } else {
-            let output = tool.execute(&self.context, input).await;
+            let output = self.execute_with_timeout(tool, &self.context, input).await;
             match &output {
                 Ok(_) => tracing::info!(
                     event = "tool_outcome",
@@ -411,11 +429,32 @@ impl Kernel {
                     channel_id = ?self.context.channel_id,
                     scheduled = self.context.execution_mode.is_scheduled_job(),
                     outcome = "error",
+                    timed_out = err.is_timeout(),
                     error = %err,
                     "tool execution failed"
                 ),
             }
             output
+        }
+    }
+
+    async fn execute_with_timeout(
+        &self,
+        tool: &dyn ToolExecutor,
+        ctx: &ToolContext,
+        input: Value,
+    ) -> Result<ToolOutput, ToolError> {
+        let timeout = self
+            .tool_timeouts
+            .get(tool.spec().name.as_str())
+            .copied()
+            .unwrap_or(self.default_timeout);
+        match tokio::time::timeout(timeout, tool.execute(ctx, input)).await {
+            Ok(result) => result,
+            Err(_) => Err(ToolError::timeout(format!(
+                "tool '{}' timed out after {:?}",
+                tool.spec().name, timeout
+            ))),
         }
     }
 

@@ -80,6 +80,9 @@ allowed_domains = ["api.github.com"]
 [permissions.shell]
 # Optional
 allowed_commands = ["git", "rg"]
+# runner = "host"          # host | container
+# container_runtime = "docker"
+# container_image = "alpine:latest"
 
 # Optional shell governance policy
 # Default risk applies to commands that are allowlisted but not matched by patterns or safe_commands.
@@ -88,6 +91,13 @@ allowed_commands = ["git", "rg"]
 # deny_patterns = ["rm -rf *", "dd *", "mkfs* *", "fdisk *", "bash *", "sh *"]
 # risky_patterns = ["rm *", "mv *", "chmod *", "git *", "curl *", "wget *"]
 # safe_commands = ["ls", "pwd", "whoami", "date", "echo", "cat", "rg", "find"]
+
+[permissions.tool_limits]
+# default_timeout_secs = 60
+# max_output_bytes = 1048576
+# shell_timeout_secs = 120
+# http_timeout_secs = 30
+# multimodal_timeout_secs = 120
 
 [permissions.schedule]
 # Optional

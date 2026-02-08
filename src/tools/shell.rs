@@ -20,6 +20,7 @@ pub struct ShellTool {
     spec: ToolSpec,
     policy: ShellPolicy,
     runner: std::sync::Arc<dyn ShellRunner>,
+    limits: ExecutionLimits,
 }
 
 impl ShellTool {
@@ -42,6 +43,7 @@ impl ShellTool {
             },
             policy: ShellPolicy::default(),
             runner: std::sync::Arc::new(HostRunner),
+            limits: ExecutionLimits::default(),
         }
     }
 
@@ -53,6 +55,11 @@ impl ShellTool {
 
     pub fn with_runner(mut self, runner: std::sync::Arc<dyn ShellRunner>) -> Self {
         self.runner = runner;
+        self
+    }
+
+    pub fn with_limits(mut self, limits: ExecutionLimits) -> Self {
+        self.limits = limits;
         self
     }
 }
@@ -135,16 +142,19 @@ impl ToolExecutor for ShellTool {
             ctx.working_dir.clone()
         };
 
-        let limits = ExecutionLimits::default();
         let output = self
             .runner
-            .run(command, &args, &effective_dir, &limits)
+            .run(command, &args, &effective_dir, &self.limits)
             .await?;
+        if output.timed_out {
+            return Err(ToolError::timeout("shell command timed out".to_string()));
+        }
         Ok(json!({
             "status": if output.exit_code == Some(0) { "ok" } else { "error" },
             "exit_code": output.exit_code,
             "stdout": output.stdout,
-            "stderr": output.stderr
+            "stderr": output.stderr,
+            "truncated": output.truncated
         }))
     }
 }

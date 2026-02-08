@@ -565,6 +565,7 @@ mod tests {
             network: None,
             shell: None,
             schedule: None,
+            tool_limits: None,
         };
         let base = PathBuf::from("/tmp/picobot");
         let set = CapabilitySet::from_config_with_base(&config, &base);

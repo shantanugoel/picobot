@@ -25,6 +25,7 @@ use crate::tools::schedule::ScheduleTool;
 use crate::tools::search::SearchTool;
 use crate::tools::shell::ShellTool;
 use crate::tools::shell_policy::ShellPolicy;
+use crate::tools::shell_runner::ExecutionLimits;
 use crate::session::manager::SessionManager;
 
 fn build_kernel(
@@ -43,7 +44,10 @@ fn build_kernel(
     session_store.touch()?;
     registry.register(std::sync::Arc::new(FilesystemTool::new()))?;
     let shell_policy = ShellPolicy::from_config(config.permissions().shell.as_ref());
-    registry.register(std::sync::Arc::new(ShellTool::with_policy(shell_policy)))?;
+    let shell_limits = build_shell_limits(config);
+    registry.register(std::sync::Arc::new(
+        ShellTool::with_policy(shell_policy).with_limits(shell_limits),
+    ))?;
     registry.register(std::sync::Arc::new(HttpTool::new()?))?;
     registry.register(std::sync::Arc::new(ScheduleTool::new()))?;
     registry.register(std::sync::Arc::new(NotifyTool::new()))?;
@@ -84,6 +88,7 @@ fn build_kernel(
         .filesystem
         .and_then(|filesystem| filesystem.jail_root)
         .map(|path| resolve_working_path(&base_dir, &path));
+    let (default_timeout, tool_timeouts) = build_tool_timeouts(config);
     let kernel = Kernel::new(std::sync::Arc::clone(&registry))
         .with_capabilities(capabilities)
         .with_working_dir(resolve_working_path(
@@ -93,7 +98,8 @@ fn build_kernel(
         .with_jail_root(jail_root)
         .with_scheduler(scheduler)
         .with_max_response_bytes(max_response_bytes)
-        .with_max_response_chars(max_response_chars);
+        .with_max_response_chars(max_response_chars)
+        .with_tool_timeouts(default_timeout, tool_timeouts);
     Ok(kernel)
 }
 
@@ -113,6 +119,56 @@ fn resolve_working_path(base_dir: &std::path::Path, raw: &str) -> std::path::Pat
         expanded
     } else {
         base_dir.join(expanded)
+    }
+}
+
+fn build_tool_timeouts(
+    config: &Config,
+) -> (std::time::Duration, std::collections::HashMap<String, std::time::Duration>) {
+    let limits = config.permissions().tool_limits;
+    let default_secs = limits
+        .as_ref()
+        .and_then(|limits| limits.default_timeout_secs)
+        .unwrap_or(60);
+    let shell_secs = limits
+        .as_ref()
+        .and_then(|limits| limits.shell_timeout_secs)
+        .unwrap_or(120);
+    let http_secs = limits
+        .as_ref()
+        .and_then(|limits| limits.http_timeout_secs)
+        .unwrap_or(30);
+    let multimodal_secs = limits
+        .as_ref()
+        .and_then(|limits| limits.multimodal_timeout_secs)
+        .unwrap_or(120);
+    let mut tool_timeouts = std::collections::HashMap::new();
+    tool_timeouts.insert("shell".to_string(), std::time::Duration::from_secs(shell_secs));
+    tool_timeouts.insert(
+        "http_fetch".to_string(),
+        std::time::Duration::from_secs(http_secs),
+    );
+    tool_timeouts.insert(
+        "multimodal_looker".to_string(),
+        std::time::Duration::from_secs(multimodal_secs),
+    );
+    (std::time::Duration::from_secs(default_secs), tool_timeouts)
+}
+
+fn build_shell_limits(config: &Config) -> ExecutionLimits {
+    let limits = config.permissions().tool_limits;
+    let timeout_secs = limits
+        .as_ref()
+        .and_then(|limits| limits.shell_timeout_secs)
+        .unwrap_or(120);
+    let max_output_bytes = limits
+        .as_ref()
+        .and_then(|limits| limits.max_output_bytes)
+        .unwrap_or(1_048_576);
+    ExecutionLimits {
+        timeout: std::time::Duration::from_secs(timeout_secs),
+        max_output_bytes,
+        max_memory_bytes: None,
     }
 }
 
