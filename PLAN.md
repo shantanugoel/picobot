@@ -281,6 +281,11 @@ The previous implementation is preserved in `reference/` for guidance:
     - [ ] Explore what's a good and secure way to have the same user identified and work across different channels so the user can easily work with picobot, e.g. continuing conversations or accessing their files/history etc across channels
     - [ ] Does it need user auth mechanism?
 
+10. **Async Execution**
+    - [ ] Currently every message is processed in sequence, which is generally ok but may be a problem if there are long running tasks. Need to think about how to do this.
+        -  If we do this, bot needs to be aware of running tasks.
+        - One way to potentially achieve these things is via task scheduler, but scheduler currently knows only pending and done state, not executing?
+
 ## Key Design Decisions
 
 ### 1. KernelBackedTool Pattern
