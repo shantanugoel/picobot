@@ -502,7 +502,10 @@ fn is_allowed_sender(sender: &str, allowed: &[String]) -> bool {
 }
 
 fn normalize_whatsapp_id(sender: &str) -> &str {
-    sender.split_once('@').map(|(id, _)| id).unwrap_or(sender)
+    let end = sender
+        .find(|ch| ch == ':' || ch == '@')
+        .unwrap_or(sender.len());
+    &sender[..end]
 }
 
 struct PromptWithUsageResult {
@@ -1049,4 +1052,36 @@ fn render_qr_code(payload: &str) -> String {
         Err(_) => return payload.to_string(),
     };
     code.render::<unicode::Dense1x2>().quiet_zone(true).build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_allowed_sender, normalize_whatsapp_id, whatsapp_user_folder};
+
+    #[test]
+    fn normalize_whatsapp_id_strips_device_suffix() {
+        assert_eq!(normalize_whatsapp_id("19683919028456:12@lid"), "19683919028456");
+        assert_eq!(normalize_whatsapp_id("15551234567@c.us"), "15551234567");
+        assert_eq!(
+            normalize_whatsapp_id("15551234567:0@s.whatsapp.net"),
+            "15551234567"
+        );
+    }
+
+    #[test]
+    fn is_allowed_sender_matches_device_variants() {
+        let allowed = vec!["19683919028456".to_string()];
+        assert!(is_allowed_sender("19683919028456:12@lid", &allowed));
+        assert!(is_allowed_sender("19683919028456@c.us", &allowed));
+        assert!(is_allowed_sender("19683919028456:0@s.whatsapp.net", &allowed));
+        assert!(!is_allowed_sender("19999999999@c.us", &allowed));
+    }
+
+    #[test]
+    fn whatsapp_user_folder_normalizes_device_suffix() {
+        let lid_folder = whatsapp_user_folder("19683919028456:12@lid");
+        let wa_folder = whatsapp_user_folder("19683919028456@c.us");
+        assert_eq!(lid_folder, wa_folder);
+        assert_eq!(lid_folder, "19683919028456");
+    }
 }
