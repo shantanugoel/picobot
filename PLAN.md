@@ -276,6 +276,9 @@ The previous implementation is preserved in `reference/` for guidance:
     - [ ] Github CI for mac/linux/windows/docker. Files: `.github/workflows/*`.
     - [ ] Publish release workflow. Files: `.github/workflows/*`, release docs.
 
+9. **Same User across channels**
+    - [ ] Explore what's a good and secure way to have the same user identified and work across different channels so the user can easily work with picobot, e.g. continuing conversations or accessing their files/history etc across channels
+
 ## Key Design Decisions
 
 ### 1. KernelBackedTool Pattern
