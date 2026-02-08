@@ -25,7 +25,7 @@ use crate::tools::schedule::ScheduleTool;
 use crate::tools::search::SearchTool;
 use crate::tools::shell::ShellTool;
 use crate::tools::shell_policy::ShellPolicy;
-use crate::tools::shell_runner::ExecutionLimits;
+use crate::tools::shell_runner::{ContainerRunner, ExecutionLimits, HostRunner, ShellRunner};
 use crate::session::manager::SessionManager;
 
 fn build_kernel(
@@ -43,10 +43,25 @@ fn build_kernel(
     );
     session_store.touch()?;
     registry.register(std::sync::Arc::new(FilesystemTool::new()))?;
+    let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let jail_root = config
+        .permissions()
+        .filesystem
+        .and_then(|filesystem| filesystem.jail_root)
+        .map(|path| resolve_working_path(&base_dir, &path));
+    let working_dir = resolve_working_path(&base_dir, &config.data_dir().to_string_lossy());
     let shell_policy = ShellPolicy::from_config(config.permissions().shell.as_ref());
     let shell_limits = build_shell_limits(config);
+    let shell_runner = build_shell_runner(
+        config,
+        jail_root.clone(),
+        working_dir.clone(),
+        base_dir.clone(),
+    );
     registry.register(std::sync::Arc::new(
-        ShellTool::with_policy(shell_policy).with_limits(shell_limits),
+        ShellTool::with_policy(shell_policy)
+            .with_limits(shell_limits)
+            .with_runner(shell_runner),
     ))?;
     registry.register(std::sync::Arc::new(HttpTool::new()?))?;
     registry.register(std::sync::Arc::new(ScheduleTool::new()))?;
@@ -79,22 +94,14 @@ fn build_kernel(
     );
     registry.register(std::sync::Arc::new(multimodal_tool))?;
     let registry = std::sync::Arc::new(registry);
-    let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let capabilities = CapabilitySet::from_config_with_base(&config.permissions(), &base_dir);
     let max_response_bytes = config.network().max_response_bytes;
     let max_response_chars = config.network().max_response_chars;
-    let jail_root = config
-        .permissions()
-        .filesystem
-        .and_then(|filesystem| filesystem.jail_root)
-        .map(|path| resolve_working_path(&base_dir, &path));
+    let jail_root = jail_root.clone();
     let (default_timeout, tool_timeouts) = build_tool_timeouts(config);
     let kernel = Kernel::new(std::sync::Arc::clone(&registry))
         .with_capabilities(capabilities)
-        .with_working_dir(resolve_working_path(
-            &base_dir,
-            &config.data_dir().to_string_lossy(),
-        ))
+        .with_working_dir(working_dir)
         .with_jail_root(jail_root)
         .with_scheduler(scheduler)
         .with_max_response_bytes(max_response_bytes)
@@ -157,6 +164,12 @@ fn build_tool_timeouts(
 
 fn build_shell_limits(config: &Config) -> ExecutionLimits {
     let limits = config.permissions().tool_limits;
+    let max_memory_bytes = config
+        .permissions()
+        .shell
+        .as_ref()
+        .and_then(|shell| shell.container_memory_mb)
+        .map(|value| value.saturating_mul(1024 * 1024));
     let timeout_secs = limits
         .as_ref()
         .and_then(|limits| limits.shell_timeout_secs)
@@ -168,8 +181,56 @@ fn build_shell_limits(config: &Config) -> ExecutionLimits {
     ExecutionLimits {
         timeout: std::time::Duration::from_secs(timeout_secs),
         max_output_bytes,
-        max_memory_bytes: None,
+        max_memory_bytes,
     }
+}
+
+fn build_shell_runner(
+    config: &Config,
+    jail_root: Option<std::path::PathBuf>,
+    working_dir: std::path::PathBuf,
+    base_dir: std::path::PathBuf,
+) -> std::sync::Arc<dyn ShellRunner> {
+    let shell = config.permissions().shell;
+    let runner = shell.as_ref().and_then(|shell| shell.runner.as_deref());
+    let wants_container = runner
+        .map(|value| value.eq_ignore_ascii_case("container"))
+        .unwrap_or(false);
+    if !wants_container {
+        return std::sync::Arc::new(HostRunner);
+    }
+    let runtime = shell
+        .as_ref()
+        .and_then(|shell| shell.container_runtime.as_deref())
+        .unwrap_or("docker");
+    let image = shell
+        .as_ref()
+        .and_then(|shell| shell.container_image.as_deref())
+        .unwrap_or("alpine:latest")
+        .to_string();
+    if !container_runtime_available(runtime) {
+        tracing::warn!(
+            runtime = %runtime,
+            "shell runner set to 'container' but runtime not available; falling back to host execution"
+        );
+        return std::sync::Arc::new(HostRunner);
+    }
+    let mount_root = jail_root.unwrap_or(working_dir).canonicalize().unwrap_or(base_dir);
+    std::sync::Arc::new(ContainerRunner::new(
+        runtime.to_string(),
+        image,
+        mount_root,
+    ))
+}
+
+fn container_runtime_available(runtime: &str) -> bool {
+    std::process::Command::new(runtime)
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 #[tokio::main]

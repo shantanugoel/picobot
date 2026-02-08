@@ -206,11 +206,6 @@ impl Config {
                     warnings.push("shell runner is empty".to_string());
                 } else if normalized != "host" && normalized != "container" {
                     errors.push(format!("unsupported shell runner '{runner}'"));
-                } else if normalized == "container" {
-                    warnings.push(
-                        "shell runner set to 'container' but container mode is not implemented"
-                            .to_string(),
-                    );
                 }
             }
             if let Some(runtime) = shell.container_runtime.as_deref()
@@ -222,6 +217,11 @@ impl Config {
                 && image.trim().is_empty()
             {
                 warnings.push("shell container_image is empty".to_string());
+            }
+            if let Some(memory_mb) = shell.container_memory_mb
+                && memory_mb == 0
+            {
+                warnings.push("shell container_memory_mb is 0".to_string());
             }
             if let Some(policy) = &shell.policy {
                 if let Some(default_risk) = &policy.default_risk
@@ -697,6 +697,7 @@ pub struct ShellPermissions {
     pub runner: Option<String>,
     pub container_runtime: Option<String>,
     pub container_image: Option<String>,
+    pub container_memory_mb: Option<u64>,
     pub policy: Option<ShellPolicyConfig>,
 }
 

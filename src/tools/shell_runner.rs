@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -46,6 +46,58 @@ pub trait ShellRunner: Send + Sync + std::fmt::Debug {
     ) -> Result<ShellOutput, ToolError>;
 }
 
+async fn run_command(
+    mut cmd: tokio::process::Command,
+    limits: &ExecutionLimits,
+) -> Result<ShellOutput, ToolError> {
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|err| ToolError::new(err.to_string()))?;
+
+    let stdout_handle = child.stdout.take().map(|stdout| {
+        tokio::spawn(read_stream_limited(stdout, limits.max_output_bytes))
+    });
+    let stderr_handle = child.stderr.take().map(|stderr| {
+        tokio::spawn(read_stream_limited(stderr, limits.max_output_bytes))
+    });
+
+    let status = tokio::time::timeout(limits.timeout, child.wait()).await;
+    match status {
+        Ok(result) => {
+            let status = result.map_err(|err| ToolError::new(err.to_string()))?;
+            let (stdout, stdout_truncated) = collect_output(stdout_handle).await?;
+            let (stderr, stderr_truncated) = collect_output(stderr_handle).await?;
+            let truncated = stdout_truncated || stderr_truncated;
+            Ok(ShellOutput {
+                exit_code: status.code(),
+                stdout: render_output(stdout, stdout_truncated),
+                stderr: render_output(stderr, stderr_truncated),
+                timed_out: false,
+                truncated,
+            })
+        }
+        Err(_) => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            if let Some(handle) = stdout_handle {
+                handle.abort();
+            }
+            if let Some(handle) = stderr_handle {
+                handle.abort();
+            }
+            Ok(ShellOutput {
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                timed_out: true,
+                truncated: false,
+            })
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct HostRunner;
 
@@ -63,52 +115,84 @@ impl ShellRunner for HostRunner {
         for arg in args {
             cmd.arg(arg);
         }
-        let mut child = cmd
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|err| ToolError::new(err.to_string()))?;
+        run_command(cmd, limits).await
+    }
+}
 
-        let stdout_handle = child.stdout.take().map(|stdout| {
-            tokio::spawn(read_stream_limited(stdout, limits.max_output_bytes))
-        });
-        let stderr_handle = child.stderr.take().map(|stderr| {
-            tokio::spawn(read_stream_limited(stderr, limits.max_output_bytes))
-        });
+#[derive(Debug)]
+pub struct ContainerRunner {
+    runtime: String,
+    image: String,
+    mount_source: PathBuf,
+    mount_target: PathBuf,
+}
 
-        let status = tokio::time::timeout(limits.timeout, child.wait()).await;
-        match status {
-            Ok(result) => {
-                let status = result.map_err(|err| ToolError::new(err.to_string()))?;
-                let (stdout, stdout_truncated) = collect_output(stdout_handle).await?;
-                let (stderr, stderr_truncated) = collect_output(stderr_handle).await?;
-                let truncated = stdout_truncated || stderr_truncated;
-                Ok(ShellOutput {
-                    exit_code: status.code(),
-                    stdout: render_output(stdout, stdout_truncated),
-                    stderr: render_output(stderr, stderr_truncated),
-                    timed_out: false,
-                    truncated,
-                })
-            }
-            Err(_) => {
-                let _ = child.kill().await;
-                let _ = child.wait().await;
-                if let Some(handle) = stdout_handle {
-                    handle.abort();
-                }
-                if let Some(handle) = stderr_handle {
-                    handle.abort();
-                }
-                Ok(ShellOutput {
-                    exit_code: None,
-                    stdout: String::new(),
-                    stderr: String::new(),
-                    timed_out: true,
-                    truncated: false,
-                })
-            }
+impl ContainerRunner {
+    pub fn new(runtime: String, image: String, mount_source: PathBuf) -> Self {
+        let mount_source = mount_source.canonicalize().unwrap_or(mount_source);
+        Self {
+            runtime,
+            image,
+            mount_source,
+            mount_target: PathBuf::from("/workspace"),
         }
+    }
+
+    fn container_working_dir(&self, working_dir: &Path) -> Result<PathBuf, ToolError> {
+        let relative = working_dir.strip_prefix(&self.mount_source).map_err(|_| {
+            ToolError::new(format!(
+                "working_dir '{}' is outside container root '{}'",
+                working_dir.display(),
+                self.mount_source.display()
+            ))
+        })?;
+        Ok(self.mount_target.join(relative))
+    }
+
+    fn build_runtime_args(
+        &self,
+        command: &str,
+        args: &[String],
+        working_dir: &Path,
+        limits: &ExecutionLimits,
+    ) -> Result<Vec<String>, ToolError> {
+        let container_working_dir = self.container_working_dir(working_dir)?;
+        let mut runtime_args = Vec::new();
+        runtime_args.push("run".to_string());
+        runtime_args.push("--rm".to_string());
+        runtime_args.push("--network=none".to_string());
+        if let Some(max_memory_bytes) = limits.max_memory_bytes {
+            runtime_args.push("--memory".to_string());
+            runtime_args.push(max_memory_bytes.to_string());
+        }
+        runtime_args.push("-v".to_string());
+        runtime_args.push(format!(
+            "{}:{}",
+            self.mount_source.display(),
+            self.mount_target.display()
+        ));
+        runtime_args.push("-w".to_string());
+        runtime_args.push(container_working_dir.display().to_string());
+        runtime_args.push(self.image.clone());
+        runtime_args.push(command.to_string());
+        runtime_args.extend(args.iter().cloned());
+        Ok(runtime_args)
+    }
+}
+
+#[async_trait]
+impl ShellRunner for ContainerRunner {
+    async fn run(
+        &self,
+        command: &str,
+        args: &[String],
+        working_dir: &Path,
+        limits: &ExecutionLimits,
+    ) -> Result<ShellOutput, ToolError> {
+        let runtime_args = self.build_runtime_args(command, args, working_dir, limits)?;
+        let mut cmd = tokio::process::Command::new(&self.runtime);
+        cmd.args(runtime_args);
+        run_command(cmd, limits).await
     }
 }
 

@@ -83,6 +83,7 @@ allowed_commands = ["git", "rg"]
 # runner = "host"          # host | container
 # container_runtime = "docker"
 # container_image = "alpine:latest"
+# container_memory_mb = 512
 
 # Optional shell governance policy
 # Default risk applies to commands that are allowlisted but not matched by patterns or safe_commands.
