@@ -281,6 +281,7 @@ The previous implementation is preserved in `reference/` for guidance:
     - [ ] Explore what's a good and secure way to have the same user identified and work across different channels so the user can easily work with picobot, e.g. continuing conversations or accessing their files/history etc across channels
     - [ ] Do we need user auth mechanism? It might be useful for above as well.
     - [ ] Can we start a new session in the same channel, e.g. whatsapp, which basically clears up the context?
+    - [ ] A simple DB-like or cache-like tool (separate from memory tool?) that can be used by picobot to save things for some time, e.g. outputs of tasks that it may need in future. E.g. I gave it a task to notify me if its going to rain after a streak of 3 sunny days. Currently it checks for past 3 days of weather every time. It should've been able to save the info about previous weather checks somewhere for 3 days so it doesnt need to check for it every time.
 
 10. **Async Execution**
     - [ ] Currently every message is processed in sequence, which is generally ok but may be a problem if there are long running tasks. Need to think about how to do this.
